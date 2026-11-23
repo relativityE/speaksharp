@@ -359,6 +359,38 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
     ]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
   });
 
+  it('selects the exact ledger-14 #1827 repeat-tip successor with an EMPTY catalog delta; refuses skipped or reordered ledgers', () => {
+    const thirteen = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700'];
+    const fourteen = [...thirteen, '20261119120000'];
+    const privacy = t2ReleaseContract(process.cwd(), thirteen), tip = t2ReleaseContract(process.cwd(), fourteen);
+    expect([tip.profile, tip.stage]).toEqual(['post-1827-repeat-tip', 8]);
+    expect(tip.pins.map(pin => pin.version)).toEqual(fourteen);
+    // Nothing the release check attests changes: same inventory, same expected catalog, same known-absent set.
+    expect(tip.inventory).toEqual(privacy.inventory);
+    expect(tip.expected).toEqual(privacy.expected);
+    expect(tip.knownAbsent).toEqual(privacy.knownAbsent);
+    expect(t2EdgeReleaseContract(process.cwd(), fourteen).profile).toBe('post-1827-repeat-tip');
+    const fifteen = [...fourteen, '20261119200000'];
+    const cleanup = t2ReleaseContract(process.cwd(), fifteen);
+    expect([cleanup.profile, cleanup.stage]).toEqual(['post-1906-save-journal-cleanup', 9]);
+    expect(cleanup.inventory).toEqual(tip.inventory);
+    expect(cleanup.expected).toEqual(tip.expected);
+    expect(cleanup.pins.at(-1)).toEqual({
+      version: '20261119200000', sha256: '48088287571cca34007a42018a67df6ccd702bddcda1579ec85f208daaef834c',
+    });
+    expect(t2EdgeReleaseContract(process.cwd(), fifteen).profile).toBe('post-1906-save-journal-cleanup');
+    expect(() => t2ReleaseContract(process.cwd(), [...thirteen, '20261119200000'])).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), [...fourteen, '20261119200001'])).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), [...fourteen, '20261119200000', '20261119200001'])).toThrow(/ledger/);
+
+    for (const bad of [
+      [...thirteen.slice(0, -1), '20261119120000'],                       // repeat tip without #1835
+      [...thirteen.slice(0, -2), '20261117105700', '20261114170000', '20261119120000'], // reordered predecessors
+      [...thirteen, '20261112130000', '20261119120000'],                  // the withheld refund applied
+      [...fourteen, '20261119120001'],                                    // an unknown fifteenth entry
+    ]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
+  });
+
   it('ledger-12/13 carry only native digests; a pending value or any changed delta object is refused', () => {
     const thirteen = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700'];
     const deltaKeys = [...Object.keys(PAYMENT_WALL_T2_CATALOG_DELTA), ...Object.keys(PRACTICE_PRIVACY_T2_CATALOG_DELTA)];

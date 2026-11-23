@@ -165,9 +165,11 @@ describe('AHT-01 wiring', () => {
         expect([counts > -1, isolation > counts, close > isolation, close < spec.indexOf('const cleanup = new OwnedCleanup(')]).toEqual([true, true, true, true]);
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
-        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES)');
-        expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
-        expect(spec).toContain('const AHT01_DESIGNED_TAKES = 4;');
+        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES, AHT01_DESIGNED_SAVES)');
+        expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 5, perControl: { 'mic-start': 4, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
+        expect(spec).toContain('const AHT01_DESIGNED_TAKES = 5;');
+        // J1.c (Sam, 21 Nov): take 5 is the short-Stop probe; takes 3 and 4 save but are not captured by id.
+        expect(spec).toContain("const AHT01_DESIGNED_SAVES: readonly TakeSaveExpectation[] = Object.freeze(['saved', 'saved', 'uncaptured', 'uncaptured', 'probe'] as const);");
     });
 });
 
@@ -188,11 +190,12 @@ describe('same-target-numeric (the harness\'s own check)', () => {
         numericComparisonRow(leak, { result: 'FAIL', facts: { reason: 'Customer Alice 12.5 wpm', text: 'Pace: 140 → 120 wpm', count: 2, ok: true } });
         expect(leak.rows[0].evidence).toEqual({ reason: 'unknown', ok: true });
     });
-    it('the Open Mic journey runs the harness module itself, after the repeat-result step, bound to its saved takes', () => {
+    it('the Open Mic journey runs the G03 active check (parity-pinned to the harness module), after the repeat-result step, bound to its saved takes', () => {
         const spec = readFileSync(resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
         const step = spec.indexOf("await test.step('saved and displayed comparison numbers match'");
         expect(step).toBeGreaterThan(spec.indexOf("await test.step('the repeat result names the measured metric'"));
-        expect(spec).toContain("'../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs'");
+        expect(spec).toContain("import { observeActive } from './helpers/rwtNumericActive';");
+        expect(spec).toContain("expectedAttemptId: boundAttemptId, product: 'open_mic',");
         // run 42938644148: the live specs are ES modules, so __filename/__dirname throw (the numeric row was HOLD 'not-observed')
         expect(spec).toContain('createRequire(import.meta.url)');
         expect(spec).not.toMatch(/\b__filename\b|\b__dirname\b/);
@@ -202,17 +205,20 @@ describe('same-target-numeric (the harness\'s own check)', () => {
 });
 
 describe('AHT-01 design budgets (review: from the journey design, not a run count)', () => {
-    const BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
+    // Takes 1–4 are J1.a's; the fifth `mic-start` is J1.c's short Stop (Sam, 21 Nov).
+    const BUDGET = { total: 5, perControl: { 'mic-start': 4, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
     const tapWith = async (presses: string[]) => { const f = fakeContext(); const tap = new HarnessParityTap(); await tap.attach(f.ctx as never); presses.forEach((p) => f.press(p)); return tap; };
-    it('run 42857325669\'s actual presses (cold first take) and a warm first take both PASS the designed budget', async () => {
-        for (const presses of [['mic-download', 'mic-start', 'verdict-practice-again', 'mic-start'], ['mic-start', 'mic-start', 'verdict-practice-again', 'mic-start']]) {
+    it('run 42857325669\'s actual presses (cold first take) and a warm first take, each with J1.c\'s short Stop, and a run without it all PASS the designed budget', async () => {
+        for (const presses of [['mic-download', 'mic-start', 'verdict-practice-again', 'mic-start', 'mic-start'], ['mic-start', 'mic-start', 'verdict-practice-again', 'mic-start', 'mic-start'],
+            ['mic-download', 'mic-start', 'verdict-practice-again', 'mic-start']]) {
             const r = sink();
             (await tapWith(presses)).startPressRow(r, BUDGET);
             expect({ presses, v: r.rows[0].verdict }).toEqual({ presses, v: 'PASS' });
         }
     });
-    it('CASUALTY: a fifth press, a second Practice again, a second download or any Retry FAILs', async () => {
-        for (const presses of [['mic-download', 'mic-start', 'verdict-practice-again', 'mic-start', 'mic-start'], ['mic-start', 'verdict-practice-again', 'verdict-practice-again', 'mic-start'],
+    it('CASUALTY: a sixth press, a fifth mic-start, a second Practice again, a second download or any Retry FAILs', async () => {
+        for (const presses of [['mic-download', 'mic-start', 'verdict-practice-again', 'mic-start', 'mic-start', 'mic-start'],
+            ['mic-start', 'mic-start', 'mic-start', 'mic-start', 'mic-start'], ['mic-start', 'verdict-practice-again', 'verdict-practice-again', 'mic-start'],
             ['mic-download', 'mic-download', 'verdict-practice-again', 'mic-start'], ['mic-download', 'mic-retry', 'verdict-practice-again', 'mic-start']]) {
             const r = sink();
             (await tapWith(presses)).startPressRow(r, BUDGET);
@@ -295,6 +301,45 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
         expect(await check(good, { ...base, stray: ['stray'] } as never)).toBe('FAIL');
         expect(await check(good, base, ['saved', 'probe'])).toBe('HOLD');
         expect(await check([{ id: 'b', lease_id: leases[0] }, { id: 'a', lease_id: leases[1] }])).toBe('FAIL');
+    });
+    it('J1.c (AHT-01, five takes): uncaptured save takes are proven by lease and recorder; the short-Stop probe must save nothing', async () => {
+        const design = ['saved', 'saved', 'uncaptured', 'uncaptured', 'probe'] as const;
+        const leases = ['L0', 'L1', 'L2', 'L3', 'L4'];
+        const good = [{ id: 's0', lease_id: 'L0' }, { id: 's1', lease_id: 'L1' }, { id: 's2', lease_id: 'L2' }, { id: 's3', lease_id: 'L3' }];
+        const base = { takes: [...good.map((r) => ({ control: 'mic-start', ids: [r.id] })), { control: 'mic-start', ids: [] as string[] }], stray: [] as string[] };
+        const judge = async (o: { rows?: typeof good; bindings?: typeof base; captured?: Array<string | null>; leaseIds?: string[]; designed?: number;
+            expected?: readonly string[] } = {}) => {
+            const r = sink();
+            const rows = o.rows ?? good;
+            const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error: null }) }) }) }) };
+            await probeSaveIsolationRow(r, admin as never, 'u', o.captured ?? ['s0', 's1'], (o.bindings ?? base) as never, o.leaseIds ?? leases, o.designed ?? 5,
+                (o.expected ?? design) as never);
+            return r.rows[0];
+        };
+        const check = async (o: Parameters<typeof judge>[0] = {}) => (await judge(o)).verdict;
+        expect(await check()).toBe('PASS');
+        // the probe saved: by the server, or seen by the recorder
+        expect(await check({ rows: [...good, { id: 'p', lease_id: 'L4' }] })).toBe('FAIL');
+        expect(await check({ bindings: { ...base, takes: base.takes.map((t, k) => (k === 4 ? { ...t, ids: ['p'] } : t)) } })).toBe('FAIL');
+        // an uncaptured take saved nothing, twice, or not the session of its own lease
+        const lostUncaptured = await judge({ rows: good.filter((r) => r.lease_id !== 'L3') });
+        expect(lostUncaptured.verdict).toBe('FAIL');
+        expect(lostUncaptured.detail).toBe('a take\'s recording saved no completed session');
+        expect(await check({ rows: [...good, { id: 's3b', lease_id: 'L3' }] })).toBe('FAIL');
+        expect(await check({ bindings: { ...base, takes: base.takes.map((t, k) => (k === 2 ? { ...t, ids: ['s3'] } : k === 3 ? { ...t, ids: ['s2'] } : t)) } })).toBe('FAIL');
+        // an uncaptured take with no recorder binding cannot be judged
+        expect(await check({ bindings: { ...base, takes: base.takes.map((t, k) => (k === 3 ? { ...t, ids: [] } : t)) } })).toBe('HOLD');
+        // captured takes still bind in press order; a dropped or unknown capture never passes
+        expect(await check({ captured: ['s1', 's0'] })).toBe('FAIL');
+        expect(await check({ captured: ['s0'] })).toBe('HOLD');
+        expect(await check({ captured: ['s0', null] })).toBe('HOLD');
+        expect(await check({ captured: ['s0', 's1', 's2'] })).toBe('HOLD');
+        // J1.c never ran: four takes against a design of five
+        expect(await check({ leaseIds: leases.slice(0, 4), bindings: { ...base, takes: base.takes.slice(0, 4) } })).toBe('HOLD');
+        // a sixth take, or a design that is not the five-take one
+        expect(await check({ leaseIds: [...leases, 'L5'], bindings: { ...base, takes: [...base.takes, { control: 'mic-start', ids: [] }] } })).toBe('FAIL');
+        expect(await check({ expected: ['saved', 'saved', 'uncaptured', 'probe'] })).toBe('HOLD');
+        expect(await check({ expected: ['saved', 'saved', 'uncaptured', 'uncaptured', 'skipped'] })).toBe('HOLD');
     });
     it('the tap reads each Start\'s lease id from its acquire_recording_lease request body, once each, in order', async () => {
         const f = fakeContext();

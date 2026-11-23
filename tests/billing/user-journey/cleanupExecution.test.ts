@@ -19,6 +19,9 @@ test('cleanup failure codes: each helper failure is named, content-free, and fit
     [new Error('cleanup deleteUser failed (fail closed): Database error deleting user'), 'account_cleanup_deleteuser_failed'],
     [new Error('post-delete verify returned a non-not-found error — deletion UNPROVEN (fail closed): x'), 'account_cleanup_delete_unproven'],
     [new Error('cleanup trial_entitlements pre-delete failed (fail closed): x'), 'account_cleanup_predelete_failed'],
+    [new Error('cleanup account_save_obligations delete failed (fail closed): 55000'), 'account_cleanup_save_journal_failed'],
+    [new Error('cleanup account_save_obligations claim failed (fail closed): 42501'), 'account_cleanup_save_journal_claim_failed'],
+    [new Error('cleanup residue query on account_save_obligations failed (fail closed): 42501'), 'account_cleanup_residue_unread_account_save_obligations'],
     [new Error('cleanup take settlement read failed (fail closed)'), 'account_cleanup_take_settlement_failed'],
     [new Error('cleanup_uid_email_disagreement (fail closed)'), 'account_cleanup_identity_refused'],
     [new Error('something new'), 'account_cleanup_other'],
@@ -48,7 +51,8 @@ test('cleanup failure codes: each helper failure is named, content-free, and fit
 // Run 44302168905 follow-up: the ACTUAL cleanup paths executed against a stand-in admin client and a stand-in Stripe, failing at
 // each stage; every real error is classified, and the cleanup gate still refuses (nothing here passes a failed cleanup).
 const UID = '11111111-1111-4111-8111-111111111111', EMAIL = 'rwt-journey-billing-1-1@example.com';
-type Fail = 'none' | 'settle_read' | 'predelete' | 'delete' | 'readback' | 'readback_present' | 'residue_read' | 'residue_found';
+type Fail = 'none' | 'settle_read' | 'predelete' | 'delete' | 'readback' | 'readback_present' | 'residue_read' | 'residue_found'
+  | 'journal_claim' | 'journal_delete' | 'journal_left' | 'journal_read';
 function fakeAdmin(fail: Fail) {
   let deleted = false;
   const result = (r: object) => ({ then: (ok: (v: object) => unknown) => Promise.resolve(r).then(ok) });
@@ -69,7 +73,21 @@ function fakeAdmin(fail: Fail) {
     });
     return chain;
   };
-  return { from: query, auth: { admin: {
+  // #1643 follow-up: the save-journal cleanup functions. The claim (this unbound account: no binding) is made while the account
+  // exists, before anything is written; the delete then needs its secret, and runs only after the deletion is proven.
+  let secret: unknown = null;
+  const rpc = async (fn: string, args: Record<string, unknown> = {}) => {
+    if (fn === 'claim_account_save_journal_cleanup_v1') {
+      if (deleted || args.p_run_binding !== null) return { data: null, error: { code: '42501', message: 'account is not owned by this run' } };
+      if (fail === 'journal_claim') return { data: null, error: { code: '42883', message: 'function does not exist' } };
+      secret = args.p_token; return { data: null, error: null };
+    }
+    if (!deleted) return { data: null, error: { code: '55000', message: 'account still exists' } };
+    if (fn === 'delete_deleted_account_save_journal_v1' && (!secret || args.p_token !== secret)) return { data: null, error: { code: '42501', message: 'not claimed' } };
+    if (fn === 'delete_deleted_account_save_journal_v1') return fail === 'journal_delete' ? { data: null, error: { code: '55000', message: 'x' } } : { data: fail === 'journal_left' ? 1 : 0, error: null };
+    return fail === 'journal_read' ? { data: null, error: { code: '42501', message: 'x' } } : { data: 0, error: null };
+  };
+  return { from: query, rpc, auth: { admin: {
     getUserById: async () => deleted && fail !== 'readback_present'
       ? (fail === 'readback' ? { data: null, error: { status: 500, message: 'boom' } } : { data: null, error: { status: 404, code: 'user_not_found', message: 'User not found' } })
       : { data: { user: { id: UID, email: EMAIL, app_metadata: {} } }, error: null },
@@ -88,6 +106,8 @@ test('account cleanup, executed: each stage that fails is named; a clean run ver
     predelete: 'account_cleanup_predelete_failed', delete: 'account_cleanup_deleteuser_failed',
     readback: 'account_cleanup_delete_unproven', readback_present: 'account_cleanup_delete_unproven', residue_read: 'account_cleanup_residue_unread_objective_session',
     residue_found: 'account_cleanup_residue_session_attribution_authority',
+    journal_claim: 'account_cleanup_save_journal_claim_failed', journal_delete: 'account_cleanup_save_journal_failed', journal_left: 'account_cleanup_residue_account_save_obligations',
+    journal_read: 'account_cleanup_residue_unread_account_save_obligations',
   };
   for (const fail of Object.keys(expected) as Array<Exclude<Fail, 'none' | 'settle_read'>>) assert.equal(await run(fail), expected[fail], fail);
   // The helper's existing rule for an account NOT bound to a run (this journey's): an unreadable take-settlement read is tolerated

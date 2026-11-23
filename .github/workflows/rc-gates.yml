@@ -55,6 +55,10 @@ on:
         description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write. The SAME input also carries the distinct value RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<the exact 40-hex commit this run executes>, accepted ONLY by tests/live/interrupted-run-recovery.live.spec.ts dispatched from the protected default branch (main): a SEPARATE Production-delete authorization that deletes run-owned accounts older than the gate-3 timeout + margin through the fail-closed cleanup (residue 0); a recovery value bound to any other commit fails before credentials; any other value = detect and HOLD only. The journeys refuse that value, so one dispatch never authorizes both."
         required: false
         default: ''
+      rwt_j1d_leg:
+        description: "RWT ONLY — the exact value J1D-ON-J1A, accepted only with diagnostic_dast_spec tests/live/rwt-open-mic-first-session.live.spec.ts: also runs J1.d (sign out, deep link, sign back in, history preserved) in J1.a's worker on the account J1.a creates in THIS run, with its own J1D receipt. J1.d never signs up. Empty = J1.d stays NOT RUN; any other value fails before the spec."
+        required: false
+        default: ''
       rwt_canary_claim_ack:
         description: "RWT ONLY — the exact acknowledgement RWT-CANARY-CLAIM-RUN-OWNED, a SEPARATE authorization: sets the server-issued app_metadata.canary claim on each suite's own disposable account so its post-claim journey telemetry is canary traffic. Empty = no claim; journey readback rows HOLD."
         required: false
@@ -406,8 +410,40 @@ jobs:
           # #1897 Codex P2: the run's Practice consent mode, read only through consentModeFrom (exact keys; anything else = unset).
           RWT_PRACTICE_CONSENT: ${{ github.event.inputs.rwt_practice_consent }}
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
+          RWT_J1D_LEG: ${{ github.event.inputs.rwt_j1d_leg }}
         run: |
           echo "DIAGNOSTIC_SINGLE_SPEC=true"
+          # >>> J1D admission
+          # J1.d (Sam 1a, 16 Nov) runs only under a named-runner admission bound to THIS run and attempt, on the account J1.a
+          # creates here (rwtJ1dJourney.ts j1dRunnerAdmission). This writes that record when asked, and nothing otherwise.
+          if [ -n "${RWT_J1D_LEG:-}" ]; then
+            if [ "$RWT_J1D_LEG" != 'J1D-ON-J1A' ] || [ "$DIAGNOSTIC_DAST_SPEC" != 'tests/live/rwt-open-mic-first-session.live.spec.ts' ]; then
+              echo '::error::rwt_j1d_leg is accepted only as J1D-ON-J1A with tests/live/rwt-open-mic-first-session.live.spec.ts; nothing ran.'
+              exit 1
+            fi
+            # Only a domain interrupted-run recovery may delete under (rwtInterruptedRunRecovery.ts deletionDomain): set
+            # explicitly, valid, and never the legacy example.com fallback. Otherwise J1.d fails here, before any admission is
+            # written or J1.a starts, so an opt-in J1.d account is always recoverable. Ordinary J1.a runs are unchanged.
+            # Normalised exactly as deletionDomain does (trim, then lower-case), in Node so no pipe can mask a failure.
+            j1d_domain="$(node -e 'process.stdout.write(String(process.env.LIVE_TEST_EMAIL_DOMAIN ?? "").trim().toLowerCase())')"
+            if [ -z "$j1d_domain" ] || [ "$j1d_domain" = 'example.com' ] || [ "${#j1d_domain}" -gt 253 ] \
+              || ! [[ "$j1d_domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
+              echo '::error::J1.d needs a recovery-eligible LIVE_TEST_EMAIL_DOMAIN (set, valid, not example.com); nothing ran.'
+              exit 1
+            fi
+            # J1.a's account takes exactly the run-owned shape interrupted-run recovery recognises, rwt-journey-<label>-<ms>-<run>
+            # (rwtInterruptedRunRecovery.ts OWNED_LOCAL_PARTS), so an interrupted J1.a+J1.d run can never leave an unrecoverable
+            # account. The millisecond stamp keeps every attempt's account distinct.
+            j1d_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
+            [[ "$j1d_ms" =~ ^[0-9]{13}$ ]] || { echo '::error::J1.d admission could not stamp the account; nothing ran.'; exit 1; }
+            RWT_J1D_RUNNER_ADMISSION="$RUNNER_TEMP/rwt-j1d-admission-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+            jq -n --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+              --arg ref "rwt-journey-open-mic-$j1d_ms-$GITHUB_RUN_ID@$j1d_domain" \
+              '{suite: "returning-signout-j1d", runId: $run, runAttempt: $attempt, reusesLeg: "J1.a", lookupRef: $ref}' > "$RWT_J1D_RUNNER_ADMISSION"
+            export RWT_J1D_RUNNER_ADMISSION
+            echo "J1.d admitted on J1.a's run-owned account for run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT."
+          fi
+          # <<< J1D admission
           echo "::warning::DIAGNOSTIC single-spec run — NOT a full Gate 3 pass. Release gate stays FAIL until a full Gate 3 run (no diagnostic input) passes."
           echo "spec=$DIAGNOSTIC_DAST_SPEC grep=${DIAGNOSTIC_DAST_GREP:-<none>}"
           node scripts/rc-dast-live-preflight.mjs

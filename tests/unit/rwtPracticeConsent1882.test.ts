@@ -4,12 +4,16 @@
  * consent choice this run made. Saving ON: the transcript is saved. Saving OFF: metrics only, no transcript. An unknown build,
  * a choice that was not recorded as made, or a row that is not this take's is never a PASS.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Page } from '@playwright/test';
 import {
-    aiControlsVerdict, answerPracticePrivacyPrompt, CONSENT_MODES, consentModeFrom, consentReadbackVerdict, PRACTICE_PRIVACY_PROMPT, PRIVACY_MIGRATION_1835,
-    privacyBuildOf, privacyChoiceVerdict, probePrivacyTable, readPracticeChoice, settlePracticeConsent, type ChoiceClient, type SavedSessionRead,
+    aiControlsVerdict, answerPracticePrivacyPrompt, CONSENT_MODES, consentModeFrom, consentReadbackVerdict, fixedConsentBeforeStartVerdict,
+    OPEN_MIC_FIRST_SESSION_CONSENT_MODE, PRACTICE_PRIVACY_PROMPT, PRIVACY_MIGRATION_1835, privacyBuildOf, privacyChoiceVerdict, probePrivacyTable,
+    captureConsentGate, readPracticeChoice, SAVE_RETRY_CONSENT_MODE, settleFixedConsentOnPractice, settlePracticeConsent, type ChoiceClient, type ChoiceRead,
+    type SavedSessionRead,
 } from '../live/helpers/rwtPracticeConsent';
+import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
 
 const OWNER = 'owner-1';
 const ROW: SavedSessionRead = { id: 's1', user_id: OWNER, status: 'completed', duration: 10, transcript: 'one two three', transcript_state: 'available' };
@@ -243,5 +247,240 @@ describe('#1882 consent — settled on the Practice page before any take', () =>
         expect(await settlePracticeConsent({ page, client: clientOf('absent'), ownerId: OWNER, migrationFiles: ['a.sql'], mode: null }))
             .toEqual({ build: 'predates_1835', choice: null, mode: null });
         expect(clicks).toEqual([]);
+    });
+});
+
+describe('J1.a (#1835): the Open Mic first session opts its own account in to saving and coaching before Start', () => {
+    const spec = readFileSync('tests/live/rwt-open-mic-first-session.live.spec.ts', 'utf8');
+    const ON: ChoiceRead = { state: 'read', row: { user_id: OWNER, transcript_save: true, ai_coaching: true, consent_version: 1 } };
+    const j1 = (over: Partial<Parameters<typeof fixedConsentBeforeStartVerdict>[0]>) => fixedConsentBeforeStartVerdict({
+        build: 'includes_1835', mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, expected: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, readback: ON, ownerId: OWNER, ...over,
+    });
+
+    it('the fixed choice is Save: Yes, Coaching: Yes (J1 reviews the saved transcript and its coaching)', () => {
+        expect(CONSENT_MODES[OPEN_MIC_FIRST_SESSION_CONSENT_MODE]).toEqual({ transcriptSave: true, aiCoaching: true });
+    });
+
+    it('PASS only for exactly that choice, read back for this owner on a #1835 build', () => {
+        expect(j1({})).toMatchObject({ status: 'PASS', reason: 'choice_recorded' });
+        expect(j1({}).detail).toContain('Save: Yes, Coaching: Yes');
+    });
+
+    it('NEGATIVE: every other state is a FAIL or HOLD, never a PASS', () => {
+        // Coaching off is J4.a's choice, not J1's: J1 would then lose its coaching rows, so it FAILs here, before Start.
+        const coachingOff: ChoiceRead = { state: 'read', row: { user_id: OWNER, transcript_save: true, ai_coaching: false, consent_version: 1 } };
+        expect(j1({ readback: coachingOff })).toMatchObject({ status: 'FAIL', reason: 'readback_differs' });
+        expect(j1({ mode: SAVE_RETRY_CONSENT_MODE })).toMatchObject({ status: 'FAIL', reason: 'wrong_mode' });
+        expect(j1({ mode: null })).toMatchObject({ status: 'FAIL', reason: 'wrong_mode' });
+        expect(j1({ build: 'predates_1835' })).toMatchObject({ status: 'FAIL', reason: 'legacy_build' });
+        expect(j1({ build: 'unknown' })).toMatchObject({ status: 'HOLD', reason: 'build_unknown' });
+        expect(j1({ readback: null })).toMatchObject({ status: 'HOLD', reason: 'readback_missing' });
+        expect(j1({ ownerId: null })).toMatchObject({ status: 'HOLD', reason: 'readback_missing' });
+        expect(j1({ readback: { state: 'unreadable' } })).toMatchObject({ status: 'HOLD', reason: 'readback_unreadable' });
+        expect(j1({ readback: { state: 'absent' } })).toMatchObject({ status: 'FAIL', reason: 'readback_missing' });
+        expect(j1({ readback: { state: 'read', row: null } })).toMatchObject({ status: 'FAIL', reason: 'readback_missing' });
+        expect(j1({ readback: { state: 'read', row: { ...(ON.state === 'read' ? ON.row as object : {}), user_id: 'someone-else' } } }))
+            .toMatchObject({ status: 'FAIL', reason: 'readback_wrong_owner' });
+        expect(j1({ readback: { state: 'read', row: { ...(ON.state === 'read' ? ON.row as object : {}), consent_version: 2 } } }))
+            .toMatchObject({ status: 'FAIL', reason: 'readback_malformed' });
+    });
+
+    it('the prompt is answered Save: Yes, then Coaching: Yes, then Continue, and the owner\'s row records it', async () => {
+        const table = { rows: [] as Array<Record<string, unknown>> };
+        const { page, clicks } = modelPrompt({ onContinue: () => table.rows.push({ user_id: OWNER, transcript_save: true, ai_coaching: true, consent_version: 1 }) });
+        const settled = await settlePracticeConsent({ page, client: clientOf(table), ownerId: OWNER, migrationFiles: ['a.sql', PRIVACY_MIGRATION_1835],
+            mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE });
+        expect(settled).toEqual({ build: 'includes_1835', choice: { transcriptSave: true, aiCoaching: true }, mode: 'save_on_coaching_on' });
+        expect(clicks).toEqual(['privacy-save-yes', 'privacy-ai-yes', 'privacy-continue']);
+        expect(j1({ readback: await readPracticeChoice(clientOf(table), OWNER) }).status).toBe('PASS');
+    });
+
+    it('the spec answers the prompt on Practice first, before the candidate switch and Open Mic', () => {
+        const settle = spec.indexOf('const consent = await settleFixedConsentOnPractice({');
+        expect(settle).toBeGreaterThan(spec.indexOf("await page.goto('/practice');"));
+        expect(settle).toBeGreaterThan(spec.indexOf("await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });"));
+        expect(settle).toBeLessThan(spec.indexOf('const switched = await performCandidateSwitch('));
+        expect(settle).toBeLessThan(spec.indexOf("await openProductsItem(page, 'open-mic');"));
+        expect(spec.indexOf('consentGate = captureConsentGate({')).toBeGreaterThan(settle);
+        // The rows come only from the helpers (never a hard-coded PASS), and the spec has no other consent path.
+        expect(spec).toContain("receipt.row('practice privacy choice', status, detail, evidence);");
+        expect(spec).not.toContain("receipt.row('practice privacy choice', 'PASS'");
+        expect(spec).not.toMatch(/settlePracticeConsent\(|readPracticeChoice\(|fixedConsentBeforeStartVerdict\(/);
+    });
+
+    it('Sam (Nov 20; #1916 hold): the final readback runs INSIDE each first-take capture-capable press, at its click, cold and warm', () => {
+        // Cold first use: the model helper itself presses Download to start speaking, so it gets the readback as its click hook.
+        expect(spec).toMatch(/\n\s*const setup = await preparePrivateModelIfPrompted\(page, 900_000, \{ beforeClick: \(\) => captureGate\(\)\.confirm\(\) \}\);\n\s*takeAlreadyRunning = setup\.recordingAlreadyStarted;\n\s*if \(takeAlreadyRunning\) captureGate\(\)\.recordPass\(\);/);
+        // Warm (or a cold helper that did not record): the ordinary Start reads it back at its own click.
+        expect(spec).toMatch(/if \(!takeAlreadyRunning\) \{\n(\s*\/\/[^\n]*\n)*\s*await startBenchmarkRecording\(page, SUITE, undefined, \{ beforeClick: \(\) => captureGate\(\)\.confirm\(\) \}\);\n\s*captureGate\(\)\.recordPass\(\);\n\s*\}/);
+        // No first-take capture call runs without the hook, and no readback runs as a statement before a press (where the
+        // helper's own waits, scroll and reflex pause would sit between it and the click).
+        expect(spec.split('await preparePrivateModelIfPrompted(').length - 1).toBe(1);
+        expect(spec.split('await startBenchmarkRecording(').length - 1).toBe(1);
+        expect(spec).not.toMatch(/await captureGate\(\)\.confirm\(\)/);
+        expect(spec).not.toContain('if (!takeAlreadyRunning) await startBenchmarkRecording(');
+    });
+
+    it('Sam (Nov 21): J1\'s later presses (the Practice-again save take, its repeat and the next Start) read back inside each press', () => {
+        // The shared helpers pass the hook as each press's own click hook (behaviour: rwtJ3ConsentGate.test.ts); J1 hands it to both.
+        // J1 option B (Sam, 21 Nov): the same consent readback, now with takes 3 and 4 held past the 5 s save minimum.
+        expect(spec).toMatch(/practiceAgainEvidence\(page, `\$\{SUITE\}-again`, persistedId, 'open_mic', \[\], [^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*\{ saveTakeMs, beforeCapture: \(\) => captureGate\(\)\.confirm\(\), holdRepeatPastSaveMinimum: true,\n(?:\s*\/\/[^\n]*\n)*\s*duringRepeatHold: /);
+        expect(spec).toContain('const next = await nextStartEvidence(page, `${SUITE}-next`, () => captureGate().confirm(), { holdPastSaveMinimum: true });');
+        // Each helper is called exactly once, and never without the hook.
+        expect(spec.split('await practiceAgainEvidence(').length - 1).toBe(1);
+        expect(spec.split('await nextStartEvidence(').length - 1).toBe(1);
+        expect(spec).not.toMatch(/nextStartEvidence\(page, `\$\{SUITE\}-next`\)/);
+        expect(spec).not.toMatch(/\{ saveTakeMs \}\)/);
+    });
+
+    it('the choice is fixed, never taken from the dispatch environment', () => {
+        expect(spec).toContain('mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record:');
+        expect(spec).not.toMatch(/consentModeFrom|RWT_PRACTICE_CONSENT/);
+    });
+
+    it('the privacy row is REQUIRED for the Open Mic first session, so a receipt without it can never finalize PASS', () => {
+        expect(requiredAutomatedRows('open-mic-first-session')?.product).toContain('practice privacy choice');
+    });
+
+    // Caller-level controls (Sam, Nov 20): missing, unreadable, wrong-owner or changed consent cannot reach capture.
+    const listing = ['a.sql', PRIVACY_MIGRATION_1835];
+    const J1_ROW = { user_id: OWNER, transcript_save: true, ai_coaching: true, consent_version: 1 };
+    type Read = 'live' | 'broken' | Record<string, unknown> | null;
+    /** A client over a live table whose owner reads can be scripted per call, in order (unscripted reads are live). */
+    function scriptedClient(table: { rows: Array<Record<string, unknown>> }, reads: Read[]): ChoiceClient {
+        let n = 0;
+        return {
+            from: () => ({
+                select: () => ({
+                    eq: (_col: string, v: string) => ({
+                        maybeSingle: async () => {
+                            const r = reads[n++] ?? 'live';
+                            if (r === 'broken') return { data: null, error: { code: '57014' } };
+                            if (r === 'live') return { data: table.rows.find((x) => x.user_id === v) ?? null, error: null };
+                            return { data: r, error: null };
+                        },
+                    }),
+                    limit: async () => ({ data: [], error: null }),
+                }),
+            }),
+        };
+    }
+    type Row = { status: string; detail: string; evidence: Record<string, string> };
+    /**
+     * The journey's order, offline: settle on Practice, then (after navigation) confirm immediately before the capture-capable call,
+     * `capture` the take only if the confirm passed, and record the PASS. `between` runs after the prompt and before capture.
+     * Reads in order: the table probe is not a read; settle reads the owner twice (fresh, then recorded); each confirm reads once.
+     */
+    async function journey(opts: { onContinue?: (t: { rows: Array<Record<string, unknown>> }) => void; reads?: Read[]; files?: readonly string[] | null;
+        absentTable?: boolean; between?: (t: { rows: Array<Record<string, unknown>> }) => void; confirms?: number }) {
+        const table = { rows: [] as Array<Record<string, unknown>> };
+        const { page, clicks } = modelPrompt({ onContinue: () => (opts.onContinue ?? ((t) => t.rows.push({ ...J1_ROW })))(table) });
+        const rows: Row[] = [];
+        const record = (status: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence: Record<string, string>) => rows.push({ status, detail, evidence });
+        const client = opts.absentTable ? clientOf('absent') : scriptedClient(table, opts.reads ?? []);
+        let captured = false;
+        const outcome = await (async () => {
+            const consent = await settleFixedConsentOnPractice({ page, client, ownerId: OWNER, migrationFiles: opts.files === undefined ? listing : opts.files,
+                mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record });
+            const gate = captureConsentGate({ consent, client, ownerId: OWNER, mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record });
+            opts.between?.(table);
+            for (let i = 0; i < (opts.confirms ?? 1); i++) await gate.confirm();
+            captured = true;
+            gate.recordPass();
+            return 'captured';
+        })().catch((e: Error) => e.message);
+        return { outcome, captured, rows, clicks };
+    }
+
+    it('caller PASS: the prompt is answered, the readback right before capture passes, and the row is recorded PASS exactly once', async () => {
+        const r = await journey({});
+        expect(r.captured).toBe(true);
+        expect(r.clicks).toEqual(['privacy-save-yes', 'privacy-ai-yes', 'privacy-continue']);
+        expect(r.rows).toEqual([expect.objectContaining({ status: 'PASS', evidence: { reason: 'choice_recorded', build: 'includes_1835', mode: 'save_on_coaching_on' } })]);
+        expect(r.rows[0].detail).toContain('immediately before the first capture-capable call');
+        // Warm path: a confirm before the model helper and another before Start still record ONE row.
+        expect((await journey({ confirms: 2 })).rows).toHaveLength(1);
+    });
+
+    it('caller NEGATIVE: missing consent (the prompt never recorded a row) stops on Practice', async () => {
+        const r = await journey({ onContinue: () => undefined });
+        expect(r.captured).toBe(false);
+        expect(r.outcome).toBe('HOLD practice consent: choice_missing');
+        expect(r.rows).toEqual([expect.objectContaining({ status: 'HOLD', evidence: { reason: 'choice_missing', mode: 'save_on_coaching_on' } })]);
+    });
+
+    it('caller NEGATIVE: an unreadable readback immediately before capture cannot capture', async () => {
+        const r = await journey({ reads: ['live', 'live', 'broken'] });
+        expect(r.captured).toBe(false);
+        expect(r.outcome).toBe('HOLD practice consent: readback_unreadable');
+        expect(r.rows).toEqual([expect.objectContaining({ status: 'HOLD', evidence: expect.objectContaining({ reason: 'readback_unreadable' }) })]);
+    });
+
+    it('caller NEGATIVE: another owner\'s row, at the Practice settle or immediately before capture, cannot capture', async () => {
+        const foreign = { ...J1_ROW, user_id: 'someone-else' };
+        const atSettle = await journey({ reads: ['live', foreign] });
+        expect(atSettle.captured).toBe(false);
+        expect(atSettle.outcome).toBe('HOLD practice consent: choice_wrong_owner');
+        expect(atSettle.rows).toEqual([expect.objectContaining({ status: 'HOLD', evidence: expect.objectContaining({ reason: 'choice_wrong_owner' }) })]);
+        const atCapture = await journey({ reads: ['live', 'live', foreign] });
+        expect(atCapture.captured).toBe(false);
+        expect(atCapture.outcome).toBe('HOLD practice consent: readback_wrong_owner');
+        expect(atCapture.rows).toEqual([expect.objectContaining({ status: 'FAIL', evidence: expect.objectContaining({ reason: 'readback_wrong_owner' }) })]);
+    });
+
+    it('caller NEGATIVE (Sam, Nov 20): a VALID choice changed between the prompt and capture cannot capture', async () => {
+        const coachingTurnedOff = await journey({ between: (t) => { t.rows[0] = { ...J1_ROW, ai_coaching: false }; } });
+        expect(coachingTurnedOff.captured).toBe(false);
+        expect(coachingTurnedOff.outcome).toBe('HOLD practice consent: readback_differs');
+        expect(coachingTurnedOff.rows).toEqual([expect.objectContaining({ status: 'FAIL', evidence: expect.objectContaining({ reason: 'readback_differs' }) })]);
+        const savingTurnedOff = await journey({ between: (t) => { t.rows[0] = { ...J1_ROW, transcript_save: false, ai_coaching: false }; } });
+        expect(savingTurnedOff.captured).toBe(false);
+        expect(savingTurnedOff.rows[0]).toMatchObject({ status: 'FAIL', evidence: { reason: 'readback_differs' } });
+        const removed = await journey({ between: (t) => { t.rows.length = 0; } });
+        expect(removed.captured).toBe(false);
+        expect(removed.rows[0]).toMatchObject({ status: 'FAIL', evidence: { reason: 'readback_missing' } });
+        // The second confirm (warm path) re-reads: a change after the first confirm still stops the Start.
+        const table = { rows: [{ ...J1_ROW }] as Array<Record<string, unknown>> };
+        const rows: Row[] = [];
+        const gate = captureConsentGate({ consent: { build: 'includes_1835', choice: CONSENT_MODES.save_on_coaching_on, mode: 'save_on_coaching_on' },
+            client: scriptedClient(table, []), ownerId: OWNER, mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: (status, detail, evidence) => rows.push({ status, detail, evidence }) });
+        await gate.confirm();
+        table.rows[0] = { ...J1_ROW, ai_coaching: false };
+        await expect(gate.confirm()).rejects.toThrow('HOLD practice consent: readback_differs');
+        expect(() => gate.recordPass()).toThrow('HOLD practice consent: not_confirmed_before_capture');
+        expect(rows).toEqual([expect.objectContaining({ status: 'FAIL', evidence: expect.objectContaining({ reason: 'readback_differs' }) })]);
+    });
+
+    it('caller NEGATIVE: a capture with no fresh confirm before it is a HOLD, and a confirm is spent by one capture', () => {
+        const rows: Row[] = [];
+        const gate = captureConsentGate({ consent: { build: 'includes_1835', choice: CONSENT_MODES.save_on_coaching_on, mode: 'save_on_coaching_on' },
+            client: clientOf({ rows: [{ ...J1_ROW }] }), ownerId: OWNER, mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: (status, detail, evidence) => rows.push({ status, detail, evidence }) });
+        expect(() => gate.recordPass()).toThrow('HOLD practice consent: not_confirmed_before_capture');
+        expect(rows).toEqual([expect.objectContaining({ status: 'HOLD', evidence: expect.objectContaining({ reason: 'not_confirmed_before_capture' }) })]);
+    });
+
+    it('caller NEGATIVE: one confirm covers exactly one capture; a second capture needs its own readback', async () => {
+        const rows: Row[] = [];
+        const gate = captureConsentGate({ consent: { build: 'includes_1835', choice: CONSENT_MODES.save_on_coaching_on, mode: 'save_on_coaching_on' },
+            client: clientOf({ rows: [{ ...J1_ROW }] }), ownerId: OWNER, mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: (status, detail, evidence) => rows.push({ status, detail, evidence }) });
+        await gate.confirm();
+        gate.recordPass();
+        expect(() => gate.recordPass()).toThrow('HOLD practice consent: not_confirmed_before_capture');
+        await gate.confirm();
+        expect(() => gate.recordPass()).not.toThrow();
+        expect(rows).toEqual([expect.objectContaining({ status: 'PASS' })]);
+    });
+
+    it('caller NEGATIVE: a coaching-off choice, an unknown build or a pre-#1835 build cannot capture', async () => {
+        const off = await journey({ onContinue: (t) => t.rows.push({ ...J1_ROW, ai_coaching: false }) });
+        expect(off.captured).toBe(false);
+        expect(off.rows).toEqual([expect.objectContaining({ status: 'HOLD', evidence: expect.objectContaining({ reason: 'choice_differs' }) })]);
+        const unknown = await journey({ files: null });
+        expect(unknown.captured).toBe(false);
+        expect(unknown.rows).toEqual([expect.objectContaining({ status: 'HOLD', evidence: expect.objectContaining({ reason: 'build_unknown' }) })]);
+        const legacy = await journey({ files: ['a.sql'], absentTable: true });
+        expect(legacy.captured).toBe(false);
+        expect(legacy.outcome).toBe('HOLD practice consent: legacy_build');
+        expect(legacy.rows).toEqual([expect.objectContaining({ status: 'FAIL', evidence: expect.objectContaining({ reason: 'legacy_build' }) })]);
     });
 });

@@ -39,6 +39,44 @@ export function micDeniedVerdict(o: { deniedAtAcquisition: boolean; blockedCopyS
 }
 
 /**
+ * J7.a (PO and Sam, 2026-11-19): the agreed scope is the denial alone. The browser blocks the microphone, the page says so,
+ * capture never starts, and no take is saved for the test account. The app never tries to unblock the microphone and the
+ * test never grants it, so recovery after allowing the microphone on the same page is not exercised. It is recorded as
+ * UNTESTED in the receipt's meta, never as a row and never as a pass.
+ */
+export const NO_TAKE_SAVED_ROW = 'no take is saved after the blocked Start';
+export const SAME_PAGE_RECOVERY = 'UNTESTED';
+export const SAME_PAGE_RECOVERY_REASON =
+    'not exercised: J7.a covers the blocked microphone only; the test never allows the microphone on the denied page';
+/** The rows the J7.a scope removed: a mic-denied receipt that carries either one is not this test's receipt. */
+export const MIC_DENIED_RECOVERY_ROWS = Object.freeze(['after allowing the microphone a take saves', 'the recovered take reopens from Analytics']);
+
+/** One read of the account's session ids, bound to the account it was read for. Null when the read failed. */
+export interface AccountSessionRead { uid: string; ids: readonly string[] }
+
+/**
+ * J7.a: nothing is saved for THIS account after the blocked Start. `baseline` is the account's session ids before the
+ * first press; `reads` are re-reads after the blocked copy, at least two, the last after a settle wait. PASS only when the
+ * denial was exercised and every read is of this exact account and shows no session id beyond the baseline. A row
+ * created and left active counts as a saved take: the product wrote one. An unreadable read or a read of another account
+ * proves nothing (HOLD).
+ */
+export function noTakeSavedAfterDenialVerdict(o: {
+    deniedAtAcquisition: boolean; uid: string; baseline: readonly string[] | null; reads: readonly (AccountSessionRead | null)[];
+}): Verdict {
+    if (!o.deniedAtAcquisition) return { status: 'HOLD', detail: 'the page\'s microphone acquisition was never refused with NotAllowedError, so the case was not exercised' };
+    if (!o.uid || o.baseline === null) return { status: 'HOLD', detail: 'the account\'s sessions before the press were not read, so "no take saved" is not claimed' };
+    if (o.reads.length < 2 || o.reads.some((r) => r === null)) {
+        return { status: 'HOLD', detail: 'the account\'s sessions were not read twice after the blocked Start, so "no take saved" is not claimed' };
+    }
+    const reads = o.reads as readonly AccountSessionRead[];
+    if (reads.some((r) => r.uid !== o.uid)) return { status: 'HOLD', detail: 'a session read was not of the test account, so it proves nothing about it' };
+    const fresh = new Set(reads.flatMap((r) => r.ids.filter((id) => !o.baseline!.includes(id))));
+    if (fresh.size > 0) return { status: 'FAIL', detail: `the blocked Start left ${fresh.size} new session row(s) on the test account` };
+    return { status: 'PASS', detail: `no session row was saved for the test account after the blocked Start (${reads.length} reads)` };
+}
+
+/**
  * A failing model download: the fault reached the download, the page never claimed `ready`, it ended in a failed state
  * with Retry, and the engine stayed Private. Sam's ACCEPT of PM 731eb5c0: `statuses` is the COMPLETE published history
  * (initial state and every transition, `readModelStatusLog`); an incomplete or empty history proves nothing — HOLD.
@@ -127,19 +165,22 @@ export function readRuntimeStateLog(): { token: string | null; states: string[] 
 }
 
 /**
- * Sam, 2026-11-15 (#1868 on 887a76f6): THE TRANSFER ITSELF, from the network. The product's byte percent cannot prove bytes are
- * moving: its aggregator holds 100 % while a later model file is still downloading, and a retained 1–99 % does not prove the
- * transfer is still running. This tracker sees this attempt's model-asset requests through the context's own network events
- * (the same events AttemptFaultCounter counts; AHT-13 run 43739078107 observed the worker's model requests failing through
- * them): a request whose response has STARTED and has neither finished nor failed is a body in flight. A failure while the fault
- * is armed is the fault reaching the transfer. If these events were ever not delivered, `openInBody` stays 0 and the gate never
- * injects: the unobservable case is no injection, never a stranded save.
+ * J7.c option B (PO, 2026-11-22 "Yes to all 4"; Elon's options of 2026-11-21): THE FILES OF THIS ATTEMPT, from the network.
+ * Chromium's offline switch blocks new requests but lets a response that is already streaming finish (Elon's Chromium 143
+ * probe), so J7.c drops the network BETWEEN model files: after one file of this attempt has finished, at the start of the next.
+ * This tracker sees this attempt's model-asset requests through the context's own network events (the same events
+ * AttemptFaultCounter counts; AHT-13 run 43739078107 observed the worker's model requests failing through them): how many have
+ * finished, how each one ended, and how many failed while the fault was armed (the fault reaching the download). If these events
+ * were ever not delivered, `finished` stays 0 and nothing is held, so the browser never goes offline: the unobservable case is no
+ * injection, never a stranded save.
  */
+export type ModelRequestState = 'none' | 'pending' | 'finished' | 'failed';
 export class ModelTransferTracker<R = unknown> {
     private attemptOpen = false;
     private faultArmed = false;
     private readonly requested = new Set<R>();
-    private readonly inBody = new Set<R>();
+    private readonly ended = new Map<R, 'finished' | 'failed'>();
+    private finished = 0;
     private failedUnderFault = 0;
     /** The person's download press: the requests it starts from now on are this attempt's. */
     startAttempt(): void { this.attemptOpen = true; }
@@ -148,16 +189,61 @@ export class ModelTransferTracker<R = unknown> {
     /** The cause is removed: later requests and failures are not this attempt's fault window. */
     disarm(): void { this.faultArmed = false; this.attemptOpen = false; }
     onRequest(request: R, url: string): void { if (this.attemptOpen && MODEL_ASSET.test(url)) this.requested.add(request); }
-    onResponse(request: R): void { if (this.requested.has(request)) this.inBody.add(request); }
-    onFinished(request: R): void { this.inBody.delete(request); this.requested.delete(request); }
+    onFinished(request: R): void {
+        if (!this.requested.delete(request)) return;
+        this.ended.set(request, 'finished');
+        this.finished += 1;
+    }
     onFailed(request: R): void {
-        if (!this.requested.has(request)) return;
-        this.inBody.delete(request); this.requested.delete(request);
+        if (!this.requested.delete(request)) return;
+        this.ended.set(request, 'failed');
         if (this.faultArmed) this.failedUnderFault += 1;
     }
-    snapshot(): { openInBody: number; failedUnderFault: number } {
-        return { openInBody: this.inBody.size, failedUnderFault: this.failedUnderFault };
+    /** How one request of this attempt stands: `none` for a request this attempt never started (or none at all). */
+    stateOf(request: R | null): ModelRequestState {
+        if (request === null) return 'none';
+        if (this.requested.has(request)) return 'pending';
+        return this.ended.get(request) ?? 'none';
     }
+    snapshot(): { finished: number; failedUnderFault: number } {
+        return { finished: this.finished, failedUnderFault: this.failedUnderFault };
+    }
+}
+
+/**
+ * J7.c option B: THE NEXT FILE, HELD AT ITS START. Installed as the context's route for model assets, it lets every request
+ * through except one: the first model request of this attempt that starts after one of the attempt's files has finished. That
+ * request waits, unsent, until `release()` continues it, so the journey can take the browser offline first and the request then
+ * meets the dropped network as the next file of a real download would. Nothing is ever fulfilled or aborted here: a held request
+ * is only ever continued, and `releaseAll()` (finalization) continues it at the latest, so a download is never left stalled.
+ */
+export class BetweenFilesHold<R = unknown> {
+    private attemptOpen = false;
+    private taken = false;
+    private request: R | null = null;
+    private continueHeld: (() => Promise<boolean>) | null = null;
+    /** The person's download press: from now on the next file of this attempt may be held. */
+    startAttempt(): void { this.attemptOpen = true; }
+    /** The route's handler. `finished` is how many of this attempt's model files have finished so far. */
+    async onRoute(request: R, url: string, finished: number, proceed: () => Promise<void>): Promise<void> {
+        if (!this.attemptOpen || this.taken || !MODEL_ASSET.test(url) || finished < 1) return proceed();
+        this.taken = true;
+        this.request = request;
+        await new Promise<void>((settle) => {
+            let released = false;
+            this.continueHeld = async () => {
+                if (released) return false;
+                released = true;
+                try { await proceed(); return true; } catch { return false; } finally { settle(); }
+            };
+        });
+    }
+    /** The held request, or null while none is held yet. */
+    held(): R | null { return this.continueHeld ? this.request : null; }
+    /** Sends the held request on (true), once; false when none is held or it was already released, or continuing failed. */
+    release(): Promise<boolean> { return this.continueHeld ? this.continueHeld() : Promise.resolve(false); }
+    /** Finalization: nothing more is held, and a request still held is sent on. */
+    async releaseAll(): Promise<void> { this.attemptOpen = false; await this.release(); }
 }
 
 /** A model asset request (weights, config or tokenizer): the download's own traffic. */

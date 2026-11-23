@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     armMarkerObserverInPage, bindTakeAcquisition, classifyMarkerTiming, disposeMarkerObserver, disposeMarkerObserverInPage,
-    freezeMarkerObserver, freezeMarkerObserverInPage, markerTimingStatus, MARKER_RAIL_TEST_ID, MARKER_ROW_PREFIX,
+    freezeMarkerObserver, freezeMarkerObserverInPage, markerTimingStatus, MARKER_RAIL_TEST_ID, MARKER_ROW_PREFIX, MARKER_SAMPLE_MS,
 } from '../live/helpers/rwtMarkerObserver';
 
 const w = window as unknown as Record<string, unknown>;
@@ -359,7 +359,7 @@ describe('bounded cleanup through the finalizer, and the journey wiring', () => 
         const src = readFileSync('tests/live/helpers/rwtFocusPointsJourney.ts', 'utf8');
         const armedAt = src.indexOf('await armMarkerObserver(page, points.length)');
         expect(armedAt).toBeGreaterThan(-1);
-        expect(armedAt).toBeLessThan(src.indexOf('await preparePrivateModelIfPrompted(page, 900_000)'));
+        expect(armedAt).toBeLessThan(src.indexOf('await preparePrivateModelIfPrompted(page, 900_000, atClick())'));
         const frozenAt = src.indexOf('await freezeMarkerObserver(page, armed.token)');
         expect(frozenAt).toBeGreaterThan(armedAt);
         expect(frozenAt).toBeLessThan(src.indexOf("receipt.row('marker timing vs audio'"));
@@ -370,5 +370,141 @@ describe('bounded cleanup through the finalizer, and the journey wiring', () => 
         const finalization = src.slice(src.indexOf('finalizer.once(async () => {'));
         expect(finalization).toContain("await steps.step('marker observer dispose', () => disposeMarkerObserver(page, markerToken));");
         expect(src).not.toMatch(/startedAt \+ 1_000/); // the Node-clock acquisition cutoff is gone
+    });
+});
+
+/**
+ * J3.b (Sam, 22 Nov, option 1; run 45034606112 had `uncertain-late@7.801..10.055` against a 9.02 s cutoff). A page-side
+ * heartbeat records the last time each row was READ still pending (stamp taken before the read), so the lower bound can rise
+ * above the previous delivery. Same cutoff and clock; an interval that still straddles the cutoff HOLDs. Proven three ways
+ * through the real in-page observer: on time, definitely late, inconclusive when sampling stalls.
+ */
+describe('J3.b heartbeat: the last observed-pending time narrows the interval, never loosens it', () => {
+    const SAMPLE = 100;
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }); });
+    /** One heartbeat tick at page time `sec` (the clock is mocked; only the interval timer is advanced). */
+    const sampleAt = (sec: number) => { now = at(sec); vi.advanceTimersByTime(SAMPLE); };
+    /** The take's point 0 changes to `covered`, observed by the MutationObserver at `sec`. */
+    const changeAt = async (sec: number) => { now = at(sec); row(0).setAttribute('data-status', 'covered'); await flush(); };
+    const take = async (lastPendingSec: number[], changeSec: number) => {
+        rail(['pending', 'pending']);
+        expect(armMarkerObserverInPage({ token: 'mo-1', count: 2, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX, sampleMs: SAMPLE }).ok).toBe(true);
+        await heartbeat(7.801);                 // the run's last delivery before the change
+        for (const s of lastPendingSec) sampleAt(s);
+        await changeAt(changeSec);
+        const sealed = freezeMarkerObserverInPage('mo-1')!;
+        const withSampling = classifyMarkerTiming({ windows, observations: sealed.observations, invokedAtMs: INVOKED, expectsLive: [true, false], pendingSeenAtMs: sealed.pendingSeenAtMs });
+        const deliveryOnly = classifyMarkerTiming({ windows, observations: sealed.observations, invokedAtMs: INVOKED, expectsLive: [true, false] });
+        return { sealed, withSampling, deliveryOnly };
+    };
+
+    it('ON TIME: pending read at 8.95 s, change observed at 9.00 s -> ok (the delivery bound alone could not decide it)', async () => {
+        const r = await take([8.0, 8.5, 8.95], 9.0);
+        expect(r.sealed.pendingSeenAtMs[0]).toBe(at(8.95));
+        expect(r.withSampling[0]).toBe('ok@8.950..9.000');
+        expect(markerTimingStatus(r.withSampling)).toBe('PASS');
+        expect(r.deliveryOnly[0]).toBe('ok@7.801..9.000');   // already inside here; the next two cases show the narrowing matters
+    });
+    it('DEFINITELY LATE: pending read at 9.95 s, change observed at 10.055 s -> late (FAIL), where delivery-only was uncertain', async () => {
+        const r = await take([8.5, 9.0, 9.5, 9.95], 10.055);
+        expect(r.withSampling[0]).toBe('late@9.950..10.055');
+        expect(markerTimingStatus(r.withSampling)).toBe('FAIL');
+        expect(r.deliveryOnly[0]).toBe('uncertain-late@7.801..10.055');
+        expect(markerTimingStatus(r.deliveryOnly)).toBe('HOLD');
+    });
+    it('INCONCLUSIVE WHEN SAMPLING STALLS: last pending read at 7.90 s, change observed at 10.055 s -> still uncertain (HOLD)', async () => {
+        const r = await take([7.9], 10.055);    // the page stalled: no tick between 7.90 s and the change
+        expect(r.withSampling[0]).toBe('uncertain-late@7.900..10.055');
+        expect(markerTimingStatus(r.withSampling)).toBe('HOLD');
+    });
+    it('samples only before the first change and never after the freeze; the other point keeps sampling until its own change', async () => {
+        const r = await take([8.5], 9.0);
+        const before = r.sealed.pendingSeenAtMs.slice();
+        // after the freeze, ticks (and a reverted status) change nothing in the sealed copy
+        row(0).setAttribute('data-status', 'pending');
+        sampleAt(11);
+        expect(freezeMarkerObserverInPage('mo-1')!.pendingSeenAtMs).toEqual(before);
+        expect(before[1]).toBe(at(8.5));         // point 1 was still pending at the last tick before the freeze
+    });
+    it('a row that flips back to pending AFTER its first change is never re-sampled (the lower bound cannot pass the change)', async () => {
+        rail(['pending', 'pending']);
+        armMarkerObserverInPage({ token: 'mo-1', count: 2, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX, sampleMs: SAMPLE });
+        sampleAt(8.5);
+        await changeAt(9.0);
+        now = at(9.2); row(0).setAttribute('data-status', 'pending'); await flush();
+        sampleAt(9.5);
+        expect(freezeMarkerObserverInPage('mo-1')!.pendingSeenAtMs[0]).toBe(at(8.5));
+    });
+    it('Sam 10:34: a point that briefly changes and returns to pending in ONE task, between ticks, keeps its real first change', async () => {
+        rail(['pending', 'pending']);
+        armMarkerObserverInPage({ token: 'mo-1', count: 2, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX, sampleMs: SAMPLE });
+        await heartbeat(7.801);
+        sampleAt(8.5);
+        // covered -> pending inside one task: the next heartbeat would read 'pending' again
+        now = at(8.7);
+        row(0).setAttribute('data-status', 'covered');
+        row(0).setAttribute('data-status', 'pending');
+        await flush();
+        sampleAt(9.5);
+        sampleAt(10.0);
+        const sealed = freezeMarkerObserverInPage('mo-1')!;
+        // the transient is kept as the first change, and no later pending read moved past it
+        expect(sealed.observations.find((o) => o.point === 0)).toMatchObject({ status: 'covered', observedAtMs: at(8.7) });
+        expect(sealed.pendingSeenAtMs[0]).toBe(at(8.5));
+        const v = classifyMarkerTiming({ windows, observations: sealed.observations, invokedAtMs: INVOKED, expectsLive: [true, false], pendingSeenAtMs: sealed.pendingSeenAtMs });
+        expect(v[0]).toBe('ok@8.500..8.700');
+    });
+    it('an older pending read never LOWERS the bound below the previous delivery (the later of the two wins)', () => {
+        // pending read at 0.5 s (before the point's earliest, 1.0 s); a delivery at 7.801 s; change observed at 8.9 s
+        const obs = [{ point: 0, status: 'covered', afterMs: at(7.801), observedAtMs: at(8.9), seq: 0, railGeneration: 1 }];
+        const v = classifyMarkerTiming({ windows, observations: obs, invokedAtMs: INVOKED, expectsLive: [true, false], pendingSeenAtMs: [at(0.5), null] });
+        expect(v[0]).toBe('ok@7.801..8.900');
+    });
+    it('a pending read at or after the observed change is a sampling anomaly: HOLD, never decided', () => {
+        const obs = [{ point: 0, status: 'covered', afterMs: at(7.801), observedAtMs: at(9.0), seq: 0, railGeneration: 1 }];
+        for (const seen of [at(9.0), at(9.5)]) {
+            const v = classifyMarkerTiming({ windows, observations: obs, invokedAtMs: INVOKED, expectsLive: [true, false], pendingSeenAtMs: [seen, null] });
+            expect(v[0]).toMatch(/^uncertain-sampling@/);
+            expect(markerTimingStatus(v)).toBe('HOLD');
+        }
+    });
+    it('the cutoff and clock are unchanged: same windows, same 5 s rule, same invocation zero', () => {
+        const src = readFileSync('tests/live/helpers/rwtMarkerObserver.ts', 'utf8');
+        expect(src).toContain('const deadline = Math.min(window[1] + LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);');
+        expect(src).toContain('export const LIVE_MARKER_MAX_AFTER_SECONDS = 5;');
+        expect(src).toContain('export const MARKER_ALIGNMENT_SLACK_SECONDS = 1;');
+    });
+});
+
+/**
+ * Codex P2 on #1950 (Sam, 23 Nov): page.evaluate ships a function as SOURCE TEXT, so it runs with none of this module's bindings.
+ * Every in-page function must run on its own from its serialized text; calling the imported function hides a module reference.
+ */
+describe('in-page functions run from their serialized text alone (what page.evaluate actually sends)', () => {
+    const serialized = <F extends (...args: never[]) => unknown>(fn: F): F => new Function(`return (${fn.toString()});`)() as F;
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }); });
+
+    it('arm, heartbeat, freeze and dispose all run from source text, with the caller\'s sample period and without one', async () => {
+        for (const sampleMs of [100, undefined]) {
+            rail(['pending', 'pending']);
+            const arm = serialized(armMarkerObserverInPage);
+            const result = arm({ token: 'mo-9', count: 2, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX, ...(sampleMs ? { sampleMs } : {}) });
+            expect(result).toEqual({ ok: true });
+            now = INVOKED + 8_000;
+            vi.advanceTimersByTime(100);                          // one heartbeat tick, run inside the serialized function
+            const sealed = serialized(freezeMarkerObserverInPage)('mo-9');
+            expect(sealed?.pendingSeenAtMs[0]).toBe(INVOKED + 8_000);
+            expect(serialized(disposeMarkerObserverInPage)('mo-9')).toBe(true);
+            document.body.innerHTML = '';
+            delete w.__rwtMarkerObserver__;
+        }
+    });
+
+    it('the in-page fallback period equals MARKER_SAMPLE_MS', () => {
+        expect(armMarkerObserverInPage.toString()).toMatch(new RegExp(`: ${MARKER_SAMPLE_MS}\\)`));
+    });
+    it('the live arm call passes the sample period explicitly', () => {
+        const src = readFileSync(`${__dirname}/../live/helpers/rwtMarkerObserver.ts`, 'utf8');
+        expect(src).toMatch(/page\.evaluate\(armMarkerObserverInPage, \{[^}]*sampleMs: MARKER_SAMPLE_MS/);
     });
 });

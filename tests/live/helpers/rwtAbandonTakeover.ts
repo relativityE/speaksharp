@@ -41,22 +41,30 @@ export function actionablePrivateStartForLease(): 'mic-download' | 'mic-start' |
 }
 
 /**
+ * One press of the decided control with `beforeClick` run INSIDE it, immediately before the click. The live journey passes
+ * `pressCaptureControl` (benchmark-utils), injected so that this module stays free of Playwright.
+ */
+export type LeaseControlPress = (page: import('@playwright/test').Page, control: 'mic-download' | 'mic-start', beforeClick: () => Promise<void>) => Promise<void>;
+
+/**
  * Case 11's first activation: wait for the actionable cold/warm decision, never initialise a cold model.
  * Open refusal observation only AFTER background availability settles, immediately before the actual Start.
  * A replaced/disabled control fails its bounded click; it is never silently replaced by a different gesture.
+ * #1835 (Sam, #1916): `beforePress` runs INSIDE the press, after its wait and human-reflex pause and immediately before the
+ * click, so the caller's consent readback is its last step; a refusal there presses nothing and propagates unchanged.
  */
 export async function pressPrivateStartForLease(
     page: import('@playwright/test').Page,
     waitForReady: (page: import('@playwright/test').Page, timeout: number) => Promise<void>,
-    beforePress: () => Promise<void> = async () => undefined,
+    beforePress: () => Promise<void>,
+    press: LeaseControlPress,
 ): Promise<boolean> {
     const handle = await page.waitForFunction(actionablePrivateStartForLease, undefined, { timeout: 30_000 });
     let control: ReturnType<typeof actionablePrivateStartForLease>;
     try { control = await handle.jsonValue(); } finally { await handle.dispose(); }
     if (control !== 'mic-download' && control !== 'mic-start') throw new Error('private Start control was not established');
     if (control === 'mic-start') await waitForReady(page, 30_000);
-    await beforePress();
-    await page.getByTestId(control).click({ timeout: 30_000 });
+    await press(page, control, beforePress);
     return control === 'mic-download';
 }
 

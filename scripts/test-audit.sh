@@ -89,8 +89,17 @@ case $STAGE in
     health-check)
         echo "🚀 Running CI health-check stage..."
         mkdir -p test-results/playwright-infra
-        PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/playwright-infra/results.json \
-            pnpm exec playwright test --project=infra-probe --workers=1 --reporter=line,json --output=test-results/playwright-infra
+        # Reuse the existing single CI health run, producing its own raw evidence.
+        # Local/debug probes still use line/JSON only and cannot earn CI credit.
+        if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${GITHUB_JOB:-}" = e2e ]; then
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/playwright-infra/results.json \
+                PLAYWRIGHT_EFFICACY_INFRA=1 \
+                PLAYWRIGHT_BLOB_OUTPUT_FILE=test-results/playwright-infra/infra-execution.zip \
+                pnpm exec playwright test --project=infra-probe --workers=1 --reporter=blob,./scripts/efficacy-playwright-reporter.mjs,line,json --output=test-results/playwright-infra
+        else
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/playwright-infra/results.json \
+                pnpm exec playwright test --project=infra-probe --workers=1 --reporter=line,json --output=test-results/playwright-infra
+        fi
         ;;
     test)
         echo "🚀 Running CI E2E shard stage..."

@@ -66,7 +66,7 @@ describe('wiring in rwtFocusPointsJourney.ts', () => {
             'cancel.briefAfter = await newestBrief();',
             "cancel.preserved = cancel.reopened && (await label2.inputValue().catch(() => '')) === unspoken;",
             "await page.getByTestId('objective-setup-submit').click();\n                            await dialog.waitFor({ state: 'hidden'",
-            'await startBenchmarkRecording(page, `${suite}-edited`);',
+            'await startBenchmarkRecording(page, `${suite}-edited`, undefined, editedClick);',
             'const cancelRow = editCancelVerdict(cancel);',
             'receipt.row(FOCUS_EDIT_CANCEL_ROW, cancelRow.verdict, cancelRow.detail, cancelRow.evidence);',
         ].map(at);

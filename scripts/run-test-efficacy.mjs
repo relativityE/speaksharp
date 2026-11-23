@@ -5,9 +5,9 @@ import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
+import { qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
-import { executionContext, testEnvironment, pilotAffectedByPaths,
+import { executionContext, testEnvironment, requiredSemanticContracts, semanticChangedInputs, dependencyPaths,
   executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts,
   vitestExecutionTimeoutMs } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
@@ -147,30 +147,11 @@ export function mutateBytes(bytes, anchor, replacement) {
   return mutated;
 }
 
-// Resolve the registered test's local import closure, including type imports. An unresolved
-// local dependency fails closed; external packages are covered by lockfile/config triggers.
-export function dependencyPaths(root, entry, seen = new Set()) {
-  if (seen.has(entry)) return seen;
-  seen.add(entry);
-  const content = fs.readFileSync(path.join(root, entry), 'utf8');
-  const imports = content.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"]+)['"]/g);
-  for (const [, specifier] of imports) {
-    if (!specifier.startsWith('.') && !specifier.startsWith('@/')) continue;
-    const stem = specifier.startsWith('@/') ? `frontend/src/${specifier.slice(2)}` : path.posix.join(path.posix.dirname(entry), specifier);
-    const resolved = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '/index.ts', '/index.tsx'].map(suffix => stem + suffix)
-      .find(candidate => fs.existsSync(path.join(root, candidate)) && fs.statSync(path.join(root, candidate)).isFile());
-    if (!resolved) throw new Error(`Unresolved contract dependency: ${entry}: ${specifier}`);
-    if (/\.[cm]?[jt]sx?$/.test(resolved)) dependencyPaths(root, resolved, seen);
-    else seen.add(resolved);
-  }
-  return seen;
-}
+export {dependencyPaths};
 
-export function selectContracts(root, changedPaths) {
-  return TEST_EFFICACY_CONTRACTS.filter(contract => {
-    const dependencies = dependencyPaths(root, contract.testFile);
-    return pilotAffectedByPaths(changedPaths) || changedPaths.some(file => dependencies.has(file));
-  });
+export function selectContracts(_root, changedPaths) {
+  // The consumer derives the same scope independently from the checkout.
+  return requiredSemanticContracts(changedPaths,_root);
 }
 
 function snapshot(root) {
@@ -218,11 +199,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   // GitHub uses this sentinel for a newly created ref; it is not a resolvable commit.
   if (base === '0'.repeat(40)) base = undefined;
   // Absent base means conservative selection of all registered contracts, never an empty PASS.
-  const changed = base ? [...new Set([
-    ...git(root, ['diff', '--name-only', '-z', base, 'HEAD']).split('\0'),
-    ...git(root, ['diff', '--name-only', '-z', 'HEAD']).split('\0'),
-    ...git(root, ['ls-files', '--others', '--exclude-standard', '--exclude=/apt-bundle/', '-z']).split('\0'),
-  ].filter(Boolean))] : null;
+  const changed = semanticChangedInputs(root,base);
   const executionKind=helpersOnly?'registered-helpers':'changed-evidence';
   const evidenceFiles=executionOnly?executionRequiredFiles(root,base,executionKind):[];
   const unavailable=executionOnly?unavailableExecutionInputs(root,evidenceFiles):[];
@@ -230,8 +207,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (userHarmControls && (selected.length !== 3 || selected.some(contract => contract.mutants.length !== 1 || contract.control?.length !== 1))) {
     throw new Error('User-harm control budget: three named boundaries, one mutant and one semantic control each');
   }
-  if (!executionOnly && !userHarmControls && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
-    throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
+  if (!executionOnly && !userHarmControls && selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2)) {
+    throw new Error('Efficacy budget: two mutants and a two-seam harmless control per named contract');
   }
   // One invocation executes exactly one batch of at most eight contracts; the caller runs every batch.
   const batchCount=executionOnly?Math.ceil(selected.length/NATIVE_BATCH_SIZE):0;
@@ -246,7 +223,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (provenance.commit!==commit || provenance.tree!==tree || provenance.snapshotSha256!==before.digest) {
     throw new Error('Producer context differs from tested source');
   }
-  const receipt = { schemaVersion: 2, runId: randomUUID(), scope: userHarmControls?'three named user-harming faults only; no journey-wide or mutation-percentage claim':nativeOnly?'changed Deno/Node execution; bounded planner/observer callable evidence only':executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
+  const receipt = { schemaVersion: 2, runId: randomUUID(), scope: userHarmControls?'three named user-harming faults only; no journey-wide or mutation-percentage claim':nativeOnly?'changed Deno/Node execution; bounded planner/observer callable evidence only':executionOnly ? 'changed Vitest collection and execution only' : 'registered semantic faults only',
     provenance,commit, tree, snapshotSha256: before.digest, base: base || null,
     selection: userHarmControls ? 'all-three-named-user-harm-controls' : changed === null ? 'all-registered-no-base' : 'affected', changedPaths: changed,
     status: unavailable.length?'incomplete':running.length?'executed':'not-applicable', contracts: [], tests: [],
@@ -368,7 +345,9 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         ...(helperCoverage ? {helperCoverage} : {}),...(fixtureWitness ? {fixtureWitness} : {}),
         ...(sourceContractWitness?{sourceContractWitness}:{}),...(sqlWitness?{sqlWitness}:{}) };
       } catch (cause) {
-        const error = new Error(`[${phase}] ${cause.message}`, {cause});
+        const timeoutMs = executionOnly ? vitestExecutionTimeoutMs(contract.testFile) : 60_000;
+        const location = `test=${JSON.stringify(contract.testFile)} batch=${executionOnly ? batch : 'semantic'} timeoutMs=${timeoutMs}`;
+        const error = new Error(`[${phase}] ${cause.message} (${location})`, {cause});
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
         // Bounded diagnostic, not a qualifying receipt. Lets acceptance tests distinguish
         // the intended assertion/skip from an unrelated import/setup exception.

@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
 import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
-import { ADVERSE_SUITE } from './rwtAdverse';
+import { ADVERSE_SUITE, MIC_DENIED_RECOVERY_ROWS, NO_TAKE_SAVED_ROW, SAME_PAGE_RECOVERY } from './rwtAdverse';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -206,6 +206,17 @@ export function externalParentProofGaps(row: ReceiptRow): string[] {
     if (e.unavailableShown !== true) gaps.push('the unavailable message was not shown');
     if (e.retryEnabled !== true) gaps.push('Try again was not enabled');
     return gaps;
+}
+
+/**
+ * J7.a (PO and Sam, 2026-11-19): a mic-denied receipt must record same-page recovery as UNTESTED. Recovery is never counted
+ * as a pass, and a receipt that is silent about it, or claims any other value, is not finalized.
+ */
+export function samePageRecoveryErrors(receipt: { suite: string; meta?: Record<string, unknown> }): string[] {
+    if (receipt.suite !== ADVERSE_MIC_DENIED_SUITE) return [];
+    const recorded = receipt.meta?.samePageRecovery;
+    return recorded === SAME_PAGE_RECOVERY ? []
+        : [`the ${receipt.suite} receipt must record same-page recovery as ${SAME_PAGE_RECOVERY}, not ${recorded === undefined ? 'nothing' : String(recorded)}`];
 }
 
 /** Every EXTERNAL row in an INPUT receipt must sit inside its suite's closed scope (see `EXTERNAL_SCOPES`). */
@@ -469,6 +480,8 @@ export async function recordRunOwnedCleanup(
 // Focus suites and returning-user navigation (maximum 0), so a receipt with the row stripped can never finalize PASS.
 const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'coaching request budget', 'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
+    // J1.a (#1835): this run's own account chose Save: Yes, Coaching: Yes in the Practice prompt, read back before Start.
+    'practice privacy choice',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
     // #1258 R4: the coaching checks text can prove — ceiling, no contradiction with saved fillers, not identical across takes.
@@ -477,6 +490,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'coaching request bound to this take',
     // Ordinary saved/reopened persistence only; this row does not qualify the separate after-B causal case.
     'interrupted take coaching saved and shown in its saved review',
+    // J1.a (Sam on run 45014809858): the new account's own 30-day trial, read from its profile.
+    'new account starts a 30-day trial',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
     'Back from Progress restores the session', 'restored review', 'Back requests no coaching',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
@@ -511,7 +526,11 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'model download vs setup timing', 'Practice again press → arrival (sent)',
     // #1258 (PM 6114590729): real coaching provenance (prompt binding), full and partial alike.
     'coaching prompt binding',
+    // J3.a/b (#1904): the privacy choice bound before Start, and the measured timing of the exact saved take.
+    'practice privacy choice', 'saved timing matches the take',
 ]);
+/** J3.b (#1904) only: the one repeat take on the same set, saved on its own, against the fixture and reopened. */
+const FOCUS_PARTIAL_ONLY_PRODUCT_ROWS = Object.freeze(['J3.b: repeat take saved and reopened against the fixture']);
 const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean',
     'feedback diagnostic chain',
     // AHT-02 only (#1811): Escape keeps the set; the Open Mic take writes no Focus evidence.
@@ -575,6 +594,8 @@ const FEEDBACK_J8_PRODUCT_ROWS = Object.freeze([
     ...j8LegRows('J8.c', FEEDBACK_NO_SESSION_PRODUCT_ROWS), 'J8.c: both saved takes unchanged', 'J8.c: no extra Start or coaching',
 ]);
 const PENDING_START_PRODUCT_ROWS = Object.freeze([
+    // J5.a (#1835): this run's own account chose Save: Yes, Coaching: No on Practice, read back before each capture-capable press.
+    'practice privacy choice',
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'cold Start is pending', 'Start transition observed', 'abandoned Start settles after leaving',
     'leaving pending Start releases microphone', 'leaving pending Start creates no session',
     'return to Open Mic exposes truthful Start state', 'return does not resume abandoned recording', 'coaching request budget',
@@ -595,6 +616,27 @@ const SAVE_RETRY_PRODUCT_ROWS = Object.freeze([
     // AHT-05/06 (#1811): exact payload, the take reopened from Analytics, and exactly the fault plus one Retry attempt.
     'Retry Save saved the exact payload once', 'review reopens the saved take', 'completion attempts are the fault and one Retry',
 ]);
+/** The rows only J4.b's second take writes. J4.a stops right after the Retry readback, so it must never carry them. */
+const SAVE_RETRY_NEXT_TAKE_ROWS = Object.freeze(['next take saves only itself', 'review reopens the saved take']);
+/**
+ * J4.a (request lost), bounded (Sam, Nov 18-19; PO's approved run: one take, coaching off): Save: Yes / Coaching: No proven on
+ * the post-#1835 build before Start; the save request never reached the server; Retry Save saved one take for the run-owned
+ * account and no other; nothing after the Retry readback; and cleanup removed the owner's privacy choice. J4.b (response lost)
+ * keeps its own rows and must not carry J4.a's own (it shares only the privacy choice row).
+ */
+const SAVE_RETRY_J4A_ROWS = Object.freeze([
+    'practice privacy choice', 'J4.a: the first save request never reached the server', 'J4.a: Retry Save saved one take for this account only',
+    'J4.a: one take, nothing after Retry', 'J4.a: cleanup removed the privacy choice', 'J4.a: no coaching request left the browser',
+]);
+const SAVE_RETRY_REQUEST_LOST_PRODUCT_ROWS = Object.freeze([
+    ...SAVE_RETRY_PRODUCT_ROWS.filter((row) => !SAVE_RETRY_NEXT_TAKE_ROWS.includes(row)), ...SAVE_RETRY_J4A_ROWS,
+]);
+/**
+ * J4.b (response lost), #1835 (Sam, Nov 20): its own run-owned account proves Save: Yes / Coaching: No at each Start click, and
+ * cleanup removes the owner's privacy choice. It carries none of J4.a's own rows.
+ */
+const SAVE_RETRY_J4B_ROWS = Object.freeze(['practice privacy choice', 'J4.b: cleanup removed the privacy choice']);
+const SAVE_RETRY_RESPONSE_LOST_PRODUCT_ROWS = Object.freeze([...SAVE_RETRY_PRODUCT_ROWS, ...SAVE_RETRY_J4B_ROWS]);
 /**
  * #1258 R2 (row 16) — `rwt-abandon-and-two-tabs`: leaving mid-recording (navigate away; close the tab) and the same
  * account's two-tab take-over. No journey readback is qualified (like pending Start); each carries its own cleanup row.
@@ -606,6 +648,8 @@ const ABANDON_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'take is recording before leaving', 'leaving mid-recording releases the microphone',
     'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
     'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
+    // J5.b/c: the run's own account opted in (Save: Yes, Coaching: No) on its first Practice visit, before any Start.
+    'practice privacy choice',
 ]);
 /**
  * Navigate away also answers the product's in-app leave prompt (#1258 run 38876623812) and, because Leave is "Stop and
@@ -618,6 +662,8 @@ const TWO_TAB_PRODUCT_ROWS = Object.freeze([
     'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
     // AHT-11 (#1811): the displaced take carries the server's 'displaced' fence.
     'displaced take is permanently fenced',
+    // J6: the run's own account opted in (Save: Yes, Coaching: No) on tab A's first Practice visit, before any Start.
+    'practice privacy choice',
 ]);
 /**
  * #1258 R3 (row 17) — `rwt-adverse-mic-model`: a blocked microphone, a failing model download, and offline mid-download.
@@ -626,12 +672,20 @@ const TWO_TAB_PRODUCT_ROWS = Object.freeze([
 export const ADVERSE_MIC_DENIED_SUITE = `${ADVERSE_SUITE}-mic-denied`;
 export const ADVERSE_DOWNLOAD_FAILS_SUITE = `${ADVERSE_SUITE}-download-fails`;
 export const ADVERSE_OFFLINE_SUITE = `${ADVERSE_SUITE}-offline-mid-download`;
+/**
+ * J7.a (PO and Sam, 2026-11-19): the mic-denied suite proves the denial only. The page states the block, capture never
+ * starts, and no take is saved for the test account. Recovery after allowing the microphone is not exercised: its two former
+ * rows must be absent, and the receipt must record same-page recovery as UNTESTED (`samePageRecoveryErrors`).
+ * All three J7 suites require 'practice privacy choice' (#1835): the run's own account made the variant's fixed choice (J7.a
+ * Save No; J7.b/c Save Yes, Coaching No) and it was read back before the first Start-control press. A pre-#1835 or unknown
+ * build records it FAIL or HOLD, never PASS.
+ */
 const ADVERSE_MIC_PRODUCT_ROWS = Object.freeze([
-    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', 'after allowing the microphone a take saves',
-    'no Cloud STT request', 'coaching request budget', 'the recovered take reopens from Analytics',
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'practice privacy choice', 'blocked microphone is stated truthfully', NO_TAKE_SAVED_ROW,
+    'no Cloud STT request', 'coaching request budget',
 ]);
 const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
-    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'practice privacy choice', 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
     'no Cloud STT request', 'coaching request budget', 'the recovered take reopens from Analytics',
 ]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
@@ -651,7 +705,7 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: [...FOCUS_PRODUCT_ROWS, ...FOCUS_FULL_ONLY_PRODUCT_ROWS], absent: [] };
         case 'focus-points-partial':
             // #1532 Codex P1 r4126745141: the partial run deletes its account in-body, before write(), and records it.
-            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], product: FOCUS_PRODUCT_ROWS, absent: [] };
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], product: [...FOCUS_PRODUCT_ROWS, ...FOCUS_PARTIAL_ONLY_PRODUCT_ROWS], absent: [] };
         case 'returning-user-navigation':
             return { required: ALWAYS_AUTOMATED_ROWS, product: RETURNING_USER_PRODUCT_ROWS, absent: JOURNEY_READBACK_ROWS };
         case FEEDBACK_OLDER_TAKE_SUITE:
@@ -666,8 +720,10 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: PENDING_START_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case SAVE_RETRY_REQUEST_LOST_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_REQUEST_LOST_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS, ...SAVE_RETRY_NEXT_TAKE_ROWS] };
         case SAVE_RETRY_RESPONSE_LOST_SUITE:
-            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_PRODUCT_ROWS,
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_RESPONSE_LOST_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case ABANDON_NAVIGATE_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_NAVIGATE_PRODUCT_ROWS,
@@ -680,7 +736,7 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case ADVERSE_MIC_DENIED_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_MIC_PRODUCT_ROWS,
-                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS, ...MIC_DENIED_RECOVERY_ROWS] };
         case ADVERSE_DOWNLOAD_FAILS_SUITE:
         case ADVERSE_OFFLINE_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_DOWNLOAD_PRODUCT_ROWS,
@@ -795,6 +851,7 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
         errors.push(`"journey telemetry received" arrived as ${received.verdict}; only the readback merge may settle it`);
     }
     errors.push(...externalScopeErrors(receipt.suite, receipt.rows));
+    errors.push(...samePageRecoveryErrors(receipt));
     return { receipt, errors };
 }
 

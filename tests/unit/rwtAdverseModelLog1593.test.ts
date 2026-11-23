@@ -96,15 +96,16 @@ describe('the fault counts only its own attempt\'s failures, armed before induct
     it('the spec arms the fault before inducing it and opens the attempt before the press, in both variants', () => {
         const spec = readFileSync('tests/live/helpers/rwtAdverseJourney.ts', 'utf8');
         const route = spec.indexOf('await context.route(MODEL_ASSETS, (route) => route.abort');
-        // Sam, 2026-11-15 (#1868): AHT-14 goes offline only inside `runOfflineFault`, which calls `armFault` before
+        // Sam, 2026-11-15 (#1868): AHT-14 goes offline only inside `runBetweenFilesFault`, which calls `armFault` before
         // `setOffline(true)` (its scripted cases in rwtAdverseRecovery.test.ts prove that order); the journey's armFault arms here.
-        const offline = spec.indexOf('await runOfflineFault({');
+        const offline = spec.indexOf('await runBetweenFilesFault({');
         const armBeforeRoute = spec.lastIndexOf('fault.armFault();', route);
         const armForOffline = spec.indexOf('armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },', offline);
         expect(armBeforeRoute).toBeGreaterThan(-1);
         expect(offline).toBeGreaterThan(route);
         expect(armForOffline).toBeGreaterThan(offline);
-        const press = spec.indexOf("await page.getByTestId('mic-download').click();", route);
+        const press = spec.indexOf("await pressCaptureControl(page, ['mic-download'], { beforeClick: () => gate.confirm() });", route);
+        expect(press).toBeGreaterThan(route);
         expect(spec.lastIndexOf('fault.startAttempt();', press)).toBeGreaterThan(route);
         expect(spec).not.toMatch(/faultOn/);
         expect(spec).toContain('await page.evaluate(armModelStatusLog, modelStatusToken);');

@@ -30,6 +30,143 @@ export const TEST_EFFICACY_CONTRACTS = Object.freeze([
       },
     ],
   },
+  {
+    id: 'save-consent-boundary',
+    testFile: 'frontend/src/lib/__tests__/storageConsent1835.test.ts',
+    sourceFile: 'frontend/src/lib/storage.ts',
+    control: [
+      {
+        anchor: "status === 'completed' && transcriptSaveAllowed() && !metricsOnlySessions.has(sessionId)",
+        replacement: "'completed' === status && transcriptSaveAllowed() && !metricsOnlySessions.has(sessionId)",
+      },
+      {
+        anchor: "if (transcriptArg === null) metricsOnlySessions.add(sessionId);",
+        replacement: "if (null === transcriptArg) metricsOnlySessions.add(sessionId);",
+      },
+    ],
+    mutants: [
+      {
+        id: 'send-transcript-without-consent',
+        anchor: "status === 'completed' && transcriptSaveAllowed() && !metricsOnlySessions.has(sessionId)",
+        replacement: "status === 'completed' && !metricsOnlySessions.has(sessionId)",
+        assertion: '#1835 completeSession and the saving choice declined → no transcript text is sent, and the session still completes with its metrics',
+        assertionAnchor: "expect(args).toMatchObject({ p_status: 'completed', p_total_words: 120, p_wpm: 142, p_final_transcript: null });",
+      },
+      {
+        id: 'allow-transcript-on-metrics-only-replay',
+        anchor: "if (transcriptArg === null) metricsOnlySessions.add(sessionId);",
+        replacement: "if (transcriptArg === null) metricsOnlySessions.delete(sessionId);",
+        assertion: '#1835 completeSession and the saving choice a replay of a session that completed metrics-only stays metrics-only, even after saving is turned on',
+        assertionAnchor: "expect(sentTranscripts()).toEqual([null, null]);",
+      },
+    ],
+  },
+  {
+    id: 'coaching-consent-boundary',
+    testFile: 'frontend/src/components/session/__tests__/coachingConsent1835.test.tsx',
+    sourceFile: 'frontend/src/services/practicePrivacy.ts',
+    control: [
+      {
+        anchor: "state.transcriptSave && state.aiCoaching && state.revision !== null",
+        replacement: "state.transcriptSave && state.aiCoaching && null !== state.revision",
+      },
+      {
+        anchor: "return coachingAllowed(state) && state.ownerId === token.ownerId && state.revision === token.revision;",
+        replacement: "return coachingAllowed(state) && token.ownerId === state.ownerId && state.revision === token.revision;",
+      },
+    ],
+    mutants: [
+      {
+        id: 'ignore-disabled-coaching-choice',
+        anchor: "state.transcriptSave && state.aiCoaching && state.revision !== null",
+        replacement: "state.transcriptSave && state.revision !== null",
+        assertion: "#1835 AISuggestions: no coaching request without the owner's recorded yes declined: save on, AI off → no request, the coaching-off band with its privacy link",
+        assertionAnchor: "expect(client.functions.invoke).not.toHaveBeenCalled();\n        const band",
+      },
+      {
+        id: 'ignore-replaced-coaching-revision',
+        anchor: "return coachingAllowed(state) && state.ownerId === token.ownerId && state.revision === token.revision;",
+        replacement: "return coachingAllowed(state) && state.ownerId === token.ownerId;",
+        assertion: "#1835 AISuggestions: no coaching request without the owner's recorded yes re-recording the choice (new revision) also drops a review requested under the old one",
+        assertionAnchor: "expect(screen.queryByText('Clear opening.')).toBeNull();\n    });\n\n    it.each([\n        [403",
+      },
+    ],
+  },
+  {
+    id: 'retry-save-single-owned-take',
+    testFile: 'tests/unit/rwtSaveRetryAttempts.test.ts',
+    sourceFile: 'tests/live/helpers/rwtSaveRetryAttempts.ts',
+    control: [
+      { anchor: 'if (own.length > 2) return', replacement: 'if (2 < own.length) return' },
+      { anchor: 'row.user_id !== before.user_id', replacement: 'before.user_id !== row.user_id' },
+    ],
+    mutants: [
+      {
+        id: 'allow-extra-retry-attempt',
+        anchor: 'if (own.length > 2) return',
+        replacement: 'if (own.length > 3) return',
+        assertion: 'completionAttemptsVerdict refuses a third request for the same take after an answered Retry Save',
+        assertionAnchor: "expect(completionAttemptsVerdict(duplicate).status).toBe('FAIL');",
+      },
+      {
+        id: 'accept-wrong-owner-saved-take',
+        anchor: 'row.user_id !== before.user_id',
+        replacement: 'false',
+        assertion: 'exactRetrySaveVerdict (agrees with durable-save-oracle compareSavedRows) refuses a completed row from a different owner even for the exact take',
+        assertionAnchor: "expect(exactRetrySaveVerdict(payload(), before(), [foreign], TAKE).status).toBe('FAIL');",
+      },
+    ],
+  },
+  {
+    id: 'retry-save-cleanup-finalization',
+    testFile: 'tests/unit/rwtCleanupFinalizationEfficacy.test.ts',
+    sourceFile: 'tests/live/helpers/rwtWatchdog.ts',
+    control: [
+      { anchor: "if (settlement === 'deleted') receipt.row", replacement: "if ('deleted' === settlement) receipt.row" },
+      { anchor: "'timeout', { critical: true });", replacement: "'timeout', { critical: Boolean(true) });" },
+    ],
+    mutants: [
+      {
+        id: 'report-unverified-cleanup-pass',
+        anchor: "if (settlement === 'deleted') receipt.row",
+        replacement: "if (settlement === 'deleted' || settlement === 'pending') receipt.row",
+        assertion: 'Retry Save cleanup finalization does not report an unverified deletion as successful cleanup',
+        assertionAnchor: "expect(rows[0]?.verdict).toBe('FAIL');",
+      },
+      {
+        id: 'downgrade-failed-cleanup-finalization',
+        anchor: "'timeout', { critical: true });",
+        replacement: "'timeout', { critical: false });",
+        assertion: 'Retry Save cleanup finalization makes failed residue readback a failed journey finalization',
+        assertionAnchor: "expect(rows.at(-1)?.verdict).toBe('FAIL');",
+      },
+    ],
+  },
+  {
+    id: 'private-stop-finalization-truth',
+    testFile: 'tests/release/private-corpus-acceptance.test.ts',
+    sourceFile: 'scripts/private-corpus-acceptance.mjs',
+    control: [
+      { anchor: 'if (!finiteNumber(row.stopFinalizationMs)) return', replacement: 'if (finiteNumber(row.stopFinalizationMs) === false) return' },
+      { anchor: 'if (row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS)', replacement: 'if (PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS < row.stopFinalizationMs)' },
+    ],
+    mutants: [
+      {
+        id: 'credit-unobserved-stop',
+        anchor: 'if (!finiteNumber(row.stopFinalizationMs)) return',
+        replacement: 'if (false) return',
+        assertion: 'private corpus acceptance validator keeps Stop latency unqualified when the transcript is correct but finalization timing was not observed',
+        assertionAnchor: "expect(result).toMatchObject({ pass: false, invalid: true, invalidReason: 'invalid_stop_finalization_unobserved' });",
+      },
+      {
+        id: 'credit-stop-past-limit',
+        anchor: 'if (row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS)',
+        replacement: 'if (row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS + 1)',
+        assertion: 'private corpus acceptance validator fails when stop finalization exceeds the hard limit',
+        assertionAnchor: "expect(validatePrivateRow(row, ['chewed up']).failures.some((f) => f.startsWith('stop_finalization_over_limit'))).toBe(true);",
+      },
+    ],
+  },
 ]);
 
 export function qualifyEfficacyPhase(report, execution, { assertion, baselineNames, envelope, binding, assertionLocation } = {}) {

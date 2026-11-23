@@ -5,7 +5,9 @@ import os from 'node:os';
 import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
+import {createRequire} from 'node:module';
+import yaml from 'js-yaml';
+import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,validateRequiredSemanticExecution,
   changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
   registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness,
   vitestExecutionTimeoutMs} from '../../scripts/lib/testExecutionEvidence.mjs';
@@ -24,6 +26,14 @@ const test=(name,...args)=>{
   if(process.env.TEST_EFFICACY_SERVICE_CALLER_FIXTURE!=='1' || name===fixtureConsumer.assertion) return registerTest(name,...args);
 };
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+function ciStepProgram(job,name) {
+  const workflow=yaml.load(fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8'));
+  const steps=(workflow.jobs?.[job]?.steps ?? []).filter(step=>step.name===name);
+  assert.equal(steps.length,1,`expected one CI step ${job}/${name}`);
+  assert.ok(typeof steps[0].run==='string' && steps[0].run.trim(),`missing shell for ${job}/${name}`);
+  return steps[0].run;
+}
+
 
 test('retention pin input requires its exact reviewed consumer and complete schema2 observations',()=>{
   const file='tests/db/retention-owner-matrix-pins.json',contract=registeredFixture(file);
@@ -184,10 +194,14 @@ function withPilotFixture(check) {
       fs.writeFileSync(target,fs.readFileSync(path.join(root,file)));
     }
     const git=args=>execFileSync('git',args,{cwd:dir,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
-    git(['init']);git(['add','.']);
+    git(['init']);
+    git(['add','pnpm-lock.yaml']);
+    git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','-m','comparison base']);
+    const base=git(['rev-parse','HEAD']);
+    git(['add','.']);
     git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','-m','bounded maintained pilot bytes']);
     const expected=executionContext(dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
-    return check({root:dir,expected});
+    return check({root:dir,expected,base});
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 }
 
@@ -208,11 +222,68 @@ test('claimed filenames/run ID or neighboring suite cannot qualify SQL or Node t
   assert.equal(coverage.status,'INCOMPLETE');
 });
 
-test('replays all five raw phases for the narrow pilot and never credits neighboring SQL',()=>withPilotFixture(({root,expected})=>{
+test('replays all five raw phases for the narrow pilot and never credits neighboring SQL',()=>withPilotFixture(({root,expected,base})=>{
+  const receipt={...pilot(expected,root),base};
+  assert.equal(validatePilotExecution(receipt,expected,root),contract.testFile);
+  const coverage=executionCoverage([contract.testFile,'tests/db/focus-points-trial-capability-matrix.sql'],{root,expected,base,pilot:receipt});
+  assert.deepEqual(coverage.rows.map(row=>row.status),['EXECUTED','NOT RUN']);
+}));
+
+test('an otherwise qualifying semantic receipt cannot cross comparison bases',()=>withPilotFixture(({root,expected,base})=>{
+  const wrongBase=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  assert.notEqual(wrongBase,base);
+  const receipt={...pilot(expected,root),base};
+  assert.equal(executionCoverage([contract.testFile],{root,expected,base,pilot:receipt}).status,'COMPLETE');
+  assert.throws(()=>executionCoverage([contract.testFile],{root,expected,base,pilot:{...receipt,base:wrongBase}}),
+    /Wrong semantic execution comparison base/);
+}));
+
+test('distinct semantic contracts can share one file without merging their proof',()=>withPilotFixture(({root,expected})=>{
+  const required=[contract,{...contract,id:'independent-control-sharing-test-file'}];
+  const receipt=pilot(expected,root);
+  receipt.contracts.push({...pilot(expected,root).contracts[0],id:required[1].id});
+  const validated=validateRequiredSemanticExecution(receipt,expected,root,required);
+  assert.deepEqual([...validated.keys()],required.map(control=>control.id));
+  assert.deepEqual([...new Set(validated.values())],[contract.testFile]);
+  assert.throws(()=>validateRequiredSemanticExecution({...receipt,contracts:receipt.contracts.slice(0,1)},expected,root,required),
+    /missing, extra, or out of order/);
+  const reused=structuredClone(receipt);
+  reused.contracts[1].restored=reused.contracts[0].restored;
+  assert.throws(()=>validateRequiredSemanticExecution(reused,expected,root,required),/Duplicate semantic phase identity/);
+}));
+
+test('duplicate required semantic ID is refused despite otherwise valid independent phases',()=>withPilotFixture(({root,expected})=>{
+  const receipt=pilot(expected,root);
+  const separate={...contract,id:'another-independent-contract'};
+  const second=pilot(expected,root).contracts[0];
+  receipt.contracts.push({...second,id:separate.id});
+  assert.deepEqual([...validateRequiredSemanticExecution(receipt,expected,root,[contract,separate]).keys()],[contract.id,separate.id]);
+  receipt.contracts[1].id=contract.id;
+  assert.throws(()=>validateRequiredSemanticExecution(receipt,expected,root,[contract,contract]),/Wrong pilot source\/test identity/);
+}));
+
+test('an aliased parent cannot lend exact semantic test identity even with identical file bytes',()=>withPilotFixture(({root,expected})=>{
   const receipt=pilot(expected,root);
   assert.equal(validatePilotExecution(receipt,expected,root),contract.testFile);
-  const coverage=executionCoverage([contract.testFile,'tests/db/focus-points-trial-capability-matrix.sql'],{root,expected,pilot:receipt});
-  assert.deepEqual(coverage.rows.map(row=>row.status),['EXECUTED','NOT RUN']);
+  const directory=path.dirname(path.join(root,contract.testFile));
+  const external=fs.mkdtempSync(path.join(os.tmpdir(),'pilot-aliased-parent-'));
+  const target=path.join(external,'original');
+  try {
+    fs.appendFileSync(path.join(root,'.git/info/exclude'),`\n/${path.relative(root,directory)}\n`);
+    fs.renameSync(directory,target);
+    fs.symlinkSync(target,directory,'dir');
+    assert.equal(fs.lstatSync(path.join(root,contract.testFile)).isFile(),true);
+    assert.equal(sourceIdentity(root).snapshotSha256,expected.snapshotSha256,'alias resolves to the same tracked bytes');
+    assert.throws(()=>validatePilotExecution(receipt,expected,root),
+      {message:`NOT RUN: required semantic source or test is missing or aliased: ${contract.testFile}`});
+  } finally {fs.rmSync(external,{recursive:true,force:true});}
+}));
+
+test('missing enrolled semantic file is named without a filesystem stack',()=>withPilotFixture(({root,expected})=>{
+  const receipt=pilot(expected,root);
+  fs.unlinkSync(path.join(root,contract.testFile));
+  assert.throws(()=>validatePilotExecution(receipt,expected,root),
+    {message:`NOT RUN: required semantic source or test is missing or aliased: ${contract.testFile}`});
 }));
 
 test('bounded receipt fixture retains exact maintained inputs and refuses a changed source snapshot',()=>withPilotFixture(({root:fixtureRoot,expected})=>{
@@ -274,9 +345,9 @@ test('source-only diff requires pilot even with empty changed-test rows; unrelat
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 
-test('gate-owned Vitest suites remain NOT RUN without their own validated execution receipts',()=>withPilotFixture(({root,expected})=>{
+test('gate-owned Vitest suites remain NOT RUN without their own validated execution receipts',()=>withPilotFixture(({root,expected,base})=>{
   const files=['tests/unit/testEfficacy.test.js','tests/unit/testExecutionEvidence.test.js','tests/unit/releasePathSkipPropagation.test.js'];
-  const coverage=executionCoverage(files,{root,expected,pilot:pilot(expected,root)});
+  const coverage=executionCoverage(files,{root,expected,base,pilot:{...pilot(expected,root),base}});
   assert.equal(coverage.pilot.status,'EXECUTED'); // synthetic pilot evidence still cannot cover neighbors
   assert.equal(coverage.status,'INCOMPLETE');
   assert.deepEqual(coverage.rows.map(row=>[row.route.runner,row.status]),files.map(()=>['vitest','NOT RUN']));
@@ -405,17 +476,48 @@ test('manual full evidence receives an exact base on both a feature ref and main
     try {
       git(['add',file]);const head=commit();
       git(['update-ref','refs/remotes/origin/main',dispatchRef==='main'?head:base]);
-      const output=path.join(dir,'job-env');
-      const result=spawnSync(process.execPath,['--input-type=module','-e',
-        scriptFor('Begin fresh quality evidence attempt')+'\n'+scriptFor('Resolve exact efficacy comparison base')],
-      {cwd:dir,encoding:'utf8',env:{...process.env,GITHUB_ENV:output,GITHUB_ACTIONS:'true',
-        GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_SHA:head,TEST_EFFICACY_BASE:'',TEST_EFFICACY_DEFAULT_BRANCH:'main'}});
+      const output=path.join(dir,'job-env'), scopeOutput=path.join(dir,'scope-output');
+      const event={...process.env,GITHUB_ENV:output,GITHUB_OUTPUT:scopeOutput,RUNNER_TEMP:dir,GITHUB_ACTIONS:'true',
+        GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_SHA:head,TEST_EFFICACY_EVENT_BASE:'',TEST_EFFICACY_DEFAULT_BRANCH:'main'};
+      const run=(script,env)=>spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:dir,encoding:'utf8',env});
+      const values=file=>Object.fromEntries(fs.readFileSync(file,'utf8').trim().split('\n').map(line=>line.split('=')));
+      const scope=run(scriptFor('Bind disposable smoke scope and quality comparison to this checkout'),event);
+      assert.equal(scope.status,0,scope.stderr);
+      assert.deepEqual(values(scopeOutput),{base,head,required:'false'});
+      assert.equal(fs.readFileSync(path.join(dir,'changed.txt'),'utf8'),`${file}\n`);
+      const script=scriptFor('Begin fresh quality evidence attempt')+'\n'+scriptFor('Resolve exact efficacy comparison base');
+      const scoped={...event,TEST_EFFICACY_BASE:values(scopeOutput).base,TEST_EFFICACY_HEAD:values(scopeOutput).head};
+      const result=run(script,scoped);
       assert.equal(result.status,0,result.stderr);
-      const values=Object.fromEntries(fs.readFileSync(output,'utf8').trim().split('\n').map(line=>line.split('=')));
-      assert.equal(values.TEST_EFFICACY_BASE,base,`manual ${dispatchRef} must compare the intended exact ancestor`);
+      assert.equal(values(output).TEST_EFFICACY_BASE,base,`manual ${dispatchRef} must compare the intended exact ancestor`);
+      for(const override of [{TEST_EFFICACY_BASE:''},{TEST_EFFICACY_HEAD:''},{TEST_EFFICACY_BASE:head},{TEST_EFFICACY_HEAD:base}]) {
+        fs.rmSync(output,{force:true});
+        const denied=run(script,{...scoped,...override});
+        assert.equal(denied.status,1);
+        assert.match(denied.stderr,/Unbound scope\/quality comparison/);
+        assert.equal(Object.hasOwn(values(output),'TEST_EFFICACY_BASE'),false);
+      }
       const generation=workflow.split('- name: Generate qualified software quality evidence')[1].split('- name: Upload CI Metrics')[0];
       assert.doesNotMatch(generation,/TEST_EFFICACY_BASE:/,'the writer must not replace the resolved job base with an empty event field');
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  }
+});
+
+test('rendered named artifact glob selects ordinary wildcard artifacts and only this smoke attempt',()=>{
+  // The downloader uses minimatch; resolve the installed matcher via the declared ESLint dependency.
+  const require=createRequire(import.meta.url);
+  const matcher=createRequire(require.resolve('eslint/package.json'))('minimatch');
+  const matches=typeof matcher==='function'?matcher:matcher.minimatch;
+  const workflow=fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8');
+  const pattern=workflow.match(/- name: Download Named Artifacts[\s\S]*?pattern: '([^']+)'/)?.[1];
+  assert.ok(pattern);
+  const rendered=pattern.replace(/\$\{\{\s*github\.(run_id|run_attempt)\s*\}\}/g,
+    (_,field)=>field==='run_id'?'9001':'2');
+  assert.doesNotMatch(rendered,/\$\{\{/);
+  for(const name of ['unit-artifacts','build-artifacts','shard-report-1','shard-report-4','ux-review-screenshots-shard-3',
+    'lighthouse-report','j1d-smoke-evidence-9001-2']) assert.equal(matches(name,rendered),true,name);
+  for(const name of ['j1d-smoke-evidence-9001-1','j1d-smoke-evidence-9002-2','shard-missing','unexpected']) {
+    assert.equal(matches(name,rendered),false,name);
   }
 });
 
@@ -475,8 +577,8 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
 function executionFixture(installed=false) {
   const dir=canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(),'quality-vitest-execution-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),bytes);};
-  for(const file of ['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
-    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
+  for(const file of ['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs','scripts/lib/ciManualSquashComparison.mjs',
+    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/j1d-smoke/ciEvidence.mjs','scripts/j1d-smoke/smokeEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
     'scripts/lib/softwareQualityEvidenceQualification.mjs',...dependencyPaths(root,contract.testFile)]) {
     write(file,fs.readFileSync(path.join(root,file)));
   }
@@ -532,6 +634,23 @@ test('deleted ordinary tests remain non-executable across dirty staged and commi
   const coverage=executionCoverage([],{root:f.dir,expected,base:f.base});
   assert.equal(coverage.status,'INCOMPLETE');
   assert.deepEqual(coverage.pilot,{required:true,status:'NOT RUN'});
+}));
+
+test('deleting or renaming a registered workflow input refuses changed evidence without credit',()=>withTrackedExecutionFixture(f=>{
+  const input='tools/cloud-test/scripts/prerequisite_preflight.cjs';
+  const replacement='tools/cloud-test/scripts/prerequisite_preflight_copy.cjs';
+  f.write(input,"module.exports = () => 'fixture';\n");
+  f.git(['add',input]); const base=f.commit();
+  f.write(input,"module.exports = () => 'modified fixture';\n");
+  assert.deepEqual(changedEvidencePaths(f.dir,base),[input]);
+  f.git(['restore',input]);
+  fs.renameSync(path.join(f.dir,input),path.join(f.dir,replacement));
+  for(const state of ['dirty','staged','committed']) {
+    if(state==='staged') f.git(['add','-A','tools']);
+    if(state==='committed') f.commit();
+    assert.throws(()=>changedEvidencePaths(f.dir,base),
+      {message:`NOT RUN: required registered test input missing: ${input}`}, state);
+  }
 }));
 
 test('deleted obsolete test does not break the actual quality writer or earn execution credit',()=>withTrackedExecutionFixture(f=>{
@@ -1072,52 +1191,55 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
   },600000);
 
-  test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',()=>{
+  test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',async()=>{
     const {dir,write,git}=executionFixture(true);
     const evidence=path.join(dir,'product_release/evidence/software-quality.latest.json');
     const original="import {it,expect} from 'vitest';\nimport {isValidMetric} from '../../utils/metricValidity';\n"
       +contract.mutants.map(mutant=>`it(${JSON.stringify(mutant.assertion)},()=>{\n${mutant.assertionAnchor}\n});`).join('\n');
-    const workflow=fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8');
-    const reportSection=workflow.split('\n  report:')[1].split('\n  review-qualification:')[0];
-    const reportScript=reportSection.split('        run: |\n')[1].trimEnd().split('\n').map(line=>line.slice(10)).join('\n');
+    const reportScript=ciStepProgram('report','Enforce Selected Lane');
     const report=state=>spawnSync('/bin/bash',['-c',reportScript],{encoding:'utf8',env:{...process.env,
-      FULL_REQUIRED:'true',SCOPE_RESULT:'success',UNIT_RESULT:'success',EDGE_RESULT:'success',BUILD_RESULT:'success',
+      BASE_ONLY_PROOF:'',FULL_REQUIRED:'true',SCOPE_RESULT:'success',UNIT_RESULT:'success',EDGE_RESULT:'success',BUILD_RESULT:'success',
       HEALTH_RESULT:'success',E2E_RESULT:'success',QUALITY_RESULT:'success',EVIDENCE_RESULT:state}});
-    const run=()=>{const head=git(['rev-parse','HEAD']);return spawnSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{
-      cwd:dir,encoding:'utf8',timeout:120000,env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,
+    const run=()=>{const head=git(['rev-parse','HEAD']);return runAsync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{
+      cwd:dir,timeout:80_000,env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,
         GITHUB_RUN_ID:'902',GITHUB_RUN_ATTEMPT:'1',TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID()}});};
-    const green=()=>{const result=run();assert.equal(result.error,undefined);assert.equal(result.status,0,result.stderr);
+    const green=async()=>{const result=await run();assert.equal(result.error,undefined);assert.equal(result.signal,null);assert.equal(result.status,0,result.stderr);
       assert.equal(JSON.parse(fs.readFileSync(evidence,'utf8')).testEfficacy.contracts[0].mutants.length,2);
-      assert.equal(report('success').status,0);};
+      const ordinary=report('success');assert.equal(ordinary.error,undefined);
+      assert.equal(ordinary.status,0,ordinary.stderr);assert.match(ordinary.stdout,/Full merge-candidate lane passed/);};
     try {
       write('frontend/vitest.config.mjs',`export default {test:{environment:'node',include:[${JSON.stringify(contract.testFile)},'tests/unit/*.test.js'],pool:'forks',maxWorkers:1,minWorkers:1}};`);
+      git(['add','frontend/vitest.config.mjs']);
+      git(['-c','user.name=Execution fixture','-c','user.email=fixture@example.invalid','commit','-m','fixture runner baseline']);
       write(contract.testFile,original);
-      green();
+      await green();
       // Keep the registered anchor exactly once as a comment: the mutant must survive
       // the weakened assertion, rather than failing merely because its anchor vanished.
       write(contract.testFile,original.replace(contract.mutants[0].assertionAnchor,
         `// ${contract.mutants[0].assertionAnchor}\nexpect(true).toBe(true);`));
-      const red=run();assert.equal(red.error,undefined);assert.equal(red.status,1,red.stderr);
+      const red=await run();assert.equal(red.error,undefined);assert.equal(red.signal,null);assert.equal(red.status,1,red.stderr);
       assert.match(red.stderr,/\[blank-is-zero\] Efficacy process failed/);
+      assert.ok(red.stderr.includes('test="frontend/src/lib/__tests__/analyticsEvidenceValidity.test.ts" batch=semantic timeoutMs=60000'));
       assert.doesNotMatch(red.stderr,/NOT RUN|Unsupported|anchor missing|Cannot find module/);
       assert.equal(fs.existsSync(evidence),false,'a weak test cannot leave a stale quality PASS');
       assert.match(fs.readFileSync(path.join(dir,contract.testFile),'utf8'),/expect\(true\)\.toBe\(true\)/);
-      const blocked=report('failure');assert.equal(blocked.status,1);assert.match(blocked.stdout+blocked.stderr,/full lane failed/);
-      write(contract.testFile,original);green();
+      const blocked=report('failure');assert.equal(blocked.status,1,blocked.stderr);assert.match(blocked.stdout+blocked.stderr,/full lane failed/);
+      write(contract.testFile,original);await green();
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
-  });
+  // This runs three installed writer invocations (baseline, mutation, restore).
+  // One observed complete local execution took 43 s; each assertion is unchanged.
+  },90_000);
 }
 
 test('CI-invoked writer fails incomplete coverage and succeeds after valid evidence is restored',()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quality-ci-enforcement-'));
   try {
-    const workflow=fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8');
-    const step=workflow.split('- name: Generate qualified software quality evidence')[1].split('- name:')[0];
-    const command=step.match(/\brun:\s*(node scripts\/write-software-quality-evidence\.mjs)\s*\n/);
-    assert.ok(command,'exercise the writer command actually invoked by CI');
+    const command=ciStepProgram('full-evidence','Generate qualified software quality evidence');
+    const entry='scripts/write-software-quality-evidence.mjs';
+    assert.equal(command.trim(),`node ${entry}`,'exercise the writer command actually invoked by CI');
     const files=['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
       'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs',
-      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+      'scripts/lib/testExecutionEvidence.mjs','scripts/j1d-smoke/ciEvidence.mjs','scripts/j1d-smoke/smokeEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
       ...dependencyPaths(root,contract.testFile)];
     for (const file of files) {
       fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});
@@ -1136,7 +1258,7 @@ test('CI-invoked writer fails incomplete coverage and succeeds after valid evide
     }));
     const evidenceFile=path.join(dir,'product_release/evidence/software-quality.latest.json');
     const markdownFile=path.join(dir,'product_release/evidence/software-quality-summary.latest.md');
-    const run=()=>spawnSync(process.execPath,[command[1].split(' ')[1]],{cwd:dir,encoding:'utf8',
+    const run=()=>spawnSync(process.execPath,[entry],{cwd:dir,encoding:'utf8',
       env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_RUN_ID:'9001',GITHUB_RUN_ATTEMPT:'2',GITHUB_SHA:head,
         TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID(),NODE_V8_COVERAGE:''}});
     // This positive control has no affected tests and runs no product runtime. Metrics are fixture

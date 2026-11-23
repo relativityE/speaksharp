@@ -156,7 +156,7 @@ describe('sampleFocusRail — one atomic DOM read', () => {
 describe('wiring in rwtFocusPointsJourney.ts', () => {
     const src = readFileSync(path.resolve(here, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
     it('samples the rail inside the live window, judges the frozen window, and writes the row from that verdict', () => {
-        const start = src.indexOf('await startBenchmarkRecording(page, suite);');
+        const start = src.indexOf('await startBenchmarkRecording(page, suite, undefined, firstClick);');
         const window = src.indexOf('const markerWindow = new MarkerTimeline();');
         const sample = src.indexOf('const now = await sampleFocusRail(page, points.length);');
         const record = src.indexOf('markerWindow.record(atMs - startedAt, now);');

@@ -6,6 +6,10 @@ import {fileURLToPath} from 'node:url';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export const HELPER_CONTRACTS = Object.freeze([{
+  helperFile: 'tests/evidence/normalization/officialNormalizer.ts',
+  testFile: 'tests/evidence/normalization/__tests__/officialNormalizer.goldens.test.ts',
+  callables: ['normalizeOfficialCore', 'normalizeOfficialTrackA', 'normalizeOfficialTrackB'],
+}, {
   helperFile: 'frontend/tests/test-utils/practicePrivacy.ts',
   testFile: 'tests/unit/practicePrivacyFixture1835.test.ts',
   callables: ['grantPracticePrivacy'],
@@ -31,6 +35,14 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtJourney.ts', testFile:'tests/unit/progressReaderUrlPredicates.test.ts',
   callables:['analyticsThroughActions','backFromProgressRestoresSession'],
 }, {
+  // J1.a (Sam on run 45014809858): the new account's 30-day trial, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtTrialGrant.ts', testFile:'tests/unit/rwtTrialGrant.test.ts',
+  callables:['trialGrantVerdict','trialGrantRow'],
+}, {
+  // J1 option B (Sam, 21 Nov): the save-minimum hold and its atomic Stop, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtSaveHold.ts', testFile:'tests/unit/rwtSaveHold.test.ts',
+  callables:['saveHoldVerdict','stopClickVerdict','holdThenStopWith','pageSaveHoldDeps','holdThenStop'],
+}, {
   helperFile:'tests/live/helpers/rwtOracles.ts', testFile:'tests/unit/rwtReadbackBindingReasons1258.test.ts',
   callables:['bindReadbackJourneys'],
 }, {
@@ -52,6 +64,12 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/repeatMetricWording.ts', testFile:'tests/unit/repeatMetricWording1548.test.ts',
   callables:['normalizeLine','validRecommendation','expectedTargetLine','expectedOutcomeLine','pressLinkage','repeatMetricPrerequisites','repeatMetricWordingVerdict'],
+}, {
+  helperFile:'tests/db/helpers/completionEnv.ts', testFile:'tests/db/atomic-completion-retention.integration.test.ts',
+  callables:['MIG','sid','buildCompletionDb','db0','closeCompletionDbs','actingAs','newSession','complete','transcriptBearingCount','row'],
+}, {
+  helperFile:'tests/helpers/exactMigrationWiringCases.ts', testFile:'tests/unit/progressEvaluationMigrationWiring1471.test.js',
+  callables:['assertMigrationBytePin','assertStagedMigrationOrder','assertTargetOnlyDryRunCases'],
 }, {
   helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/exactMigrationGate.test.js',
   callables:['proveC1CatalogStages'],
@@ -112,7 +130,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:['externalParentProofGaps','receiptAcceptance','requiredAutomatedRows','validateReceipt','finalizeReceipt'],
 }, {
   helperFile:'tests/live/helpers/rwtCoachingConsistency.ts',testFile:'tests/unit/rwtCoachingConsistency1258.test.ts',
-  callables:['characterCeilingVerdict','fillerAdviceVerdict','takesDifferVerdict','openPointReferenceVerdict','readTwoTakesCoaching'],
+  callables:['characterCeilingVerdict','fillerAdviceVerdict','takesDifferVerdict','openPointReferenceVerdict','readTwoTakesCoaching','omissionClaimVerdict'],
 }, {
   helperFile:'tests/live/helpers/rwtCoachingEvidence.ts',testFile:'tests/unit/rwtCoachingEvidence.test.ts',
   callables:['canonicalSuggestionSha256','coachingSessionBindingSha256','recomputeCoachingPromptSha256','buildRwtCoachingEvidenceArtifact','writeRwtCoachingEvidenceArtifact'],
@@ -120,8 +138,11 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtHarnessParity.ts',testFile:'tests/unit/rwtHarnessParityExecution1812.test.ts',
   callables:['HarnessParityTap#takeBindings','HarnessParityTap#attach','HarnessParityTap#noCloudSttRow','HarnessParityTap#startPressRow','HarnessParityTap#ownedPagesClosedRow','probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility','repeatEligibilityEvidence'],
 }, {
+  helperFile:'tests/live/helpers/rwtNumericActive.ts',testFile:'tests/unit/rwtNumericActive.test.ts',
+  callables:['matchingNumericSet','preflightActive','readPersistedNumeric','readExpectedActive','observeActive'],
+}, {
   helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
-  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter'],
+  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter','deferredLateCoachingSink','reopenWithinCutoff'],
 }, {
   helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
   callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
@@ -148,14 +169,20 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"],
 }, {
   helperFile:'tests/live/helpers/rwtAdverseRecovery.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
-  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
-    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"],
+  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","betweenFilesFailureVerdict",
+    "bytesCounted","betweenFilesGate","attemptPhase","runBetweenFilesFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict",
+    "shownFailureVerdict","shownFailureSettled","pollShownFailure","worstVerdict"],
 }, {
-  // AHT-14 (#1868): the attempt's network transfer behind the offline gate, through the same unit consumer.
+  // AHT-14 (#1868; J7.c option B): the attempt's model files and the held next file behind the offline gate, through the same unit consumer.
   helperFile:'tests/live/helpers/rwtAdverse.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
   callables:["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
-    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
-    "ModelTransferTracker#snapshot"],
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed","ModelTransferTracker#stateOf",
+    "ModelTransferTracker#snapshot","BetweenFilesHold#startAttempt","BetweenFilesHold#onRoute","BetweenFilesHold#held","BetweenFilesHold#release",
+    "BetweenFilesHold#releaseAll"],
+}, {
+  // J7.c option B (#1941): the isolated build's refusal of repo-root dotenv files, through its own unit consumer.
+  helperFile:'tests/e2e/helpers/isolatedBuildDotenv.ts',testFile:'tests/unit/j7cIsolatedBuildDotenv.test.ts',
+  callables:["rootDotenvFiles","assertNoRootDotenv"],
 }, {
   // J8 (#1870): the same-account feedback journey's pure rules, through their own unit consumer.
   helperFile:'tests/live/helpers/rwtJ8Journey.ts',testFile:'tests/unit/rwtJ8Journey.test.ts',
@@ -193,7 +220,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   // #1882 on the post-#1835 build: the run's consent settled before any take, and each saved take read back against it.
   helperFile:'tests/live/helpers/rwtPracticeConsent.ts',testFile:'tests/unit/rwtPracticeConsent1882.test.ts',
-  callables:["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"],
+  callables:["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent","fixedConsentBeforeStartVerdict","settleFixedConsentOnPractice","captureConsentGate"],
 }, {
   // #1897 review 4: with coaching off or saving off on a #1835 build, the Focus review checks use affirmative evidence.
   helperFile:'tests/live/helpers/rwtCoachingOff.ts',testFile:'tests/unit/rwtCoachingOff1897.test.ts',
@@ -229,11 +256,30 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtSaveRetryAttempts.ts',testFile:'tests/unit/rwtSaveRetryAttempts.test.ts',
   callables:["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"],
 }, {
+  helperFile:'tests/live/helpers/rwtJ3Evidence.ts',testFile:'tests/unit/rwtJ3Evidence.test.ts',
+  callables:["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard"],
+}, {
+  helperFile:'tests/live/helpers/rwtJ4aEvidence.ts',testFile:'tests/unit/rwtJ4aEvidence.test.ts',
+  callables:["j4aRequestNeverReachedVerdict","j4aOneSaveForAccountVerdict","saveRetryPrivacyVerdict","j4aNoSecondTakeVerdict","j4aPrivacyCleanupVerdict","j4aCoachingGuard","j4aCoachingBlockedVerdict","j4aCoachingBlockedRow"],
+}, {
+  // J1.c: the short Stop that saves nothing, its probe, save tap, rows reader and oracle row, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtShortStop.ts',testFile:'tests/unit/rwtShortStop.test.ts',
+  callables:["emptyShortStopObservation","armShortStopProbe","readShortStopProbe","stopFacts","shownFacts","awaitShortStopSettled",
+    "sessionRowsReader","shortStopInput","shortStopRow","shortStopTakeOf","ShortStopSaveTap#attach","ShortStopSaveTap#detach"],
+}, {
   helperFile:'tests/live/helpers/rwtTwoPlaces.ts',testFile:'tests/unit/rwtTwoPlaces.test.ts',
   callables:["sameBrowserRefusedVerdict","displacedFenceVerdict"],
 }, {
+  // #1835 (J5.b/c, J6): the lease press reads consent back at the click; its verdicts and that press run offline.
+  helperFile:'tests/live/helpers/rwtAbandonTakeover.ts',testFile:'tests/unit/rwtAbandonTakeover1258.test.ts',
+  callables:["pressPrivateStartForLease","releasedVerdict","answerLeaveDialog","leavePromptVerdict","returnStartVerdict","classifyRecoveryClaim","newRowsSince","priorTakeSaved","leftTakeSavedOnce","leftTakeSavedVerdict","recoveryNoticeVerdict","nextTakeOnlyItselfVerdict","modelWorkBeforeRefusal","secondTabBlockedVerdict","leaseRefusalWindowVerdict","takeOverVerdict","noCloudVerdict","takeOverRowsVerdict"],
+}, {
   helperFile:'tests/live/helpers/servedReleaseBinding.ts', testFile:'tests/unit/servedReleaseBinding.test.ts',
   callables:['servedReleaseVerdict','requiresReleaseBinding'],
+}, {
+  // J3: the coaching fallback row, read from the review card and never pressed, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtCoachingFallback.ts',testFile:'tests/unit/rwtCoachingFallback.test.tsx',
+  callables:["readCoachingFallback","coachingFallbackVerdict","coachingFallbackRow"],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 

@@ -78,21 +78,21 @@ test.describe('#1047/#1231 filler breakdown states', () => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
 
-    // This fixture carries real tracked fillers, so the breakdown is driven by genuine evidence.
-    await recordAndStop(page, MOCK_TRANSCRIPTS_WITH_FILLERS);
+    // Deliver the whole scripted text as one final; separate partials alone do not prove ingestion.
+    // An independent reading of this fixture gives two ums and one uh, not the discourse markers.
+    await recordAndStop(page, [MOCK_TRANSCRIPTS_WITH_FILLERS.join(' ')]);
 
     await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId('filler-breakdown-list')).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId('filler-breakdown-empty')).toHaveCount(0);
 
-    // Only detected words are listed, and every count is a real positive number — nothing sits at zero.
     const words = page.getByTestId('filler-breakdown-word');
-    const wordCount = await words.count();
-    expect(wordCount).toBeGreaterThan(0);
-    const counts = page.getByTestId('filler-breakdown-count');
-    for (let i = 0; i < wordCount; i++) {
-      await expect(counts.nth(i)).not.toHaveText('×0');
-    }
+    await expect(words).toHaveCount(2);
+    await expect(words.nth(0)).toHaveAttribute('data-word', 'um');
+    await expect(words.nth(0).getByTestId('filler-breakdown-count')).toHaveText('×2');
+    await expect(words.nth(1)).toHaveAttribute('data-word', 'uh');
+    await expect(words.nth(1).getByTestId('filler-breakdown-count')).toHaveText('×1');
+    await expect(page.getByTestId('after-stats')).toHaveText(/^3 fillers · \d+ words$/);
 
     // The after-state is review-only — the custom-word manager is a before-state control, not shown here.
     await expect(page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON)).toHaveCount(0);

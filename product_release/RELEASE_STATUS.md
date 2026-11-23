@@ -3,7 +3,7 @@
 **Status:** Authoritative for the bounded 9 November 2026 MVP acceptance map and source snapshot below; earlier dated component snapshots remain history. Release acceptance HOLD.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — specialist source review and current-main receiving; exact-head qualification remains a separate gate.
-**Last Verified:** 2026-11-16 — source through main `42b02f29` (#1796); Production `__APP_RELEASE__` read directly as `446e09fa` on 2026-11-16; no end-to-end acceptance is claimed (the 5 November reconciliation below remains dated history).
+**Last Verified:** 2026-11-22 — source through main `02c77cf3` (#1932), read from GitHub (source currency only). Production frontend was separately read as `7c9e4727`; no acceptance is claimed.
 **Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -669,11 +669,14 @@ not a waiver of the guard.
 
 | Identity | Recorded value | Evidence boundary |
 |---|---|---|
-| Repository `main` reconciled source baseline (16 November 2026) | `42b02f293e5fb31e41e877b0f9603b0c059069fc` | Exact source through #1796, read from GitHub. Source ancestry does not establish deployment or acceptance. Re-read moving main before operational action. |
+| Repository `main` reconciled source baseline (22 November 2026) | `02c77cf3940b85445b3cf15d93ec10cbba31a7c7` | [Verified 26-commit source comparison](https://github.com/relativityE/speaksharp/compare/6c9d3115dacc414a3c1d11344bac07523fd12e59...02c77cf3940b85445b3cf15d93ec10cbba31a7c7). Includes merge/evidence tooling, migration apply wiring, and disposable/diagnostic journey and consent controls through #1932; it does not attest migration application, deployment, or acceptance. |
+| Repository `main` reconciled source baseline (dated 19 November 2026) | `6c9d3115dacc414a3c1d11344bac07523fd12e59` | Exact source through #1904, read from GitHub. Source ancestry does not establish deployment or acceptance. Re-read moving main before operational action. |
+| Repository `main` reconciled source baseline (dated 16 November 2026) | `42b02f293e5fb31e41e877b0f9603b0c059069fc` | Exact source through #1796, read from GitHub. Source ancestry does not establish deployment or acceptance. Re-read moving main before operational action. |
 | Repository `main` reconciled source baseline (dated 14 November 2026) | `859fe807d304d825e6a50fb42437e3e6e24487e9` | Exact source through #1795, read from GitHub. Source ancestry does not establish deployment or acceptance. Re-read moving main before operational action. |
 | Repository `main` reconciled source baseline (dated 12 November 2026) | `b9907d625e6d5b9810050f556d62904baa62982c` | History: exact source through #1830. |
 | Repository `main` reconciled source baseline (dated 5 November 2026) | `8f9f9451bb6bf37ba2bca524acd92d933e2b826c` | History: exact source through #1785. |
-| Production served frontend `__APP_RELEASE__ =` (observed 16 November 2026) | `446e09fad7a664b0ff49805d6c13ee10e2e466f0` | Read directly from Production on 2026-11-16 (19:34 UTC, `window.__APP_RELEASE__`). A served marker, not end-to-end acceptance; no J1–J9 leg is accepted. |
+| Production served frontend `__APP_RELEASE__ =` (observed 22 November 2026) | `7c9e472763e5f7f31fb2aadbaab0a54a36176e3a` | Direct canonical readback following [frontend-only release 44954497204](https://github.com/relativityE/speaksharp/actions/runs/44954497204) (served check passed; Edge skipped). Frontend identity only; independent of the source baseline, with no acceptance or HOLD change. |
+| Production served frontend `__APP_RELEASE__ =` (dated 16 November 2026) | `446e09fad7a664b0ff49805d6c13ee10e2e466f0` | Read directly from Production on 2026-11-16 (19:34 UTC, `window.__APP_RELEASE__`). A served marker, not end-to-end acceptance; no J1–J9 leg is accepted. |
 | Production served frontend `__APP_RELEASE__` (dated 14 November 2026) | `9ae1dbcf3f07ef741ad3f3e9e48ef6960a41008d` | History: read directly from Production on 2026-11-14; frontend-only release run 43495424841 (2026-11-13, success; Edge skipped). A served marker, not end-to-end acceptance. |
 | Production served frontend `__APP_RELEASE__ =` (dated 12 November 2026) | `d401349bca036be1f5413fa50faba536fba3ed51` | History: read after Edge release run 43157953329 and frontend release run 43158275628. |
 
@@ -1027,9 +1030,10 @@ The following addenda are later owner-reported history, outside the 17 October 2
 **Subsequent frontend disposition — 18 October 2026, 09:20–09:23 UTC:** [App Dev's #1652 landing/canary/served receipt6248196339](https://github.com/relativityE/speaksharp/pull/1652#issuecomment-6248196339) reports squash merge `3540103e8d86b5a284265443312c61e643bf5304` at 09:20:24 UTC after full-lane PR CI [39111739476](https://github.com/relativityE/speaksharp/actions/runs/39111739476) SUCCESS and clean exact-head Code/Security qualification. Canary [39114943038](https://github.com/relativityE/speaksharp/actions/runs/39114943038) is reported SUCCESS, including read-only migration readiness and active-trial checks. At 09:22:46 UTC App Dev observed `VITE_VERCEL_GIT_COMMIT_SHA = 3540103e8d86b5a284265443312c61e643bf5304` in the served bundle. This records delivered #1652 source/deployment and supersedes its earlier repair/deployment assignment; do not repeat that repair or deployment. It is a dated owner receipt, not a new Production read by Browser PM or a guarantee of the moving served identity. Final campaign release binding, specifically authorized full useful Open Mic/full and partial Focus RWT, received evidence/cleanup and human/device acceptance remain open. The Products-menu/dialog race remains open with CLI Dev. No live campaign or customer-exit acceptance follows.
 
 <!-- CURRENCY-BLOCK
-baseline: 42b02f293e5fb31e41e877b0f9603b0c059069fc
-deployed-release: 446e09fad7a664b0ff49805d6c13ee10e2e466f0
-verified-on: 2026-11-16
+# 2026-11-22: baseline re-read from GitHub (source only); deployed-release is the separate direct Production frontend observation (2026-11-22).
+baseline: 02c77cf3940b85445b3cf15d93ec10cbba31a7c7
+deployed-release: 7c9e472763e5f7f31fb2aadbaab0a54a36176e3a
+verified-on: 2026-11-22
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged

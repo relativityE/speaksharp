@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { afterAll, beforeAll, test } from 'vitest';
 import { parse } from 'yaml';
-import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing,
+import { selectRunnerJourneys, receipt, isRefundCancellation, assertFullRefund, assertCheckoutGrantedNothing, assertDeclinedCheckoutGrantedNothing, assertNoAppAccess, assertSubscriptionsAllowed, declinedSubscriptionStatuses, assertOnePaidRetrySubscription,
   checkoutSessionFromUrl, assertCheckoutIdentity, newlyAddedCard, assertNoSecondCharge,
   BILLING_JOURNEYS, FULL_MODE_JOURNEYS, RUNNER_JOURNEYS, LOCAL_STACK_JOURNEYS, REQUIRED_STEPS, POLICY_PENDING_STEPS, PENDING_POLICY } from './contract';
 import { finaliseLocalStackReceipt, journeyReceiptDefects } from './localStackReceipt.mjs';
@@ -115,18 +115,42 @@ test('portal recovery repairs billing in Manage billing only, never with an API 
   assert.match(branch, /portal_recovery_pay_unavailable/);
 });
 
-test('failed checkout: a declining test card, an expired session, then one paid subscription', () => {
-  const branch = between("} else if (this.journey === 'failed_checkout') {\n      // A declined card", '    } else {\n      checkoutUrl = await invoke();');
+test('failed checkout: a walk-away, a declining test card, an expired session, then one paid subscription', () => {
+  const branch = between("} else if (this.journey === 'failed_checkout') {\n      // Walk-away (J2)", '    } else {\n      checkoutUrl = await invoke();');
+  // Walk-away: the owner leaves the open Checkout for the app, which still shows the wall while that session is open and unpaid.
+  assert.match(branch, /const walked = await this\.openCheckout\(await invoke\(\)\);/);
+  assert.match(branch, /this\.page\.goto\(`\$\{this\.targets\.app\}\/practice`\)/);
+  assert.match(branch, /getByTestId\('trial-payment-wall'\)/);
+  assert.match(branch, /assertCheckoutGrantedNothing\(await this\.stripe\(`checkout\/sessions\/\$\{walked\}`\), 'open'\)/);
+  assert.match(branch, /requireFact\(declined === walked, 'walk_away_return_created_second_session'\)/);
   assert.match(branch, /payOnHostedPage\('4000000000000002'\)/);
+  // Run 44915558806: the decline is read on the Checkout page and Stripe's own frames, never the top page alone and never any other
+  // frame; same oracle and bound, and a miss names what the page showed.
+  assert.match(branch, /if \(!await this\.textVisibleInCheckoutFrames\(\/declined\/i, 60_000\)\)/);
+  assert.doesNotMatch(branch, /this\.page\.getByText\(\/declined\/i\)/);
+  assert.match(branch, /BILLING_JOURNEY:decline_not_shown_alerts_\$\{n\(f\.alerts\)\}_invalid_\$\{n\(f\.invalid\)\}_challenge_\$\{b\(f\.challenge\)\}/);
+  const scan = between('  async textVisibleInCheckoutFrames(', '\n  }\n');
+  assert.match(scan, /for \(const frame of this\.page\.frames\(\)\) \{\n\s+if \(!trustedCheckoutFrame\(this\.page\.url\(\), frame\.url\(\)\)\) continue;/);
+  assert.match(scan, /frame\.getByText\(pattern\)\.first\(\)\.isVisible\(\)/);
   assert.match(branch, /checkout\/sessions\/\$\{declined\}\/expire`, 'POST'/);
   assert.match(branch, /sessionOf\(checkoutUrl\) !== declined, 'retry_checkout_refused'/);
-  const order = ['declined_checkout', 'no_access_after_decline', 'abandoned_checkout', 'no_access_after_abandon']
+  const order = ['walked_away_from_checkout', 'no_access_while_session_open', 'checkout_return_reused_session', 'declined_checkout',
+    'no_access_after_decline', 'abandoned_checkout', 'no_access_after_abandon']
     .map(step => branch.indexOf(`steps.add('${step}')`));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.ok(order.every(index => index > -1));
+  // The walk-away observation is recorded before the reuse check, any card entry and any expiry call, so a failure in
+  // those later checks cannot erase it or stand in for it; session reuse is its own step.
+  const walkAwayRecorded = branch.indexOf("steps.add('no_access_while_session_open')");
+  for (const later of ["'walk_away_return_created_second_session'", 'payOnHostedPage(', '/expire`']) {
+    assert.ok(branch.indexOf(later) > walkAwayRecorded, `${later} must follow the walk-away observation`);
+  }
+  assert.ok(branch.indexOf("'walk_away_return_created_second_session'") < branch.indexOf("steps.add('checkout_return_reused_session')"));
+  assert.ok(branch.indexOf("steps.add('checkout_return_reused_session')") < branch.indexOf('payOnHostedPage('));
   // The declined Checkout is checked before the browser goes to it (Sam's fa7e7180 return).
   assert.match(branch, /const declined = await this\.openCheckout\(await invoke\(\)\);/);
-  assert.match(SPEC, /all\.data\.length === 1\s*\n?\s*&& all\.data\[0\]\.id === this\.subscription, 'more_than_one_subscription'/);
+  // Exactly one paid subscription after the retry; only the declined session's own unpaid one may sit beside it (Codex P2 on #1935).
+  assert.match(SPEC, /assertOnePaidRetrySubscription\(\{ subscriptions: all\.data, hasMore: all\.has_more, paidId: this\.subscription, declinedId: this\.declinedSubscription \}\)/);
 });
 
 test('refund: the whole charge, never an amount; the cancellation must be the webhook\'s own follow-up', () => {
@@ -173,6 +197,30 @@ test('contract helpers: only a whole, succeeded, test refund of this charge; onl
     [{ ...open, subscription: 'sub_1' }, 'open'], [{ ...open, livemode: true }, 'open'], [open, 'expired'], [null, 'open']] as const) {
     assert.throws(() => assertCheckoutGrantedNothing(wrong, status), /failed_checkout_granted_something/, JSON.stringify(wrong));
   }
+  // A refusal names exactly what Stripe reported, as closed tokens; ids and free text never appear.
+  const named = (wrong: unknown, status: 'open' | 'expired') => {
+    try { assertCheckoutGrantedNothing(wrong, status); return null; } catch (e) { return (e as Error).message; }
+  };
+  assert.equal(named({ ...open, subscription: 'sub_123ABC' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_open_payment_unpaid_subscription_attached_mode_test');
+  assert.equal(named({ ...open, status: 'complete', payment_status: 'paid' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_complete_payment_paid_subscription_none_mode_test');
+  assert.equal(named({ ...open, livemode: true }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_open_payment_unpaid_subscription_none_mode_live');
+  assert.equal(named({ ...open, status: 'Weird Value https://x' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_other_payment_unpaid_subscription_none_mode_test');
+  assert.equal(named(null, 'open'), 'BILLING_JOURNEY:failed_checkout_granted_something_status_none_payment_none_subscription_none_mode_unread');
+  // Only Stripe's documented values are named (status: open/complete/expired; payment: paid/unpaid/no_payment_required); any other
+  // string, even a lowercase token-shaped one, is `other`, so no unexpected upstream text enters the receipt.
+  assert.equal(named({ ...open, status: 'processing', payment_status: 'requires_action' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_other_payment_other_subscription_none_mode_test');
+  assert.equal(named({ ...open, payment_status: 'no_payment_required' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_open_payment_no_payment_required_subscription_none_mode_test');
+  assert.equal(named({ ...open, status: 'expired' }, 'open'),
+    'BILLING_JOURNEY:failed_checkout_granted_something_status_expired_payment_unpaid_subscription_none_mode_test');
+  for (const [wrong, status] of [[{ ...open, subscription: 'sub_1' }, 'open'], [{ ...open, status: 'complete' }, 'open']] as const) {
+    assert.match(named(wrong, status) ?? '', /^BILLING_JOURNEY:[a-z0-9_]{1,160}$/); // within safeFailureReason's alphabet
+  }
 });
 
 // A pending receipt exactly as the spec writes it on the local stack.
@@ -206,7 +254,9 @@ test('Checkout is validated before navigation: every page.goto of a Checkout URL
   // Nowhere else does the browser go to a Checkout URL, and the three Checkout entries all use the helper.
   const gotos = [...SPEC.matchAll(/this\.page\.goto\(([^)]*)\)/g)].map(match => match[1]);
   assert.deepEqual(gotos.filter(arg => !arg.includes('this.targets.app')), ['raw as string']);
-  assert.equal(SPEC.match(/await this\.openCheckout\(/g)?.length, 3);
+  assert.equal(SPEC.match(/await this\.openCheckout\(/g)?.length, 4);
+  // The fourth entry is J2's walk-away: the same helper, so the walked-away session is validated before the browser goes there.
+  assert.match(SPEC, /const walked = await this\.openCheckout\(await invoke\(\)\);/);
   assert.match(SPEC, /requireFact\(await this\.openCheckout\(answers\[0\]\) === only, 'repeated_click_two_sessions'\);/);
   assert.match(SPEC, /this\.session = await this\.openCheckout\(checkoutUrl\);/);
 });
@@ -707,4 +757,158 @@ test('the workflow can dispatch every local-stack journey, the paid loop with it
   assert.equal(doc.jobs.journey['timeout-minutes'], "${{ inputs.journey == 'paid_value_loop' && 90 || 60 }}");
   // Every dispatched journey's receipt is accepted by the same combined-receipt step, so none bypasses it.
   for (const journey of LOCAL_STACK_JOURNEYS) assert.ok(REQUIRED_STEPS[journey].length > 0, journey);
+});
+
+test('declined checkout (J2): only an unpaid, incomplete subscription of this session and customer may be attached', () => {
+  // The shape Stripe's sandbox events showed for run 44937743744: an `incomplete` subscription whose first invoice is open with nothing
+  // paid (cleanup later moved it to `incomplete_expired`). That receipt did not establish the session attachment, so it is modelled here.
+  const session = { livemode: false, status: 'open', payment_status: 'unpaid', subscription: 'sub_1' };
+  const subscription = { id: 'sub_1', livemode: false, customer: 'cus_1', status: 'incomplete', latest_invoice: 'in_1' };
+  const invoice = { id: 'in_1', customer: 'cus_1', livemode: false, status: 'open', amount_paid: 0 };
+  const failedCharge = { status: 'failed' };
+  const base = { session, subscription, invoice, customer: 'cus_1', charges: [failedCharge] as unknown[], chargesHasMore: false,
+    expectedStatus: 'open' as const };
+  assertDeclinedCheckoutGrantedNothing(base);
+  assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, status: 'expired' }, expectedStatus: 'expired',
+    subscription: { ...subscription, status: 'incomplete_expired' } });
+  assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: { id: 'sub_1' } } });
+  assert.equal(assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, subscription: null }, subscription: null, invoice: null }), null);
+  assert.equal(assertDeclinedCheckoutGrantedNothing({ ...base, session: { livemode: false, status: 'open', payment_status: 'unpaid' },
+    subscription: null, invoice: null, charges: [] }), null);
+  assert.equal(assertDeclinedCheckoutGrantedNothing(base), 'sub_1');
+  assertDeclinedCheckoutGrantedNothing({ ...base, session: { ...session, status: 'expired' }, expectedStatus: 'expired' });
+  const refused = (input: typeof base | Record<string, unknown>) => {
+    try { assertDeclinedCheckoutGrantedNothing(input as typeof base); return null; } catch (e) { return (e as Error).message.replace('BILLING_JOURNEY:', ''); }
+  };
+  for (const [wrong, code] of [
+    [{ ...base, session: { ...session, payment_status: 'paid' } }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, session: { ...session, status: 'complete' } }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, session: { ...session, livemode: true } }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, expectedStatus: 'expired' }, 'declined_checkout_session_not_unpaid'],
+    [{ ...base, subscription: { ...subscription, status: 'incomplete_expired' } }, 'declined_checkout_subscription_not_incomplete'],
+    [{ ...base, charges: [failedCharge, { status: 'succeeded' }] }, 'declined_checkout_charged'],
+    [{ ...base, charges: [{ status: 'pending' }] }, 'declined_checkout_charged'],
+    [{ ...base, chargesHasMore: true }, 'declined_checkout_charges_unread'],
+    [{ ...base, charges: null }, 'declined_checkout_charges_unread'],
+    // Sam 11-21: an unknown charge row is unread, never "not a success".
+    [{ ...base, charges: [failedCharge, { status: 'refunded_weird' }] }, 'declined_checkout_charges_unread'],
+    [{ ...base, charges: [failedCharge, {}] }, 'declined_checkout_charges_unread'],
+    [{ ...base, charges: [null] }, 'declined_checkout_charges_unread'],
+    // Sam 11-21: only an actual null or absent reference is "no attachment"; a malformed one fails.
+    [{ ...base, session: { ...session, subscription: {} } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, session: { ...session, subscription: '' } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, session: { ...session, subscription: 42 } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, session: { ...session, subscription: { id: 7 } } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, session: { ...session, subscription: 'not-a-sub' } }, 'declined_checkout_subscription_malformed'],
+    [{ ...base, subscription: null }, 'declined_checkout_subscription_unread'],
+    [{ ...base, subscription: { ...subscription, id: 'sub_other' } }, 'declined_checkout_subscription_unread'],
+    [{ ...base, subscription: { ...subscription, customer: 'cus_other' } }, 'declined_checkout_subscription_foreign'],
+    [{ ...base, subscription: { ...subscription, livemode: true } }, 'declined_checkout_subscription_foreign'],
+    ...['active', 'trialing', 'past_due', 'unpaid', 'canceled', 'paused'].map((status) =>
+      [{ ...base, subscription: { ...subscription, status } }, 'declined_checkout_subscription_not_incomplete'] as const),
+    [{ ...base, invoice: null }, 'declined_checkout_invoice_unread'],
+    [{ ...base, invoice: { ...invoice, id: 'in_other' } }, 'declined_checkout_invoice_unread'],
+    [{ ...base, invoice: { ...invoice, customer: 'cus_other' } }, 'declined_checkout_invoice_unread'],
+    [{ ...base, invoice: { ...invoice, livemode: true } }, 'declined_checkout_invoice_unread'],
+    [{ ...base, invoice: { ...invoice, status: 'paid' } }, 'declined_checkout_invoice_paid'],
+    [{ ...base, invoice: { ...invoice, amount_paid: 1000 } }, 'declined_checkout_invoice_paid'],
+    [{ ...base, invoice: { ...invoice, amount_paid: undefined } }, 'declined_checkout_invoice_paid'],
+  ] as const) {
+    assert.equal(refused(wrong), code, JSON.stringify(wrong));
+  }
+  // The walk-away (before any card) keeps the strict no-subscription rule; both declined reads (open, then forced expiry) use the
+  // declined rule, which also reads the attached subscription, its latest invoice and the customer's charges.
+  const branch = between("} else if (this.journey === 'failed_checkout') {\n      // Walk-away (J2)", '    } else {\n      checkoutUrl = await invoke();');
+  assert.match(branch, /assertCheckoutGrantedNothing\(await this\.stripe\(`checkout\/sessions\/\$\{walked\}`\), 'open'\)/);
+  assert.match(branch, /await this\.declinedGrantedNothing\(declined, 'open'\)/);
+  assert.match(branch, /await this\.declinedGrantedNothing\(declined, 'expired'\)/);
+  assert.doesNotMatch(branch, /assertCheckoutGrantedNothing\([^)]*declined/);
+});
+
+test('no paid access (J2): app access is asserted first and on its own; only the declined session\'s own subscription, once', () => {
+  const code = (f: () => unknown) => { try { f(); return null; } catch (e) { return (e as Error).message.replace('BILLING_JOURNEY:', ''); } };
+  // App access: exactly can_start false and the observed non-Pro status (Sam 11-21: not merely "not pro").
+  assert.equal(code(() => assertNoAppAccess({ canStart: false, profileStatus: 'free' })), null);
+  for (const wrong of [{ canStart: true, profileStatus: 'free' }, { canStart: false, profileStatus: 'pro' }, { canStart: null, profileStatus: 'free' },
+    { canStart: undefined, profileStatus: 'free' }, { canStart: false, profileStatus: null }, { canStart: false, profileStatus: undefined },
+    { canStart: false, profileStatus: 'basic' }, { canStart: false, profileStatus: 'Pro' }, { canStart: 'false', profileStatus: 'free' }]) {
+    assert.equal(code(() => assertNoAppAccess(wrong)), 'failed_checkout_granted_access', JSON.stringify(wrong));
+  }
+  const sub = { id: 'sub_1', status: 'incomplete' };
+  const allowedOpen = { id: 'sub_1', statuses: declinedSubscriptionStatuses('open') };
+  const allowedExpired = { id: 'sub_1', statuses: declinedSubscriptionStatuses('expired') };
+  const subs = (subscriptions: unknown, allowed: typeof allowedOpen | null, hasMore: unknown = false) =>
+    code(() => assertSubscriptionsAllowed({ subscriptions, hasMore, allowed }));
+  assert.equal(subs([], null), null);
+  assert.equal(subs([], allowedOpen), null);
+  assert.equal(subs([sub], allowedOpen), null);
+  assert.equal(subs([{ ...sub, status: 'incomplete_expired' }], allowedExpired), null);
+  for (const [list, allowed, hasMore, why] of [
+    [[sub], null, false, 'any subscription with nothing allowed'],
+    [[sub, sub], allowedOpen, false, 'Sam 11-21: two copies of the allowed id'],
+    [[{ ...sub, id: 'sub_other' }], allowedOpen, false, 'a different subscription'],
+    [[sub, { ...sub, id: 'sub_2' }], allowedOpen, false, 'a second subscription'],
+    [[{ ...sub, status: 'incomplete_expired' }], allowedOpen, false, 'incomplete_expired while open'],
+    ...['active', 'trialing', 'past_due', 'unpaid', 'canceled'].map((status) => [[{ ...sub, status }], allowedExpired, false, status] as const),
+    [[sub], allowedOpen, true, 'an incomplete list'],
+    [null, allowedOpen, false, 'an unread list'],
+    [[null], allowedOpen, false, 'a null row'],
+  ] as const) {
+    assert.equal(subs(list, allowed as typeof allowedOpen | null, hasMore), 'failed_checkout_subscribed', why);
+  }
+  // End to end, offline, in the spec's order on the observed decline shape: the declined read verifies the incomplete subscription,
+  // app access is asserted next, then the list allows exactly that subscription. Wrongly granted access fails there, as access.
+  const declined = (canStart: unknown, profileStatus: unknown) => code(() => {
+    const id = assertDeclinedCheckoutGrantedNothing({
+      session: { livemode: false, status: 'open', payment_status: 'unpaid', subscription: 'sub_1' },
+      subscription: { id: 'sub_1', livemode: false, customer: 'cus_1', status: 'incomplete', latest_invoice: 'in_1' },
+      invoice: { id: 'in_1', customer: 'cus_1', livemode: false, status: 'open', amount_paid: 0 },
+      customer: 'cus_1', charges: [{ status: 'failed' }], chargesHasMore: false, expectedStatus: 'open' });
+    assertNoAppAccess({ canStart, profileStatus });
+    assertSubscriptionsAllowed({ subscriptions: [sub], hasMore: false, allowed: id === null ? null : { id, statuses: declinedSubscriptionStatuses('open') } });
+  });
+  assert.equal(declined(false, 'free'), null);
+  assert.equal(declined(true, 'free'), 'failed_checkout_granted_access');
+  assert.equal(declined(false, 'pro'), 'failed_checkout_granted_access');
+  // Wiring: the walk-away keeps the strict form; each declined read passes on exactly the subscription it verified, the expired read
+  // must report the same one, and app access is asserted before the Stripe list is requested.
+  const branch = between("} else if (this.journey === 'failed_checkout') {\n      // Walk-away (J2)", '    } else {\n      checkoutUrl = await invoke();');
+  assert.match(branch, /this\.steps\.add\('walked_away_from_checkout'\);\n\s+await this\.noPaidAccess\(\);/);
+  assert.match(branch, /const declinedSubscription = await this\.declinedGrantedNothing\(declined, 'open'\);/);
+  assert.match(branch, /noPaidAccess\(declinedSubscription === null \? null : \{ id: declinedSubscription, statuses: declinedSubscriptionStatuses\('open'\) \}\)/);
+  assert.match(branch, /requireFact\(expiredSubscription === declinedSubscription, 'declined_checkout_subscription_changed'\)/);
+  assert.match(branch, /noPaidAccess\(expiredSubscription === null \? null : \{ id: expiredSubscription, statuses: declinedSubscriptionStatuses\('expired'\) \}\)/);
+  const helper = between('  async noPaidAccess(', '\n  }\n');
+  assert.ok(helper.indexOf('assertNoAppAccess(') >= 0 && helper.indexOf('assertNoAppAccess(') < helper.indexOf('subscriptions?'), 'access asserted before the Stripe list');
+});
+
+test('after the paid retry (J2, Codex P2 on #1935): exactly one paid subscription, plus at most the declined session\'s own unpaid one', () => {
+  const code = (input: Parameters<typeof assertOnePaidRetrySubscription>[0]) => {
+    try { assertOnePaidRetrySubscription(input); return null; } catch (e) { return (e as Error).message.replace('BILLING_JOURNEY:', ''); }
+  };
+  const paid = { id: 'sub_paid', status: 'active' };
+  const declined = { id: 'sub_declined', status: 'incomplete_expired' };
+  const base = { subscriptions: [paid] as unknown[], hasMore: false, paidId: 'sub_paid', declinedId: null as string | null };
+  // Passing: no decline attachment; the declined one beside the paid one, expired or still incomplete.
+  assert.equal(code(base), null);
+  assert.equal(code({ ...base, subscriptions: [declined, paid], declinedId: 'sub_declined' }), null);
+  assert.equal(code({ ...base, subscriptions: [paid, { ...declined, status: 'incomplete' }], declinedId: 'sub_declined' }), null);
+  // Refused: an unrelated or duplicate subscription, the declined one when none was verified, the declined one paid, no paid one,
+  // two paid ones, an incomplete or unread list.
+  for (const [input, why] of [
+    [{ ...base, subscriptions: [paid, { id: 'sub_other', status: 'incomplete_expired' }], declinedId: 'sub_declined' }, 'unrelated'],
+    [{ ...base, subscriptions: [paid, declined] }, 'declined listed but none verified'],
+    [{ ...base, subscriptions: [paid, { ...declined, status: 'active' }], declinedId: 'sub_declined' }, 'declined became active'],
+    [{ ...base, subscriptions: [paid, declined, declined], declinedId: 'sub_declined' }, 'declined twice'],
+    [{ ...base, subscriptions: [declined], declinedId: 'sub_declined' }, 'no paid'],
+    [{ ...base, subscriptions: [paid, paid] }, 'paid twice'],
+    [{ ...base, hasMore: true }, 'incomplete list'],
+    [{ ...base, subscriptions: null }, 'unread list'],
+  ] as const) {
+    assert.equal(code(input as Parameters<typeof assertOnePaidRetrySubscription>[0]), 'more_than_one_subscription', why);
+  }
+  // Wiring: the verified declined id is carried from the expiry read to the final check.
+  const spec = readRepoFile('tests/billing/user-journey/journey.billing.spec.ts');
+  assert.match(spec, /requireFact\(expiredSubscription === declinedSubscription, 'declined_checkout_subscription_changed'\);\n\s+this\.declinedSubscription = expiredSubscription;/);
+  assert.match(spec, /assertOnePaidRetrySubscription\(\{ subscriptions: all\.data, hasMore: all\.has_more, paidId: this\.subscription, declinedId: this\.declinedSubscription \}\)/);
 });

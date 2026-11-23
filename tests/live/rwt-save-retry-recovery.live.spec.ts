@@ -10,6 +10,8 @@
  * real. Receipts are content-free: lengths and booleans, never transcript text. Preparation only: execution requires a
  * fresh release-bound RWT authorization.
  */
+import { readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import type { Page, Request, Route, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
@@ -25,7 +27,7 @@ import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, fina
 import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 import { openProductsItem } from './helpers/productsMenu';
 import {
-    expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
+    expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, pressCaptureControl, selectBenchmarkMode, startBenchmarkRecording,
     stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
@@ -36,6 +38,13 @@ import {
     type CompletionAttempt, SAVED_ROW_COLUMNS, type SavedRow, attemptEvidence, completionAttemptsVerdict, exactRetrySaveVerdict,
     parseCompletionAttempt, reviewReopenVerdict, transcriptDigest,
 } from './helpers/rwtSaveRetryAttempts';
+import {
+    J4A_COACHING_MAXIMUM, J4A_COACHING_ROUTE, J4A_START_PRESS_BUDGET, j4aCoachingBlockedRow, j4aCoachingGuard, j4aNoSecondTakeVerdict,
+    j4aOneSaveForAccountVerdict, j4aPrivacyCleanupVerdict, j4aRequestNeverReachedVerdict,
+} from './helpers/rwtJ4aEvidence';
+import {
+    SAVE_RETRY_CONSENT_MODE, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient, type ConsentRowRecorder,
+} from './helpers/rwtPracticeConsent';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -83,6 +92,20 @@ async function readSavedRows(uid: string, onlyActive = false): Promise<SavedRow[
     if (onlyActive) query = query.eq('status', 'active');
     const { data, error } = await query.order('created_at');
     return error || !Array.isArray(data) ? null : data as SavedRow[];
+}
+
+/**
+ * J4.a evidence check: every row in ANY account holding the take's id, and every row holding the Start row's idempotency key
+ * (admin reads, no user filter), so a save under another id or account is seen. Both reads are required: with no usable key
+ * nothing is read and the verdict HOLDs by name (Sam, Nov 18), never an id-only PASS. Kept in memory only.
+ */
+async function readTakeRowsAnyAccount(sessionId: string, idempotencyKey: unknown): Promise<{ byId: SavedRow[]; byKey: SavedRow[] } | null> {
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.trim() === '') return null;
+    const byId = await admin!.from('sessions').select(SAVED_ROW_COLUMNS).eq('id', sessionId);
+    if (byId.error || !Array.isArray(byId.data)) return null;
+    const byKey = await admin!.from('sessions').select(SAVED_ROW_COLUMNS).eq('idempotency_key', idempotencyKey);
+    if (byKey.error || !Array.isArray(byKey.data)) return null;
+    return { byId: byId.data as SavedRow[], byKey: byKey.data as SavedRow[] };
 }
 
 /**
@@ -139,12 +162,19 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     let claimed = false;
     let accountDeleted = false;
     // The ONE altered request. Every other completion request, including Retry Save's replay, reaches the server untouched.
-    const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false };
+    const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false, forwarded: false, droppedSessionId: null as string | null };
     // AHT-05/06 `completion-attempts` (harness completion-attempts.cjs): every completion POST's session, body sha and phase.
     // `retryMarked` is set immediately before the explicit Retry Save click. Bodies stay in memory.
     const attempts: CompletionAttempt[] = [];
     const attemptByRequest = new Map<Request, CompletionAttempt>();
     let retryMarked = false;
+    // J4.a (request lost) is bounded (Sam, Nov 19; PO's approved run): ONE take, zero coaching requests, and the journey stops
+    // right after the Retry Save readback. BOTH legs prove Save: Yes / Coaching: No at each Start click (#1835; Sam, Nov 20).
+    const j4a = variant === 'request-lost';
+    const leg = j4a ? 'J4.a' : 'J4.b';
+    let choiceVerified = false;
+    // J4.a: coaching is blocked in the browser, not only counted (Sam, Nov 19 on c558f4c). Armed below, before the first page.
+    const coachingGuard = j4aCoachingGuard();
     // #1258 C — every non-dropped completion call's answer, read from the browser's own events by request identity.
     const completions = new CompletionObserver<Request>();
     page.on('response', (response) => {
@@ -165,15 +195,22 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         // Sam, #1811 b319d42b RETURN: the completion route is the attempts observer, so it is never removed before the page
         // closes. It stays through coaching settle and the page close; a late attempt at any point before close is recorded.
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
-        // Two saved takes: at most one coaching request each.
-        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes }));
+        // J4.b: two saved takes, at most one coaching request each. J4.a: coaching off, so none at all (Sam, Nov 19).
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations,
+            { maximum: j4a ? J4A_COACHING_MAXIMUM : 2, oneRequestPerSession: takes }));
         // Harness parity rows (catalog AHT-05/AHT-06: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
         // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step, last before cleanup.
         await steps.step('harness parity counts', (alive) => {
             parity.noCloudSttRow(aliveReceipt(receipt, alive));
-            parity.startPressRow(aliveReceipt(receipt, alive), SAVE_RETRY_START_PRESS_BUDGET);
+            parity.startPressRow(aliveReceipt(receipt, alive), j4a ? J4A_START_PRESS_BUDGET : SAVE_RETRY_START_PRESS_BUDGET);
         });
         await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
+        // J4.a coaching block (Sam, Nov 19 on 2b57bd47): read the block count only AFTER every owned page is proven closed, so an
+        // attempt made between the checks above and the close is counted. The route stays armed through the close; an unproven
+        // closure HOLDs.
+        if (j4a) await steps.step('J4.a coaching blocked', (alive) => {
+            j4aCoachingBlockedRow(aliveReceipt(receipt, alive), 'J4.a: no coaching request left the browser', coachingGuard, parity.ownedPagesClosedAt);
+        });
         // Harness `completion-attempts` at the FINAL boundary (final-attempts.cjs): every owned page is closed, so no completion
         // request can still arrive; a late attempt after the in-journey checks is counted here, never missed.
         await steps.step('completion attempts', (alive) => {
@@ -181,6 +218,15 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             aliveReceipt(receipt, alive).row('completion attempts are the fault and one Retry', attemptsVerdict.status, attemptsVerdict.detail,
                 { attempts: attemptEvidence(attempts, attempts.find((a) => a.dropped)?.sessionId ?? null), retryMarked });
         });
+        // J4.a stops after the Retry readback: at the final boundary the account holds the one take and nothing else.
+        if (j4a) {
+            await steps.step('J4.a one take', async (alive) => {
+                const ownerRows = owner.uid ? await readSavedRows(owner.uid) : null;
+                const one = j4aNoSecondTakeVerdict({ takeSessionId: drop.droppedSessionId, ownerRows, attemptSessionIds: attempts.map((a) => a.sessionId) });
+                aliveReceipt(receipt, alive).row('J4.a: one take, nothing after Retry', one.status, one.detail,
+                    { reason: one.reason, ownerRows: ownerRows?.length ?? null, completionPosts: attempts.length });
+            });
+        }
         // A signup that died before its uid was read is still found by its created email.
         if ((owner.uid || owner.email) && !accountDeleted) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
@@ -188,6 +234,16 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX,
                     stoppedTakes: { writersClosedAt: () => parity.ownedPagesClosedAt, unsettledSaves: () => parity.unsettledSaves } })))) === 'deleted';
         }
+        // J4.a and J4.b (Sam, Nov 19): cleanup must also leave no privacy choice row for the owner (a counted zero by its exact id).
+        await steps.step(`${leg} privacy choice cleanup`, async (alive) => {
+            const read = owner.uid && accountDeleted
+                ? await admin!.from('practice_privacy_choices').select('user_id', { count: 'exact', head: true }).eq('user_id', owner.uid)
+                : null;
+            const gone = j4aPrivacyCleanupVerdict({ ownerId: owner.uid || null, choiceVerified, accountDeleted,
+                count: read?.count ?? null, readError: Boolean(read?.error) });
+            aliveReceipt(receipt, alive).row(j4a ? 'J4.a: cleanup removed the privacy choice' : 'J4.b: cleanup removed the privacy choice',
+                gone.status, gone.detail, { reason: gone.reason });
+        });
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);
         receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
@@ -196,9 +252,29 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         await suppressPageSnapshot(testInfo);
         // Before the first navigation (the signup below): the click recorder is an init script.
         await parity.attach(page.context());
+        // J4.a: every coaching request from any tab of this context is aborted before it leaves the browser. Never removed
+        // before the pages close, so a late request is stopped too.
+        if (j4a) {
+            await page.context().route(J4A_COACHING_ROUTE, (route) => coachingGuard.handler(route));
+            coachingGuard.armed = true;
+        }
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await page.goto('/practice');
+        // #1835: saving is off until the owner opts in, and the app's default stays off. Both legs expect saved transcripts, so the
+        // run's OWN account opts in through the Practice prompt (Save: Yes, Coaching: No) before anything else there. The row's
+        // PASS belongs to the readback the gate takes immediately before each Start click (Sam, Nov 20, #1916); any other outcome,
+        // a pre-#1835 build included, records the row and stops before that press.
+        const gate: CaptureConsentGate = await (async () => {
+            const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+            const client = admin as unknown as ChoiceClient;
+            const record: ConsentRowRecorder = (status, detail, evidence) => receipt.row('practice privacy choice', status, detail, evidence);
+            const consent = await settleFixedConsentOnPractice({ page, client, ownerId: owner.uid, migrationFiles, mode: SAVE_RETRY_CONSENT_MODE, record });
+            // The prompt's choice is recorded and read back for this owner, so cleanup must prove its row gone, even if a Start
+            // is later refused (a pre-#1835 build has no row to clean).
+            choiceVerified = consent.build === 'includes_1835' && consent.choice !== null;
+            return captureConsentGate({ consent, client, ownerId: owner.uid, mode: SAVE_RETRY_CONSENT_MODE, record });
+        })();
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
 
@@ -213,20 +289,25 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             attemptByRequest.set(route.request(), attempt);
             if (drop.dropped) return route.fallback();
             drop.dropped = true;
+            drop.droppedSessionId = attempt.sessionId;
             completions.markDropped(route.request());
             if (variant === 'request-lost') return route.abort('failed');
             // Response lost: the request reaches the real server and commits; the page never sees the answer.
+            drop.forwarded = true;
             const response = await route.fetch();
             drop.droppedStatus = response.status();
             return route.abort('failed');
         });
 
         await selectBenchmarkMode(page, 'private');
-        const setup = await preparePrivateModelIfPrompted(page, 900_000);
+        // The faulted take's Start: the cold model helper reads consent back at its own Download click; when it did not record,
+        // the ordinary Start reads it back at its click. The confirmed capture records the privacy row PASS.
+        const setup = await preparePrivateModelIfPrompted(page, 900_000, { beforeClick: () => gate.confirm() });
         if (!setup.recordingAlreadyStarted) {
             await waitForPrivateEngineReady(page, 600_000);
-            await startBenchmarkRecording(page, `save-retry-${variant}-1`);
+            await startBenchmarkRecording(page, `save-retry-${variant}-1`, undefined, { beforeClick: () => gate.confirm() });
         }
+        gate.recordPass();
         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         // The Start session, read while it is still active (durable-save-oracle `validateBaseline`): its id, key and lease bind
         // the exact retry-saved-once check. A fresh account has exactly one active row here; anything else leaves it unknown.
@@ -249,6 +330,14 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             { completionPosts: drop.completionPosts, droppedStatus: drop.droppedStatus, rowsBeforeRetry: rowsBeforeRetry.length,
                 completedBeforeRetry,
                 completionOutcomes: await completions.evidence() });
+        // J4.a evidence check (request lost only; J4.b keeps its own verdicts): the stopped request left the server's copy of the
+        // take exactly as Start made it.
+        if (j4a) {
+            const neverReached = j4aRequestNeverReachedVerdict({ dropped: drop.dropped, forwarded: drop.forwarded, droppedStatus: drop.droppedStatus,
+                droppedSessionId: drop.droppedSessionId, startRow: takeRowBefore, rowsBeforeRetry: await readSavedRows(owner.uid) });
+            receipt.row('J4.a: the first save request never reached the server', neverReached.status, neverReached.detail,
+                { reason: neverReached.reason, forwarded: drop.forwarded, droppedStatus: drop.droppedStatus, startRowRead: takeRowBefore !== null });
+        }
         const bannerVerdict = recoveryBannerVerdict({ bannerShown, resolution, message, retryOffered, wordsOnPage, completedBeforeRetry });
         receipt.row('recovery banner is truthful', bannerVerdict.status, bannerVerdict.detail,
             { bannerShown, resolution, retryOffered, wordsOnPageLength: wordsOnPage, discardOfferedBeforeRetry,
@@ -279,11 +368,23 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         const exact = exactRetrySaveVerdict(attempts.find((a) => a.dropped)?.body ?? null, takeRowBefore, (await readSavedRows(owner.uid)) ?? [], savedId);
         receipt.row('Retry Save saved the exact payload once', exact.status, exact.detail,
             { startRowRead: takeRowBefore !== null, persistedIdBound: savedId !== null });
+        if (j4a) {
+            const ownerRows = await readSavedRows(owner.uid);
+            const startIdempotencyKey = takeRowBefore?.idempotency_key;
+            const anyAccount = drop.droppedSessionId ? await readTakeRowsAnyAccount(drop.droppedSessionId, startIdempotencyKey) : null;
+            const oneSave = j4aOneSaveForAccountVerdict({ ownerId: owner.uid || null, takeSessionId: drop.droppedSessionId, startIdempotencyKey,
+                savedId, ownerRows, anyAccountById: anyAccount?.byId ?? null, anyAccountByKey: anyAccount?.byKey ?? null });
+            receipt.row('J4.a: Retry Save saved one take for this account only', oneSave.status, oneSave.detail,
+                { reason: oneSave.reason, ownerRows: ownerRows?.length ?? null, anyAccountById: anyAccount?.byId.length ?? null,
+                    anyAccountByKey: anyAccount?.byKey.length ?? null, startKeyRead: typeof startIdempotencyKey === 'string' });
+            // J4.a stops here, right after the exact Retry readback: no second take, no Analytics reopen (Sam, Nov 19).
+            return;
+        }
 
         // The next Start, from the completed review's own repeat action, saves only itself.
-        const again = page.getByTestId('verdict-practice-again');
-        await expect(again).toBeEnabled({ timeout: 120_000 });
-        await again.click();
+        // J4.b's second Start press reads consent back at its click too (pin, pause, re-check, readback, click).
+        await pressCaptureControl(page, ['verdict-practice-again'], { waitMs: 120_000, beforeClick: () => gate.confirm() });
+        gate.recordPass();
         await expectBenchmarkRecordingStarted(page, `save-retry-${variant}-2`);
         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         await stopBenchmarkRecording(page, `save-retry-${variant}-2`, 180_000);

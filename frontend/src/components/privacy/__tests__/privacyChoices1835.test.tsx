@@ -211,6 +211,29 @@ describe('PrivacySettingsCard', () => {
             { p_transcript_save: false, p_ai_coaching: false, p_expected_revision: 1 });
     });
 
+    it.each([
+        ['a different signed-in account with the same revision', 'replacement-owner', 1],
+        ['the same account with a newer revision', TEST_PRIVACY_OWNER, 2],
+    ] as const)('does not apply an open Stop saving confirmation to %s', async (_label, ownerId, revision) => {
+        grantPracticePrivacy();
+        render(<PrivacySettingsCard />);
+        fireEvent.click(screen.getByRole('switch', { name: 'Save transcripts' }));
+        const confirm = await screen.findByRole('button', { name: 'Stop saving' });
+
+        // Model an account/choice refresh while the original confirmation is still visible.
+        act(() => usePracticePrivacyStore.setState({ ownerId, revision }));
+        fireEvent.click(confirm);
+
+        expect(client.rpc).not.toHaveBeenCalled();
+        expect(await screen.findByRole('alert')).toHaveTextContent(PRIVACY_SETTINGS_COPY.changed);
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+        expect(screen.getByRole('switch', { name: 'Save transcripts' })).toBeChecked();
+        expect(screen.getByRole('switch', { name: 'AI coaching' })).toBeChecked();
+        expect(usePracticePrivacyStore.getState()).toMatchObject({
+            ownerId, revision, transcriptSave: true, aiCoaching: true,
+        });
+    });
+
     it('turning AI coaching off keeps saving on, takes effect at once, and needs no confirmation', async () => {
         grantPracticePrivacy();
         client.rpc.mockImplementation(() => new Promise(() => { /* in flight */ }));

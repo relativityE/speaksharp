@@ -13,6 +13,7 @@ on:
       # The attested catalog query and pins: a pin/query change must receive native verification before production
       # postflight consumes it; the offline tests echo the pins back and cannot catch a wrong one (Codex P2 4363567722).
       - 'scripts/lib/t2MigrationPostflight.mjs'
+      - 'scripts/lib/saveJournalCleanupMigrationPostflight.mjs'
       - 'scripts/lib/retirementCatalogPins.mjs'
       - 'scripts/lib/abandonmentCatalogPins.mjs'
       - 'scripts/lib/feedbackFenceCatalogPins.mjs'
@@ -34,6 +35,11 @@ on:
       - 'tests/db/account-coaching-admission-realpg.mjs'
       - 'tests/db/account-completion-realpg.test.mjs'
       - 'tests/db/account-recording-admission-realpg.mjs'
+      # #1643 follow-up: deleted run-owned account save-journal cleanup, its native proof and the shared live cleanup step it drives.
+      - 'tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs'
+      - 'tests/db/save-journal-restart-runner.mjs'
+      - 'tests/live/helpers/runOwnedCleanup.ts'
+      - 'tests/live/helpers/rwtInterruptedRunRecovery.ts'
       - 'tests/db/account-closure-tokens.integration.test.ts'
       - 'tests/db/account-closure-enforcement-full-chain.sql'
       - 'tests/db/account-closure-denial-control.sql'
@@ -76,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130, main-feedback-fence-131, main-payment-wall-132, main-practice-privacy-133]
+        profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130, main-feedback-fence-131, main-payment-wall-132, main-practice-privacy-133, main-repeat-tip-134, main-save-journal-cleanup-135]
     # Pinned with #1839/#1841/#1845: on ubuntu-26.04 the historical Supabase replay refuses ('running image configuration
     # differs from immutable pin', run 43467911148); the last green proof ran on ubuntu-24.04. Remove with #1840.
     runs-on: ubuntu-24.04
@@ -99,11 +105,12 @@ jobs:
           node-version: '22'
       - name: Prove explicit main, Analytics, U1 and account replay plans offline
         run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs tests/db/account-closure-full-chain-retirement-plan.test.mjs tests/db/t2-native-catalog-proof.test.mjs tests/db/t2-native-catalog-expanded.test.mjs tests/db/retention-edited-take-full-chain.test.mjs
-      - uses: supabase/setup-cli@v2
-        env:
-          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
-        with:
-          version: 2.101.0
+      # Bounded and verified (replaces the setup-cli v2 action, whose download has no deadline: run 44645972965 job
+      # 135988517462 stalled 29m51s in "Setup Supabase CLI" until the job limit; 2.8 s on the rerun). Pinned CLI 2.101.0 and
+      # its SHA-256; transient stalls are retried within this step's timeout, otherwise the step fails and no proof runs.
+      - name: Install pinned Supabase CLI (bounded, verified)
+        timeout-minutes: 8
+        run: node scripts/ci/install-supabase-cli.mjs
       - name: Install native PostgreSQL 17 host binaries (bounded)
         run: |
           set -euo pipefail
@@ -154,3 +161,36 @@ jobs:
             artifacts/recording-start-abandonment/receipts.json
           if-no-files-found: error
           retention-days: 1
+
+  # #1643 follow-up: a deleted run-owned proof account's finished save-journal rows. Native disposable PostgreSQL (one owned
+  # cluster, no hosted database); the test also drives the SHARED live cleanup step (TypeScript, so it needs the workspace).
+  save-journal-cleanup:
+    name: Deleted-account save-journal cleanup (native PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Use the runner's native PostgreSQL 16 host binaries
+        run: |
+          set -euo pipefail
+          echo '/usr/lib/postgresql/16/bin' >> "$GITHUB_PATH"
+          /usr/lib/postgresql/16/bin/initdb --version
+          /usr/lib/postgresql/16/bin/pg_ctl --version
+          /usr/lib/postgresql/16/bin/psql --version
+      - name: Prove the save-journal cleanup on the exact requested head
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          [ "$actual_head" = "$PROOF_HEAD_SHA" ] || { echo '::error::native proof source differs from requested head'; exit 1; }
+          node --import tsx --test tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs

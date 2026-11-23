@@ -1,0 +1,186 @@
+{
+ "version": "20261119120000",
+ "targetSha256": "199f8593445e477cf84397e47cb9234cf3063c0a22a6b812ef9a7e8fb053f3f4",
+ "derivation": "Offline PGlite replay of the shipped chain (billing settlement and the refund follow-up withheld), then the exact migration; re-derived by tests/db/repeatTipPostflight.integration.test.ts.",
+ "functions": [
+  {
+   "signature": "public._prec_att_can_hold_tip(p_attempt progress_recommendation_attempts, p_session uuid)",
+   "md5": "49e4b49d203a1eaee90cbb5349c90356",
+   "definer": true,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "sql",
+   "volatility": "s",
+   "returns": "boolean",
+   "acl": []
+  },
+  {
+   "signature": "public._prec_att_guard_tip()",
+   "md5": "fe7847664319d4e224e692d154cb8ef2",
+   "definer": true,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "plpgsql",
+   "volatility": "v",
+   "returns": "trigger",
+   "acl": []
+  },
+  {
+   "signature": "public._prec_att_lock_owner(p_user uuid)",
+   "md5": "9462d182fd32c16d2821c6f6ec757e32",
+   "definer": false,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "sql",
+   "volatility": "v",
+   "returns": "void",
+   "acl": []
+  },
+  {
+   "signature": "public._prec_att_on_session_completed()",
+   "md5": "199618e8ee52dc87e866e3c3a7650d17",
+   "definer": true,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "plpgsql",
+   "volatility": "v",
+   "returns": "trigger",
+   "acl": []
+  },
+  {
+   "signature": "public._prec_att_purge_tip_on_expire()",
+   "md5": "a8ad1efbe3b57fad10cbb779ddbcf660",
+   "definer": true,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "plpgsql",
+   "volatility": "v",
+   "returns": "trigger",
+   "acl": []
+  },
+  {
+   "signature": "public._prec_att_review_tip(p_review jsonb)",
+   "md5": "df2583a6181af2c81350c2ad405d43db",
+   "definer": false,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "plpgsql",
+   "volatility": "i",
+   "returns": "text",
+   "acl": []
+  },
+  {
+   "signature": "public._prec_att_snapshot_tip()",
+   "md5": "32e8b83a06c2b3d484600ac39a4d4184",
+   "definer": true,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "plpgsql",
+   "volatility": "v",
+   "returns": "trigger",
+   "acl": []
+  },
+  {
+   "signature": "public.register_practice_again_take_v1(p_attempt uuid, p_session uuid)",
+   "md5": "049ff158778606386c6f61d8d8a893b3",
+   "definer": true,
+   "config": [
+    "search_path=public, pg_temp"
+   ],
+   "language": "plpgsql",
+   "volatility": "v",
+   "returns": "boolean",
+   "acl": [
+    "authenticated"
+   ]
+  }
+ ],
+ "triggers": [
+  {
+   "table": "public.progress_recommendation_attempts",
+   "name": "trg_prec_att_guard_tip",
+   "function": "public._prec_att_guard_tip()",
+   "type": 19,
+   "enabled": "O",
+   "conditional": false,
+   "columns": 0,
+   "definition": "CREATE TRIGGER trg_prec_att_guard_tip BEFORE UPDATE ON public.progress_recommendation_attempts FOR EACH ROW EXECUTE FUNCTION _prec_att_guard_tip()"
+  },
+  {
+   "table": "public.progress_recommendation_attempts",
+   "name": "trg_prec_att_snapshot_tip",
+   "function": "public._prec_att_snapshot_tip()",
+   "type": 7,
+   "enabled": "O",
+   "conditional": false,
+   "columns": 0,
+   "definition": "CREATE TRIGGER trg_prec_att_snapshot_tip BEFORE INSERT ON public.progress_recommendation_attempts FOR EACH ROW EXECUTE FUNCTION _prec_att_snapshot_tip()"
+  },
+  {
+   "table": "public.sessions",
+   "name": "trg_sessions_prec_tip_on_completed",
+   "function": "public._prec_att_on_session_completed()",
+   "type": 21,
+   "enabled": "O",
+   "conditional": true,
+   "columns": 1,
+   "definition": "CREATE TRIGGER trg_sessions_prec_tip_on_completed AFTER INSERT OR UPDATE OF status ON public.sessions FOR EACH ROW WHEN ((new.status = ANY (ARRAY['completed'::text, 'failed'::text]))) EXECUTE FUNCTION _prec_att_on_session_completed()"
+  },
+  {
+   "table": "public.sessions",
+   "name": "trg_sessions_purge_practised_tip_on_expire",
+   "function": "public._prec_att_purge_tip_on_expire()",
+   "type": 17,
+   "enabled": "O",
+   "conditional": true,
+   "columns": 1,
+   "definition": "CREATE TRIGGER trg_sessions_purge_practised_tip_on_expire AFTER UPDATE OF transcript_state ON public.sessions FOR EACH ROW WHEN (((new.transcript_state = 'expired'::text) AND (old.transcript_state IS DISTINCT FROM 'expired'::text))) EXECUTE FUNCTION _prec_att_purge_tip_on_expire()"
+  }
+ ],
+ "columns": [
+  {
+   "name": "practised_tip",
+   "type": "text",
+   "notNull": false,
+   "default": null,
+   "privileges": []
+  },
+  {
+   "name": "registered_session_id",
+   "type": "uuid",
+   "notNull": false,
+   "default": null,
+   "privileges": []
+  },
+  {
+   "name": "registration_required",
+   "type": "boolean",
+   "notNull": true,
+   "default": "false",
+   "privileges": []
+  },
+  {
+   "name": "tip_session_id",
+   "type": "uuid",
+   "notNull": false,
+   "default": null,
+   "privileges": []
+  }
+ ],
+ "constraints": [
+  "prec_att_practised_tip_shape c CHECK (((practised_tip IS NULL) OR (((char_length(practised_tip) >= 1) AND (char_length(practised_tip) <= 4000)) AND (btrim(practised_tip) = practised_tip))))",
+  "progress_recommendation_attempts_registered_session_id_fkey f FOREIGN KEY (registered_session_id) REFERENCES sessions(id) ON DELETE SET NULL",
+  "progress_recommendation_attempts_registration_required_not_null n NOT NULL registration_required",
+  "progress_recommendation_attempts_tip_session_id_fkey f FOREIGN KEY (tip_session_id) REFERENCES sessions(id) ON DELETE SET NULL"
+ ],
+ "indexes": [
+  "CREATE INDEX idx_prec_att_tip_session ON public.progress_recommendation_attempts USING btree (tip_session_id) WHERE (tip_session_id IS NOT NULL)"
+ ]
+}

@@ -27,13 +27,16 @@ import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
     isCoachingUnavailableHeadline,
 } from './coachingExternal';
+import { type SaveHold, SAVE_HOLD_BUFFER_MS, SAVE_MINIMUM_MS, holdThenStop } from './rwtSaveHold';
 import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
     AUDIO_ARGS,
+    confirmBenchmarkStopped,
     expectBenchmarkRecordingStarted,
     startBenchmarkRecording,
     stopBenchmarkRecording,
+    type StartActivationOptions,
 } from './benchmark-utils';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
@@ -47,6 +50,10 @@ import { activeHumanReflexMs } from './rwtHumanReflex';
 import { resolveProductsTrigger } from './productsMenu';
 import { WATCHED_FIELDS } from './rwtWatchdog';
 import { runBindingState, sameRunBinding } from './runBinding';
+import {
+    SHORT_STOP_SETTLE_MS, ShortStopSaveTap, armShortStopProbe, awaitShortStopSettled, emptyShortStopObservation, readShortStopProbe, shownFacts, stopFacts,
+    type SessionRow, type ShortStopObservation,
+} from './rwtShortStop';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -61,7 +68,8 @@ export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
 // #1258 (PM 6174134686): the closed coaching failure vocabulary lives with the EXTERNAL classifier, which publishes it.
 export { COACHING_FAILURE_REASONS, coachingFailureReason } from './coachingExternal';
-import { characterCeilingVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
+import { characterCeilingVerdict, omissionClaimVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
+import { coachingFallbackRow } from './rwtCoachingFallback';
 
 /**
  * #1258 (Codex r4188372882 / r4188372897) — read a failed coaching response's closed reason as a PROMISE the spec
@@ -1380,13 +1388,77 @@ export async function performCandidateSwitch(page: Page, run: RunTarget, journey
 }
 
 /**
+ * #1835 (Sam, #1916 review hold): a capture-capable press inside a shared helper runs the caller's consent readback
+ * (`beforeCapture`, e.g. `CaptureConsentGate.confirm`) INSIDE the activation path, immediately before the actual click —
+ * after the control wait, the reflex pause and the click guard (`StartActivationOptions.beforeClick`). A refused readback
+ * clicks nothing and is never recorded as a product step that failed: it propagates to the journey unchanged. The readback's
+ * own time is excluded from every press timing these helpers report. No hook: nothing is read and every path is unchanged.
+ */
+class CaptureConsentStop extends Error {
+    constructor(readonly original: unknown) { super('capture consent stop'); }
+}
+interface ConsentAtClick extends StartActivationOptions { spentMs(): number }
+function consentAtClick(beforeCapture: (() => Promise<void>) | undefined): ConsentAtClick {
+    let spent = 0;
+    if (!beforeCapture) return { spentMs: () => 0 };
+    return {
+        beforeClick: async () => {
+            const t = Date.now();
+            try { await beforeCapture(); } catch (error) { throw new CaptureConsentStop(error); } finally { spent += Date.now() - t; }
+        },
+        spentMs: () => spent,
+    };
+}
+function rethrowConsentStop(error: unknown): void {
+    if (error instanceof CaptureConsentStop) throw error.original;
+}
+
+/**
+ * The completed review's repeat action (Practice Again / Focus retry). Without a consent hook this is the plain locator
+ * click it always was (the RWT reflex wrapper pauses inside it). With one (#1835, Sam's #1916 hold), the node is pinned,
+ * the same reflex pause is taken explicitly (an ElementHandle click is not wrapped, so it still happens exactly once), the
+ * SAME node is re-checked as the one enabled repeat action, and only then is consent read back and the node clicked, with
+ * nothing in between. A refusal clicks nothing.
+ */
+async function pressRepeatAction(page: Page, again: ReturnType<Page['getByTestId']>, testId: string, consent: StartActivationOptions): Promise<void> {
+    if (!consent.beforeClick) { await again.click(); return; }
+    const handle = await again.elementHandle({ timeout: 15_000 });
+    if (!handle) throw new Error('the repeat action disappeared before activation');
+    try {
+        const reflexMs = activeHumanReflexMs();
+        if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
+        const requireSameAction = async (): Promise<void> => {
+            const identity = await handle.evaluate((element, expected) => ({
+                connected: element.isConnected, control: element.getAttribute('data-testid'),
+                disabled: element instanceof HTMLButtonElement ? element.disabled : element.hasAttribute('disabled'),
+                unique: document.querySelectorAll(`[data-testid="${expected}"]`).length === 1,
+            }), testId);
+            if (!identity.connected || identity.control !== testId || identity.disabled || !identity.unique) {
+                throw new Error(`the repeat action changed before activation (${JSON.stringify(identity)})`);
+            }
+        };
+        await requireSameAction();
+        await consent.beforeClick();
+        // The readback is a server read and can take a while: the action must still be the same enabled node when it returns.
+        await requireSameAction();
+        await handle.click({ timeout: 15_000 });
+    } finally {
+        await handle.dispose().catch(() => undefined);
+    }
+}
+
+/**
  * THE NEXT START (#1471 / #1521 pattern). From a fresh `/session`, the next take must begin without the Progress
  * hold: no "Finishing up your last session" at rest or during Start, recording within the ceiling, and the actual wait
  * reported. It must then STOP and the microphone must be confirmed OFF (every acquired audio track ended). A take
  * that cannot be stopped, or a microphone left live, is a failure (PM 2026-09-25) — never a successful next Start.
  * On any failure a bounded teardown is attempted before run-owned cleanup; its outcome is reported, not assumed.
  */
-export async function nextStartEvidence(page: Page, label: string): Promise<{
+export async function nextStartEvidence(page: Page, label: string, beforeCapture?: () => Promise<void>,
+    /** J1 option B: hold the take past the 5 s save minimum before its Stop (default: Stop at once, as Focus designs it). */
+    opts: { holdPastSaveMinimum?: boolean } = {}): Promise<{
+    /** The hold past the 5 s save minimum; null when no hold was asked for. */
+    saveHold: SaveHold | null;
     holdSeen: boolean; nextStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
     startFailure: StartFailureState | null;
 }> {
@@ -1395,33 +1467,98 @@ export async function nextStartEvidence(page: Page, label: string): Promise<{
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
     } catch {
-        return { holdSeen: false, nextStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'the session page did not reach rest (mic-status)', startFailure: null };
+        return { saveHold: null, holdSeen: false, nextStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'the session page did not reach rest (mic-status)', startFailure: null };
     }
     let holdSeen = (await page.getByText(FINISHING_UP).count()) > 0;
     const watch = setInterval(() => {
         void page.getByText(FINISHING_UP).count().then((n) => { if (n > 0) holdSeen = true; }).catch(() => undefined);
     }, 250);
+    const consent = consentAtClick(beforeCapture);
     const startedAt = Date.now();
     let nextStartMs: number | null = null;
+    let recordingAt = 0;
     try {
-        await startBenchmarkRecording(page, label);
+        await startBenchmarkRecording(page, label, undefined, consent);
         await expectBenchmarkRecordingStarted(page, label);
-        nextStartMs = Date.now() - startedAt;
-    } catch {
+        recordingAt = Date.now();
+        nextStartMs = recordingAt - startedAt - consent.spentMs();
+    } catch (error) {
         clearInterval(watch);
+        // A refused readback clicked nothing: no take, so no teardown and no start-failure evidence; the journey stops.
+        rethrowConsentStop(error);
         const startFailure = await readStartFailureState(page);
         const tracks = await boundedTeardown(page, label);
-        return { holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording', startFailure };
+        return { saveHold: null, holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording', startFailure };
     }
     clearInterval(watch);
+    // J1 option B: the hold clicks the validated recorder's own Stop itself; a failed hold still stops whatever is recording.
+    const held = opts.holdPastSaveMinimum ? await holdThenStop(page, recordingAt) : null;
+    const saveHold = held?.hold ?? null;
     try {
-        await stopBenchmarkRecording(page, label);
+        if (held?.clicked) await confirmBenchmarkStopped(page, label);
+        else await stopBenchmarkRecording(page, label);
     } catch {
         const tracks = await boundedTeardown(page, label);
-        return { holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped', startFailure: null };
+        return { saveHold, holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped', startFailure: null };
     }
     const live = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
-    return { holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? null : 'the microphone stayed live after Stop', startFailure: null };
+    return { saveHold, holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? (saveHold?.reason ?? null) : 'the microphone stayed live after Stop', startFailure: null };
+}
+
+/**
+ * J1.c (Sam, 21 Nov) — THE SHORT STOP, a separately addressable substep of the shared runner. From a fresh `/session`: arm the
+ * page's own probe, read the account's rows, press Start once, Stop as soon as the recorder is recording, then wait (bounded)
+ * until the recorder is gone, no save request is pending and the page has said what happened. It returns observations only;
+ * the verdict is the nightly oracle's (`shortStopRow` in rwtShortStop.ts feeds `shortStopVerdict`). Anything it could not
+ * observe stays null, which the oracle holds. Like the next Start, a take that will not stop gets the bounded teardown, and a
+ * refused consent readback clicked nothing and stops the journey.
+ */
+export async function shortStopEvidence(page: Page, label: string, readRows: () => Promise<SessionRow[] | null>,
+    beforeCapture?: () => Promise<void>): Promise<ShortStopObservation> {
+    const obs = emptyShortStopObservation();
+    await page.goto('/session');
+    try {
+        await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
+    } catch {
+        return { ...obs, startPressed: false, reason: 'the session page did not reach rest (mic-status)' };
+    }
+    const tap = new ShortStopSaveTap();
+    tap.attach(page.context());
+    const counts = (): Partial<ShortStopObservation> => ({ acceptedCompletingSaves: tap.acceptedCompletingSaves, acceptedFailedMarks: tap.acceptedFailedMarks,
+        acceptedUnreadableSaves: tap.acceptedUnreadable, pendingSaves: tap.pending, coachingRequests: tap.coachingRequests });
+    try {
+        await armShortStopProbe(page);
+        obs.rowsBefore = await readRows();
+        const consent = consentAtClick(beforeCapture);
+        try {
+            await startBenchmarkRecording(page, label, undefined, consent);
+            await expectBenchmarkRecordingStarted(page, label);
+        } catch (error) {
+            // A refused readback clicked nothing: no take, so no teardown; the journey stops.
+            rethrowConsentStop(error);
+            const probe = await readShortStopProbe(page);
+            const tracks = await boundedTeardown(page, label);
+            return { ...obs, ...stopFacts(probe), ...shownFacts(probe), ...counts(), liveTracksAfterStop: tracks, reason: 'the short-Stop take did not begin recording' };
+        }
+        try {
+            await stopBenchmarkRecording(page, label, SHORT_STOP_SETTLE_MS);
+        } catch {
+            const probe = await readShortStopProbe(page);
+            const tracks = await boundedTeardown(page, label);
+            return { ...obs, ...stopFacts(probe), ...shownFacts(probe), ...counts(), liveTracksAfterStop: tracks, reason: 'the short-Stop take could not be stopped' };
+        }
+        const { probe, settled } = await awaitShortStopSettled({
+            readProbe: () => readShortStopProbe(page),
+            recorderGone: async () => (await page.getByTestId('recorder-bar').count()) === 0,
+            pendingSaves: () => tap.pending,
+        });
+        obs.settled = settled;
+        obs.rowsAfter = await readRows();
+        const live = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page).catch(() => null));
+        return { ...obs, ...stopFacts(probe), ...shownFacts(probe), ...counts(), liveTracksAfterStop: live };
+    } finally {
+        tap.detach();
+    }
 }
 
 /**
@@ -1582,6 +1719,8 @@ export function startFailureEvidence(s: StartFailureState | null): Record<string
 }
 
 export interface PracticeAgainEvidence {
+    /** J1 option B (Sam, 21 Nov): the repeated take's hold past the 5 s save minimum; null when the caller asked for no hold. */
+    saveHold?: SaveHold | null;
     analyticsActionOpened: boolean | null; sameSetPending: boolean | null;
     reviewReached: boolean | null; afterActionEnabledMs: number | null; holdSeen: boolean;
     /** The session id of the short take this pass saved (for the saved-product-marker row); null when not reached. */
@@ -1649,8 +1788,14 @@ export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
     onSaveTakeStopped?: () => void,
-    /** How long the save take records (default SAVE_TAKE_PERSIST_MS; out-of-range values fall back to it). */
-    opts: { saveTakeMs?: number } = {},
+    /** How long the save take records (default SAVE_TAKE_PERSIST_MS; out-of-range values fall back to it). `beforeCapture`
+     *  (#1835): the caller's consent readback, awaited immediately before the save take's Start and the repeat action's press. */
+    opts: { saveTakeMs?: number; beforeCapture?: () => Promise<void>;
+        /** J1 option B: hold the repeated take past the 5 s save minimum before its Stop (default: Stop at once). */
+        holdRepeatPastSaveMinimum?: boolean;
+        /** J1.b (Sam, 22 Nov): a side check of the SAVE take, started once the repeat records and run inside its hold. It
+         *  never delays the Stop; `closesAt` is the hold's deadline. Awaited after the Stop, on every path. */
+        duringRepeatHold?: (w: { savedSessionId: string | null; closesAt: number }) => Promise<void> } = {},
 ): Promise<PracticeAgainEvidence> {
     const FINISHING_UP = /Finishing up your last session/;
     const ev: PracticeAgainEvidence = {
@@ -1694,7 +1839,7 @@ export async function practiceAgainEvidence(
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
         step = 'start';
-        await startBenchmarkRecording(page, `${label}-save`);
+        await startBenchmarkRecording(page, `${label}-save`, undefined, consentAtClick(opts.beforeCapture));
         ev.saveTakeStartPressed = true;
         step = 'recording_started';
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
@@ -1724,7 +1869,8 @@ export async function practiceAgainEvidence(
         // the bounded persistence wait, so downstream readers (the two-take coaching read, product markers) bind the take
         // that was actually saved, never a stale pre-save value.
         Object.assign(ev, await savedTakeIdentity(page, sessionId));
-    } catch {
+    } catch (error) {
+        rethrowConsentStop(error);
         ev.reviewReached = false;
         ev.saveTakeFailedStep = step;
         // Read WHY before teardown navigates away; a timed-out read stays marked unread and the failure stands.
@@ -1756,18 +1902,21 @@ export async function practiceAgainEvidence(
             return performance.now();
         })).catch(() => null);
         const pressedAt = Date.now();
-        await again.click();
+        const consent = consentAtClick(opts.beforeCapture);
+        await pressRepeatAction(page, again, product === 'focus_points' ? 'focus-points-retry' : 'verdict-practice-again', consent);
         await expectBenchmarkRecordingStarted(page, `${label}-again`);
-        ev.afterStartMs = Date.now() - pressedAt;
+        // #1835: the readback's own time is excluded, so press → recording and press → warm-up measure what they did before.
+        ev.afterStartMs = Date.now() - pressedAt - consent.spentMs();
         ev.repeatRecordingAt = Date.now();
         ev.pressToRecordingMs = ev.afterStartMs;
         ev.pressToWarmupDoneMs = pressPerf === null ? null : await Promise.resolve().then(() => page.evaluate((from) => {
             const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<{ t: number; event: string }> }).__NATIVE_BROWSER_TRACE__ ?? [];
             const done = trace.find((e) => e.event === 'controller_warmup_done' && e.t >= from);
             return done ? Math.round(done.t - from) : null;
-        }, pressPerf)).catch(() => null);
-    } catch {
+        }, pressPerf)).then((ms) => (ms === null ? null : Math.max(0, ms - consent.spentMs()))).catch(() => null);
+    } catch (error) {
         clearInterval(watch);
+        rethrowConsentStop(error);
         // Read WHY before teardown navigates away (#1258 run 38298685079: the reason was swallowed here).
         if (ev.afterActionEnabledMs !== null) ev.startFailure = await readStartFailureState(page);
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
@@ -1775,17 +1924,31 @@ export async function practiceAgainEvidence(
         return ev;
     }
     clearInterval(watch);
+    // J1.b: the side check starts with the hold and is bounded by its deadline; it is never awaited before the Stop.
+    const side = opts.holdRepeatPastSaveMinimum && opts.duringRepeatHold && ev.repeatRecordingAt
+        ? Promise.resolve().then(() => opts.duringRepeatHold!({ savedSessionId: ev.savedSessionId,
+            closesAt: ev.repeatRecordingAt! + SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS })).catch(() => undefined)
+        : Promise.resolve();
     try {
-        await stopBenchmarkRecording(page, `${label}-again`);
-    } catch {
-        ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
-        ev.reason = 'the repeated take could not be stopped';
+        // J1 option B: the hold clicks the validated recorder's own Stop itself; a failed hold still stops whatever is recording.
+        const held = opts.holdRepeatPastSaveMinimum && ev.repeatRecordingAt ? await holdThenStop(page, ev.repeatRecordingAt) : null;
+        ev.saveHold = held?.hold ?? null;
+        if (ev.saveHold && !ev.saveHold.ok) ev.reason = ev.saveHold.reason;
+        try {
+            if (held?.clicked) await confirmBenchmarkStopped(page, `${label}-again`);
+            else await stopBenchmarkRecording(page, `${label}-again`);
+        } catch {
+            ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
+            ev.reason = 'the repeated take could not be stopped';
+            return ev;
+        }
+        ev.stopped = true;
+        ev.liveTracksAfterStop = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
+        if (ev.liveTracksAfterStop !== 0) ev.reason = 'the microphone stayed live after Stop';
         return ev;
+    } finally {
+        await side;
     }
-    ev.stopped = true;
-    ev.liveTracksAfterStop = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
-    if (ev.liveTracksAfterStop !== 0) ev.reason = 'the microphone stayed live after Stop';
-    return ev;
 }
 
 /**
@@ -1885,10 +2048,10 @@ export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'fo
             pressToWarmupDoneMs: ev.pressToWarmupDoneMs, pressToRecordingMs: ev.pressToRecordingMs,
             saveTakePersisted: ev.saveTakePersisted, saveTakeNewSession: ev.saveTakeNewSession, ...startFailureEvidence(ev.startFailure),
         });
-    const offOk = ev.stopped && ev.liveTracksAfterStop === 0;
+    const offOk = ev.stopped && ev.liveTracksAfterStop === 0 && (ev.saveHold == null || ev.saveHold.ok);
     receipt.row('repeated take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
         offOk ? 'the take stopped and every microphone track ended' : (ev.reason ?? 'the take could not be stopped'),
-        { stopped: ev.stopped, liveTracksAfterStop: ev.liveTracksAfterStop });
+        { stopped: ev.stopped, liveTracksAfterStop: ev.liveTracksAfterStop, ...(ev.saveHold ? { saveHeldMs: ev.saveHold.heldMs, saveHoldOk: ev.saveHold.ok } : {}) });
 }
 
 /** Two rows from one next-Start attempt: the Start itself, and the Stop with the microphone confirmed off. */
@@ -1899,11 +2062,13 @@ export function nextStartRows(receipt: RwtReceipt, next: Awaited<ReturnType<type
         startOk ? 'the next take started without "Finishing up"'
             : !started ? (next.reason ?? 'the next Start did not begin') : next.holdSeen ? '"Finishing up" was shown' : 'the next Start exceeded the 15 s ceiling',
         { nextStartMs: next.nextStartMs, holdSeen: next.holdSeen, ...startFailureEvidence(next.startFailure) });
-    const offOk = next.stopped && next.liveTracksAfterStop === 0;
+    const holdOk = next.saveHold == null || next.saveHold.ok;
+    const offOk = next.stopped && next.liveTracksAfterStop === 0 && holdOk;
     receipt.row('next take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
         offOk ? 'the take stopped and every microphone track ended'
-            : !next.stopped ? (next.reason ?? 'the take could not be stopped') : 'the microphone stayed live after Stop',
-        { stopped: next.stopped, liveTracksAfterStop: next.liveTracksAfterStop });
+            : !next.stopped ? (next.reason ?? 'the take could not be stopped') : !holdOk ? (next.saveHold!.reason ?? 'the take was not held past the 5 s save minimum')
+                : 'the microphone stayed live after Stop',
+        { stopped: next.stopped, liveTracksAfterStop: next.liveTracksAfterStop, ...(next.saveHold ? { saveHeldMs: next.saveHold.heldMs, saveHoldOk: next.saveHold.ok } : {}) });
 }
 
 /** The saved coaching response (`sessions.ai_suggestions`), held in memory only. */
@@ -2275,9 +2440,6 @@ export function modelIdentityRow(receipt: RwtReceipt, run: RunTarget, identity: 
     receipt.row('model identity', 'PASS', 'the deployed default ran and identified itself (diagnostic; not base_q4 evidence)', evidence);
 }
 
-/** Words the coaching must never use about a point the matcher did not detect (runbook v12: no certainty of omission). */
-const OMISSION_CLAIM = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t (mention|cover|say)|never (mentioned|covered|said))\b/i;
-
 /**
  * #1258 (runbook v12 Product 2 row 5) — the Focus Points coaching pair after Stop, as the person sees it. The same
  * contract as Open Mic (two distinct phrases (about 8–10 words: a soft target), visible = saved, server receipt) plus the Focus rules: the
@@ -2399,6 +2561,9 @@ export async function focusCoachingRows(
             providerStatus: take.evidence.providerStatus, externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven,
             accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,
             unavailableShown: two ? null : ui.unavailableShown, retryEnabled: two ? null : ui.retryEnabled, takeExchangeUnique: take.unique });
+    // J3 `coaching_fallback_shown` (Elon, Sam 2026-11-21): its own row, read only, never pressed, and never a reason to pass the
+    // coaching row above. NOT RUN (no row) when coaching rendered.
+    await coachingFallbackRow(receipt, card, { settled: terminal, rendered: two, reviewState: state });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
@@ -2431,9 +2596,11 @@ export async function focusCoachingRows(
         { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
     const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
     receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
-    const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);
-    receipt.row('Focus coaching makes no omission claim', claims ? 'FAIL' : 'PASS',
-        claims ? 'a phrase claims a point was missed or skipped (the matcher cannot know that)' : 'neither phrase claims a point was missed or skipped');
+    // Live run 44941790511 failed the old word match and kept no phrase, so its cause is unknown; that match also failed harmless
+    // advice such as "skip the filler words" (an example of a false positive, not the observed phrase). The verdict tells a stated
+    // or implied omission of a chosen point from unrelated wording; the receipt keeps only its closed form token.
+    const omission = omissionClaimVerdict({ well, next, labels: request.openPoints?.labels ?? null });
+    receipt.row('Focus coaching makes no omission claim', omission.status, omission.detail, { form: omission.form });
     // #1258 R4: the provider schema's own ceiling, and an evident reference to a point that is still open (never a FAIL on
     // wording: the human check decides when no open point is named).
     const ceiling = characterCeilingVerdict(well, next);

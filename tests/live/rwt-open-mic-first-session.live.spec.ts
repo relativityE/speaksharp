@@ -26,9 +26,11 @@
  * With no comparison cell the run records the deployed default and is labelled diagnostic.
  */
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { J1D_LEG, J1D_ROWS, J1D_SUITE, j1dCaseAssertions, j1dRunnerAdmission, j1dVerdicts } from './helpers/rwtJ1dJourney';
 import { runJ1dLeg } from './helpers/rwtJ1dLeg';
+import { J1C_LEG, J1C_ROW, sessionRowsReader, shortStopRow, shortStopTakeOf, type ShortStopTake } from './helpers/rwtShortStop';
 import { test } from './helpers/rwtProductionTest';
 import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
 import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
@@ -43,7 +45,8 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
-import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility } from './helpers/rwtHarnessParity';
+import { trialGrantRow } from './helpers/rwtTrialGrant';
+import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type TakeSaveExpectation } from './helpers/rwtHarnessParity';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
@@ -64,6 +67,7 @@ import {
     micAcquisitions,
     newDisposableEmail,
     nextStartEvidence,
+    shortStopEvidence,
     nextStartRows,
     practiceAgainEvidence,
     OPEN_MIC_COMPARABLE_SAVE_TAKE_MS,
@@ -117,9 +121,11 @@ import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } f
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
-import { answerOrder, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader } from './helpers/rwtLateCoaching';
+import { answerOrder, deferredLateCoachingSink, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader, reopenWithinCutoff } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
+import { observeActive } from './helpers/rwtNumericActive';
 import { openProductsItem } from './helpers/productsMenu';
+import { OPEN_MIC_FIRST_SESSION_CONSENT_MODE, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient } from './helpers/rwtPracticeConsent';
 import {
     LEGACY_PHRASE, PROGRESS_FORMULA, REPEAT_METRIC_ROW, pressLinkage, repeatMetricPrerequisites, repeatMetricWordingVerdict,
     type PanelObservation, type ServerEvidence,
@@ -194,16 +200,21 @@ test.use({
 });
 
 /**
- * Harness parity, from the journey's DESIGN (not a run's count). AHT-01 records four takes, each with one Start press:
+ * Harness parity, from the journey's DESIGN (not a run's count). AHT-01 records five takes, each with one Start press:
  *   1. the first take — `mic-download` on a cold first use ("Download to start speaking"), otherwise `mic-start`;
  *   2. the Practice-again pass from Analytics — `mic-start`;
  *   3. the completed review's Practice again — `verdict-practice-again`;
- *   4. the next Start — `mic-start`.
- * So: 4 presses in all; `mic-start` at most 3 (2 when the first take downloads), `mic-download` at most 1, `verdict-practice-again`
- * at most 1, and no Retry press. One completed session per take: 4.
+ *   4. the next Start — `mic-start`;
+ *   5. J1.c's short Stop (Sam, 21 Nov) — `mic-start`, stopped inside the 5 s minimum: a no-save probe.
+ * So: 5 presses in all; `mic-start` at most 4 (3 when the first take downloads), `mic-download` at most 1, `verdict-practice-again`
+ * at most 1, and no Retry press. One completed session per save take (takes 1–4), none for the probe. The journey captures the
+ * session ids of takes 1 and 2 (the comparison pair); takes 3 and 4 are proven by their own lease and the recorder. Takes 3 and
+ * 4 are held past the product's 5 s save minimum before their Stop (`holdPastSaveMinimum`; live run 44955832135 stopped them
+ * at ~2 s and both were discarded); take 5 stays the deliberate short Stop.
  */
-const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
-const AHT01_DESIGNED_TAKES = 4;
+const AHT01_START_PRESS_BUDGET = { total: 5, perControl: { 'mic-start': 4, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
+const AHT01_DESIGNED_TAKES = 5;
+const AHT01_DESIGNED_SAVES: readonly TakeSaveExpectation[] = Object.freeze(['saved', 'saved', 'uncaptured', 'uncaptured', 'probe'] as const);
 /** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
 const PARITY_CLOSE_STEP_MS = 60_000;
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
@@ -214,6 +225,12 @@ test.describe('RWT — Open Mic first session @live', () => {
     let activeTap: AnalyticsTap | null = null;
     let createdEmail = '';
     let capturedUid = '';
+    // J1.a (#1835): the final consent readback, taken immediately before the first take's capture-capable call.
+    let consentGate: CaptureConsentGate | null = null;
+    const captureGate = (): CaptureConsentGate => {
+        if (!consentGate) throw new Error('HOLD practice consent: not_settled');
+        return consentGate;
+    };
     let feedbackReportId: string | null = null;
     // #1811 (Sam, #1859 review): the run's feedback fence — confirmed open before the one feedback write, closed at the final
     // boundary, cleaned (fence-recorded reports only) after the account deletion and its retention proof.
@@ -318,6 +335,42 @@ test.describe('RWT — Open Mic first session @live', () => {
         // The Practice-again pass's saved take: the coaching evidence's repeat take.
         let repeatSessionId: string | null = null;
         let repeatRecordingAt: number | null = null;
+        // J1.b: the interrupted (save) take's coaching row, taken inside the repeat's recording window and written later.
+        const lateCoaching = deferredLateCoachingSink(receipt);
+        const lateCoachingDeps = (id: string) => ({
+            // Product evidence is read AS THE SIGNED-IN ACCOUNT (its own session token + the public anon key), never admin.
+            readSaved: ownerSessionReader(page, {
+                url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
+                expectedUid: capturedUid ?? '', sessionId: id,
+            }),
+            // Reported only (never a verdict): newer completed sessions of this owner ranked above A.
+            newerCompleted: ownerNewerCompletedCounter(page, {
+                url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
+                expectedUid: capturedUid ?? '',
+            }),
+            expectedUid: capturedUid ?? '',
+            // Sam on 4b7c4d44: the window's ABSOLUTE close is checked right after the page exists; a late page never navigates.
+            openSavedReview: (cutoffAt?: number) => reopenWithinCutoff({
+                newPage: () => page.context().newPage(),
+                cutoffAt,
+                read: async (reviewPage) => {
+                    const reopenRequests = new CoachingGenerationTap();
+                    reopenRequests.attach(reviewPage);
+                    const pair = await readSavedReviewPair(reviewPage, id, 'gemini_coaching_v1');
+                    const renderedSessionId = await reviewPage.getByTestId('saved-review').getAttribute('data-session-id', { timeout: 5_000 }).catch(() => null);
+                    const transcript = reviewPage.getByTestId('session-detail-transcript');
+                    const rendered = await transcript.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+                    return {
+                        pathname: new URL(reviewPage.url()).pathname,
+                        renderedSessionId: renderedSessionId || null,
+                        transcriptDigest: rendered ? sha256Hex(await transcript.innerText()) : null,
+                        pair,
+                        coachingRequests: reopenRequests.sentCount,
+                    };
+                },
+            }),
+            same: samePhrase,
+        });
         /** The Practice-again save-take duration actually used (undefined until that step runs). */
         let saveTakeMs: number | undefined;
         let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
@@ -325,6 +378,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         // Without the named runner's admission it does nothing and J1.d stays NOT RUN.
         const j1dAdmission = j1dRunnerAdmission(process.env, (f) => readFileSync(f, 'utf8'));
         let signInOnShownForm: (() => Promise<void>) | null = null;
+        // J1.c: what its take means for probe-save-isolation (a no-save probe only when the short Stop was exercised).
+        let shortStopTake: ShortStopTake = 'not-started';
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
             const steps = new FinalizationSteps();
@@ -435,11 +490,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                 parity.startPressRow(aliveReceipt(receipt, alive), AHT01_START_PRESS_BUDGET);
             });
             await steps.step('probe saves isolated', async (alive) => {
-                // All four takes use normal Stop, including the two rapid restart checks. Stop saves;
-                // neither check exercises discard. Require one lease-bound save for each take, not
-                // a fabricated no-save outcome (run 43214173919). The first two remain the comparison pair.
-                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES);
-                else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
+                // Takes 1–4 use normal Stop, including the two rapid restart checks: each must save once under its own lease, not
+                // a fabricated no-save outcome (run 43214173919). The first two remain the comparison pair. Take 5 is J1.c's short
+                // Stop: a no-save probe, but only when it was exercised; a slow Stop may have saved a normal take, so that is held.
+                if (!admin) aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
+                else if (shortStopTake === 'unknown') aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'J1.c\'s short Stop was not exercised, so whether its take may save is unknown');
+                else await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), parity.leaseIds, AHT01_DESIGNED_TAKES, AHT01_DESIGNED_SAVES);
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
             // #1811: every owned page is closed, so no feedback write can still come from a page: close the fence (acknowledged).
@@ -493,12 +549,15 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.forbid(createdEmail);
                 // With a J1.d admission, the email is the lookup reference the named runner recorded for J1.a's create.
                 if (j1dAdmission.admitted) { createdEmail = j1dAdmission.lookupRef; receipt.forbid(createdEmail); }
+                const signupStartedAt = Date.now();
                 const account = await signUpDisposableAccount(page, createdEmail);
                 capturedUid = account.uid;
                 signInOnShownForm = account.signInOnShownForm;
                 const identity = await runOwnedIdentityFailures(admin as never, capturedUid, createdEmail);
                 if (identity.length > 0) throw new Error(`FAIL first-visit identity: ${identity.join('; ')}`);
                 receipt.row('signup', 'PASS', 'fresh account created through the real form; UID, email and profile verified', { signupMs: account.signupMs });
+                // J1.a (Sam on run 45014809858): the receipt establishes the 30-day trial itself, not only that Start was allowed.
+                await trialGrantRow(receipt, admin as never, capturedUid, signupStartedAt);
                 claimed = await markRunOwnedAccountCanary(admin as never, capturedUid, createdEmail);
                 receipt.meta.canaryClaim = claimed;
                 const { signinMs } = await account.signOutAndSignIn();
@@ -510,6 +569,18 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('row 2 — reach Open Mic; no microphone on navigation', async () => {
                 await page.goto('/practice');
                 await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
+                // #1835: saving and coaching stay off until the owner opts in, and an owner with no recorded choice is asked on
+                // Practice. J1 reviews the take's saved transcript and its AI coaching, so THIS run's own fresh account answers the
+                // prompt (Save: Yes, Coaching: Yes) as a user would, before anything else on the page; a prompt that does not settle
+                // stops here. The owner's server row is read back again immediately before the first capture-capable call (row 3/4).
+                const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+                const recordConsent = (status: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence: Record<string, string>) =>
+                    receipt.row('practice privacy choice', status, detail, evidence);
+                consentGate = null;
+                const consent = await settleFixedConsentOnPractice({ page, client: admin as unknown as ChoiceClient, ownerId: capturedUid, migrationFiles,
+                    mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: recordConsent });
+                consentGate = captureConsentGate({ consent, client: admin as unknown as ChoiceClient, ownerId: capturedUid,
+                    mode: OPEN_MIC_FIRST_SESSION_CONSENT_MODE, record: recordConsent });
                 const switched = await performCandidateSwitch(page, run, JOURNEY);
                 receipt.meta.switchOutcome = switched;
                 if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
@@ -535,8 +606,12 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('row 3 — first microphone use and model acquisition', async () => {
                 const began = Date.now();
                 await selectBenchmarkMode(page, 'private');
-                const setup = await preparePrivateModelIfPrompted(page, 900_000);
+                // #1835 final readback (Sam, #1916): on a cold first use this helper itself presses Download to start speaking, which
+                // captures, so it reads consent back inside that press, immediately before the click. A warm cache presses nothing here
+                // and reads nothing back: the ordinary Start below then reads it back at its own click.
+                const setup = await preparePrivateModelIfPrompted(page, 900_000, { beforeClick: () => captureGate().confirm() });
                 takeAlreadyRunning = setup.recordingAlreadyStarted;
+                if (takeAlreadyRunning) captureGate().recordPass();
                 if (!takeAlreadyRunning) await waitForPrivateEngineReady(page, 600_000);
                 const acquisitionMs = Date.now() - began;
                 modelIdentityRow(receipt, run, await readSttIdentity(page), acquisitionMs, await readCpuRuntime(page));
@@ -577,7 +652,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                         diag.update({ trace_state: started.trace_state, trace_cleanup: started.trace_cleanup });
                         diag.mark('trace_start_settled');
                         await test.step('row 4 — speak the corpus', async () => {
-                            if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
+                            if (!takeAlreadyRunning) {
+                                // #1835 final readback (Sam, #1916), inside the ordinary Start immediately before its click (the model
+                                // helper did not record): after the control wait, the reflex pause and the click guard.
+                                await startBenchmarkRecording(page, SUITE, undefined, { beforeClick: () => captureGate().confirm() });
+                                captureGate().recordPass();
+                            }
                             diag.mark('row4_take_running');
                             // Stop inside the fixture's 15 s trailing silence: all speech, and never a second loop of it.
                             await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
@@ -994,8 +1074,16 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // A candidate comparable save take (run 43065574631: the 7 s take was below progress eligibility by construction).
                 // Its time budget is not proven here (see OPEN_MIC_COMPARABLE_SAVE_TAKE_MS).
                 saveTakeMs = OPEN_MIC_COMPARABLE_SAVE_TAKE_MS;
+                // #1835 later presses (Sam, Nov 21; kept apart from #1917): the save take's Start and the review's Practice again
+                // each read the owner's choice back inside the press, immediately before its click, as J3 does. A refusal
+                // clicks nothing and stops the journey with its HOLD.
                 const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; },
-                    { saveTakeMs });
+                    // Option B (Sam, 21 Nov): take 3 is a SAVE take, so it records past the product's 5 s minimum before its Stop.
+                    { saveTakeMs, beforeCapture: () => captureGate().confirm(), holdRepeatPastSaveMinimum: true,
+                        // J1.b (Sam, 22 Nov): the save take's ordinary owner-bound reopen, inside the repeat's recording window.
+                        duringRepeatHold: ({ savedSessionId, closesAt }) => lateCoachingSavedRow(lateCoaching.sink,
+                            savedSessionId && savedSessionId !== persistedId && capturedUid ? savedSessionId : null,
+                            lateCoachingDeps(savedSessionId ?? ''), { closesAt }) });
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
@@ -1020,57 +1108,23 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
 
             await test.step('next Start without a hold', async () => {
-                const next = await nextStartEvidence(page, `${SUITE}-next`);
+                // #1835: the next Start reads the choice back inside its press too.
+                // Option B: take 4 is a SAVE take too, held past the 5 s minimum (live run 44955832135 stopped it at ~2 s: discarded).
+                const next = await nextStartEvidence(page, `${SUITE}-next`, () => captureGate().confirm(), { holdPastSaveMinimum: true });
                 nextStartRows(receipt, next);
             });
 
             // ── PO Option 1, item 2 (2026-11-10): the interrupted take's late coaching is never lost ─────────────────────
-            // The repeat take is interrupted by the next take, which has now recorded. Its coaching must be saved to its own
-            // session and shown by its own saved review (Analytics detail, separate page; the journey page is untouched).
+            // The save take is interrupted by the review's repeat. Its coaching must be saved to its own session and shown by its
+            // own saved review (Analytics detail, separate page; the journey page is untouched). Sam (22 Nov, run 45014809858
+            // `target-expired`): the repeat now SAVES and newest-one retention then expires the save take's text, so the row was
+            // taken INSIDE the repeat's recording window (see the Practice-again step) and is written here, with the order recorded.
             await test.step('interrupted take coaching saved and shown in its saved review', async () => {
                 const id = repeatSessionId && capturedUid ? repeatSessionId : null;
                 // Read through the bounded settle (#1474 contract): an in-flight answer is waited for, never missed.
                 const aExchanges = id ? await generations.settledForSession(id) : [];
-                await lateCoachingSavedRow(receipt, id, {
-                    // Product evidence is read AS THE SIGNED-IN ACCOUNT (its own session token + the public anon key), never admin.
-                    readSaved: ownerSessionReader(page, {
-                        url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
-                        expectedUid: capturedUid ?? '', sessionId: id ?? '',
-                    }),
-                    // Reported only (never a verdict): newer completed sessions of this owner ranked above A.
-                    newerCompleted: ownerNewerCompletedCounter(page, {
-                        url: SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? '',
-                        expectedUid: capturedUid ?? '',
-                    }),
-                    expectedUid: capturedUid ?? '',
-                    openSavedReview: async () => {
-                        const reviewPage = await page.context().newPage();
-                        const reopenRequests = new CoachingGenerationTap();
-                        reopenRequests.attach(reviewPage);
-                        try {
-                            const pair = await readSavedReviewPair(reviewPage, id!, 'gemini_coaching_v1');
-                            const renderedSessionId = await reviewPage.getByTestId('saved-review').getAttribute('data-session-id', { timeout: 5_000 }).catch(() => null);
-                            const transcript = reviewPage.getByTestId('session-detail-transcript');
-                            const rendered = await transcript.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
-                            return {
-                                pathname: new URL(reviewPage.url()).pathname,
-                                renderedSessionId: renderedSessionId || null,
-                                transcriptDigest: rendered ? sha256Hex(await transcript.innerText()) : null,
-                                pair,
-                                coachingRequests: reopenRequests.sentCount,
-                            };
-                        } finally {
-                            await reviewPage.close().catch(() => undefined);
-                        }
-                    },
-                    same: samePhrase,
-                }, {
-                    // Recorded, not judged: browser-observed A answer time vs B observed RECORDING (PO 2026-11-11).
-                    order: answerOrder(
-                        latestAnsweredAt(aExchanges),
-                        repeatRecordingAt,
-                    ),
-                });
+                // Recorded, not judged: browser-observed A answer time vs B observed RECORDING (PO 2026-11-11).
+                lateCoaching.flush(answerOrder(latestAnsweredAt(aExchanges), repeatRecordingAt));
             });
 
             // ── Real coaching provenance: the restricted synthetic artifact (PM 6114451615 / 6114547673) ──────────────
@@ -1178,8 +1232,10 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
 
             // ── same-target-numeric (catalog AHT-01): the harness's own numeric check, run on this journey's saved takes ──────────
-            // Reuses tools/cloud-test/harness/draft-adapters/progress-numeric.cjs (no copy). It is pinned to the served release it was
-            // revalidated against; any other served release makes it NOT RUN (HOLD here), never a pass. No navigation of its own: it reads
+            // G03 ACTIVE check (PO Option A, 2026-11-22): tests/live/helpers/rwtNumericActive.ts, parity-pinned to the sealed harness
+            // check. The served release's four consumer files must equal one complete sealed set (git bytes, no trusted SHA), both
+            // saved sessions must be this owner's open_mic sessions, and the attempt must be the single one bound to this repeat;
+            // otherwise NOT RUN (HOLD here), never a pass. No navigation of its own: it reads
             // the panel the repeat-result step opened (that step navigates only once its server bindings hold); otherwise NOT RUN.
             await test.step('saved and displayed comparison numbers match', async () => {
                 let result: NumericResult | null = null;
@@ -1197,11 +1253,13 @@ test.describe('RWT — Open Mic first session @live', () => {
                     }
                     if (persistedId && repeatSessionId && capturedUid && admin) {
                         const served = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
-                        const numeric = createRequire(import.meta.url)(fileURLToPath(new URL('../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs', import.meta.url))) as {
-                            observe: (a: Record<string, unknown>) => Promise<NumericResult>;
-                        };
-                        result = await numeric.observe({
+                        // The attempt bound to THIS repeat: exactly one, owner-scoped; none or two leaves it unbound (HOLD).
+                        const bound = await admin.from('progress_recommendation_attempts').select('id')
+                            .eq('practice_session_id', repeatSessionId).eq('user_id', capturedUid).limit(2);
+                        const boundAttemptId = !bound.error && bound.data?.length === 1 ? (bound.data[0] as { id: string }).id : null;
+                        result = await observeActive({
                             page, db: admin, sourceSessionId: persistedId, repeatSessionId,
+                            expectedAttemptId: boundAttemptId, product: 'open_mic',
                             caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: capturedUid } },
                         });
                     }
@@ -1209,6 +1267,25 @@ test.describe('RWT — Open Mic first session @live', () => {
                     result = (e as { code?: string })?.code === 'NOT_RUN' ? { result: 'NOT RUN', facts: { reason: 'numeric-source-not-run' } } : null;
                 }
                 numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs);
+            });
+
+            // ── J1.c (Sam, 21 Nov): a short Stop saves nothing — its own step and row, on this account, after J1.a's takes ─────
+            // The shared runner's short-Stop substep observes; the nightly oracle (shortStopVerdict) judges. A failure here is
+            // J1.c's own HOLD and never stops J1.a's rows or J1.d. Only the error class leaves the step (a message can carry ids).
+            // #1835: its Start reads the privacy choice back inside the press, like every later press. A changed choice is the
+            // run's own stop (the gate has written its row), so it is rethrown after J1.c records its HOLD.
+            await test.step('J1.c — a short Stop saves nothing', async () => {
+                try {
+                    const obs = await shortStopEvidence(page, `${SUITE}-short-stop`, sessionRowsReader(admin as never, capturedUid),
+                        () => captureGate().confirm());
+                    shortStopTake = shortStopTakeOf(obs);
+                    shortStopRow(receipt, obs);
+                } catch (error) {
+                    shortStopTake = 'unknown';
+                    const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+                    receipt.row(J1C_ROW, 'HOLD', `the J1.c short Stop did not complete (${name})`, { leg: J1C_LEG });
+                    if (error instanceof Error && error.message.startsWith('HOLD practice consent:')) throw error;
+                }
             });
 
             // ── J1.d: sign out and return, on this account and its saved takes (a separate J1D receipt) ─────────────────────

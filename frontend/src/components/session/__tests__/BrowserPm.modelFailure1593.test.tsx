@@ -9,11 +9,19 @@ import { render } from '../../../../tests/support/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TranscriptionService from '@/services/transcription/TranscriptionService';
 import { STTStrategyFactory } from '@/services/transcription/STTStrategyFactory';
+import { TransformersJSEngine, TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS } from '@/services/transcription/engines/TransformersJSEngine';
 import { Result } from '@/services/transcription/modes/types';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { isPrivateModelBlockingStart } from '@/services/transcription/privateModelStartBlock';
 import { SessionOverhaulView } from '../SessionOverhaulView';
 
+const workerPath = vi.hoisted(() => ({ enabled: false }));
+vi.mock('@/config/TestFlags', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/config/TestFlags')>();
+    return { ...actual, ENV: Object.create(actual.ENV, {
+        isTest: { get: () => !workerPath.enabled && actual.ENV.isTest },
+    }) as typeof actual.ENV };
+});
 vi.mock('@/services/transcription/STTStrategyFactory');
 vi.mock('@/lib/toast', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn(), dismiss: vi.fn() } }));
 vi.mock('@/lib/logger', () => ({ default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -109,6 +117,70 @@ describe('Browser PM case13: public service transitions drive actual rendered fa
         expect(s.getState()).toBe('READY');
         expect(screen.getByTestId('mic-start')).toBeEnabled();
         expect(screen.queryByTestId('mic-retry')).not.toBeInTheDocument();
+    });
+
+    it('a silent Private v2 worker times out visibly; Retry prepares a fresh worker without starting a take', async () => {
+        class SetupWorker {
+            onmessage: ((event: MessageEvent) => void) | null = null;
+            terminate = vi.fn();
+            postMessage = vi.fn(({ id, type }: { id: number; type: string }) => {
+                if (type === 'init' && this === workers[0]) return; // no error, no ready, no response
+                queueMicrotask(() => this.onmessage?.(new MessageEvent('message', {
+                    data: { id, type: type === 'destroy' ? 'destroyed' : 'ready' },
+                })));
+            });
+            constructor() { workers.push(this); }
+        }
+        const workers: SetupWorker[] = [];
+        const adapterReady = vi.fn();
+        const adapter = new TransformersJSEngine({ onReady: adapterReady, onTranscriptUpdate: vi.fn() });
+        const strategy = engine({
+            checkAvailability: vi.fn().mockResolvedValue({ isAvailable: false, reason: 'CACHE_MISS' }),
+            init: adapter.init.bind(adapter),
+            terminate: adapter.terminate.bind(adapter),
+        });
+        const s = service(strategy);
+        // The adapter uses its real Worker path, rather than the test-environment bypass.
+        workerPath.enabled = true;
+        vi.stubGlobal('Worker', SetupWorker);
+        vi.useFakeTimers();
+        try {
+            project(s);
+            await act(async () => { await s.warmUp('private'); await flush(); });
+            expect(screen.getByTestId('mic-download')).toBeEnabled();
+            // Scope is setup -> rendered Retry; the outer session/mic-permission Start handler is not mounted.
+            await act(async () => { void s.initiateDownload('private'); await flush(); });
+            expect(workers).toHaveLength(1);
+            expect(workers[0].postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'init' }), []);
+            await act(async () => { await vi.advanceTimersByTimeAsync(TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS / 2); });
+            expect(document.documentElement).toHaveAttribute('data-model-status', 'loading');
+            expect(screen.getByTestId('mic-status')).toHaveTextContent(/downloading private transcription/i);
+            expect(screen.getByTestId('mic-start')).toBeDisabled();
+            expect(screen.queryByText('Mic ready on this device')).not.toBeInTheDocument();
+            expect(adapterReady).not.toHaveBeenCalled();
+            expect(strategy.start).not.toHaveBeenCalled();
+
+            await act(async () => { await vi.advanceTimersByTimeAsync(TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS / 2 + 1); await flush(); });
+            const retry = expectRetry();
+            expect(s.getState()).toBe('INIT_FAILED');
+            expect(workers[0].terminate).toHaveBeenCalledTimes(1);
+            expect(adapterReady).not.toHaveBeenCalled();
+            expect(screen.queryByTestId('mic-start')).not.toBeInTheDocument();
+
+            await act(async () => { fireEvent.click(retry); await flush(); });
+            expect(workers).toHaveLength(2);
+            expect(workers[1].postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'init' }), []);
+            expect(s.getState()).toBe('READY');
+            expect(adapterReady).toHaveBeenCalled();
+            expect(screen.getByTestId('mic-start')).toBeEnabled();
+            expect(strategy.start).not.toHaveBeenCalled();
+        } finally {
+            await act(async () => { await s.destroy(); });
+            services.splice(services.indexOf(s), 1);
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+            workerPath.enabled = false;
+        }
     });
 
     it('RED: destroying the failed initialization service must not erase the visible failure and Retry', async () => {

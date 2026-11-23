@@ -27,8 +27,10 @@ export const REQUIRED_STEPS = Object.freeze({
   portal_expiry: Object.freeze([...PAID,
     'portal_opened', 'portal_cancelled', 'cancellation_delivery', 'paid_until_period_end',
     'expiry_delivery', 'account_retained', 'access_expired', 'history_retained', 'cleanup']),
-  // A declined card and an abandoned session grant nothing; a retry then converts to exactly one subscription.
-  failed_checkout: Object.freeze(['trial_expired', 'declined_checkout', 'no_access_after_decline', 'abandoned_checkout',
+  // Walking away from an open Checkout, a declined card and an abandoned session grant nothing; a retry then converts to
+  // exactly one subscription.
+  failed_checkout: Object.freeze(['trial_expired', 'walked_away_from_checkout', 'no_access_while_session_open',
+    'checkout_return_reused_session', 'declined_checkout', 'no_access_after_decline', 'abandoned_checkout',
     'no_access_after_abandon', ...PAID, 'single_subscription', 'cleanup']),
   // Recovery is the customer's own act in Manage billing (the Stripe portal), not an API payment.
   portal_recovery: Object.freeze([...PAID,

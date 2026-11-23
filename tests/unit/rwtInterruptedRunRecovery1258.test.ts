@@ -36,7 +36,9 @@ const fakeAdmin = (initial: AuthUserLike[], perPageLimit = Number.POSITIVE_INFIN
         const size = Math.min(perPage, perPageLimit);
         return { data: { users: users.slice((page - 1) * size, page * size) }, error: null };
     });
-    const admin = { auth: { admin: { listUsers } } } as unknown as AdminLike;
+    // A database before the #1811/#1906 migrations: every listing function answers "no such function" (nothing can be listed).
+    const rpc = vi.fn(async () => ({ data: null, error: { code: 'PGRST202' } }));
+    const admin = { auth: { admin: { listUsers } }, rpc } as unknown as AdminLike;
     const cleanup = vi.fn(async ({ capturedUid }: { capturedUid: string }) => {
         const i = users.findIndex((u) => u.id === capturedUid);
         users.splice(i, 1);
@@ -343,6 +345,7 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const rpc = vi.fn(async (fn: string, args: Record<string, unknown>) => {
             calls.push(`${fn}:${String(args.p_run_key ?? args.p_min_age_seconds)}`);
             if (fn === 'list_unresolved_rwt_feedback_fences_v1') return listError ? { data: null, error: listError } : { data: listed, error: null };
+            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return { data: { claims: 0, live: 0, unbound: 0, runs: [] }, error: null };   // #1906: none in these cases
             const state = outcome.residue || outcome.foreign ? 'closed' : 'cleaned';
             if (fn === 'close_rwt_feedback_fence_v1') return { data: { state: 'closed', reports: outcome.deleted + outcome.residue, keys: 1 }, error: null };
             if (fn === 'clean_rwt_feedback_fence_v1') return { data: { ...outcome, state }, error: null };
@@ -361,7 +364,7 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const r = await recover({ ...f, runState: terminal });
         expect(r).toMatchObject({ status: 'RECOVERED', eligible: 0, feedback: { listed: 1, fences: 1, deleted: 1, residue: 0, foreign: 0, held: 0, unproven: 0 } });
         expect(terminal).toHaveBeenCalledWith(binding);
-        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'close_rwt_feedback_fence_v1',
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1', 'close_rwt_feedback_fence_v1',
             'clean_rwt_feedback_fence_v1', 'verify_rwt_feedback_fence_v1']);
         expect(recoveryReportLine(r)).toContain('feedback_listed=1 feedback_fences=1 feedback_deleted=1 feedback_residue=0 feedback_foreign=0 feedback_held=0 feedback_unproven=0');
     });
@@ -371,7 +374,7 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const fences = withFences(f, [fence({ state: 'open' })]);
         const r = await recover({ ...f, runState: vi.fn(async () => state) });
         expect(r).toMatchObject({ status: 'HOLD_ACTIVE_RUN', deleted: 0, feedback: { listed: 1, fences: 0, held: 1 } });
-        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
         expect(f.cleanup).not.toHaveBeenCalled();
     });
     it('a fence that cannot read back to zero, records another account\'s report, or errors stops recovery before any account delete', async () => {
@@ -398,20 +401,167 @@ describe('#1811 feedback fences: found by the database, cleaned only after the r
         const r = await recover({ ...f, runState: terminal });
         expect(r.feedback).toMatchObject({ listed: 4, fences: 0, unproven: 4 });
         expect(terminal).not.toHaveBeenCalled();
-        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
     });
     it('no delete acknowledgement: fences are listed and reported, nothing is touched', async () => {
         stubRun();
         const f = fakeAdmin([]);
         const fences = withFences(f, [fence()]);
         expect(await recover({ ...f, ack: '', runState: terminal })).toMatchObject({ status: 'HOLD_NO_ACK', feedback: { listed: 1, fences: 0 } });
-        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1']);
+        expect(fences.calls.map((c) => c.split(':')[0])).toEqual(['list_unresolved_rwt_feedback_fences_v1', 'list_unfinished_account_save_journal_cleanup_runs_v1']);
     });
     it('a deployment without the fence migration (function absent) recovers accounts exactly as before', async () => {
         stubRun();
         const f = fakeAdmin([{ ...user(1, journey(1), old), app_metadata: { ct_run: binding } }]);
         withFences(f, [], undefined, { code: 'PGRST202' });
         expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'RECOVERED', deleted: 1, feedback: { listed: 0, fences: 0 } });
+    });
+});
+
+describe('#1906 save journals of interrupted runs: a complete inventory or HOLD; finished only for a terminated rc-gates run', () => {
+    const repository = 'relativityE/speaksharp';
+    const workflow = `${repository}/.github/workflows/rc-gates.yml@refs/heads/main`;
+    const dead = { repository, workflow, runId: '38000000001', runAttempt: '1', role: 'rwt-journey' as const };
+    const other = { ...dead, runId: '38000000002' };
+    const stubRun = () => {
+        for (const [k, v] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository,
+            GITHUB_WORKFLOW_REF: workflow, GITHUB_RUN_ID: '39000000001', GITHUB_RUN_ATTEMPT: '1' })) vi.stubEnv(k, v);
+    };
+    type Answer = { data: unknown; error: { code: string } | null };
+    /** An inventory answer: one entry per binding [binding, claims, recent]; live and unbound claims as given. */
+    const inv = (entries: Array<[unknown, number?, number?]>, extra: { live?: number; unbound?: number } = {}): Answer => {
+        const runs = entries.map(([binding, claims = 1, recent = 0]) => ({ binding, claims, recent }));
+        const live = extra.live ?? 0; const unbound = extra.unbound ?? 0;
+        return { data: { claims: live + unbound + runs.reduce((n, r) => n + r.claims, 0), live, unbound, runs }, error: null };
+    };
+    const EMPTY = inv([]);
+    /** The inventory answers in order (the last one repeats): the first listing, then the re-read after any change. */
+    const withRuns = (f: ReturnType<typeof fakeAdmin>, ...answers: Answer[]) => {
+        const rpc = vi.fn(async (fn: string) => {
+            if (fn === 'list_unresolved_rwt_feedback_fences_v1') return { data: [], error: null };
+            if (fn === 'list_unfinished_account_save_journal_cleanup_runs_v1') return answers.length > 1 ? answers.shift()! : answers[0];
+            return { data: null, error: { code: 'unexpected' } };
+        });
+        Object.assign(f.admin as object, { rpc });
+        return rpc;
+    };
+    const listings = (rpc: ReturnType<typeof withRuns>) => rpc.mock.calls.filter(([fn]) => fn === 'list_unfinished_account_save_journal_cleanup_runs_v1');
+    const terminal = vi.fn(async () => 'terminal' as const);
+    it('a terminated run is finished by presenting its own binding, then the inventory is read again and must show none left', async () => {
+        stubRun();
+        const f = fakeAdmin([]);
+        const rpc = withRuns(f, inv([[dead, 2]]), EMPTY);
+        const finishSaveJournal = vi.fn(async () => 2);
+        const r = await recover({ ...f, runState: terminal, finishSaveJournal });
+        expect(r).toMatchObject({ status: 'RECOVERED', saveJournal: { claims: 2, runs: 1, finished: 2, held: 0, unproven: 0, live: 0, remaining: 0 } });
+        expect(finishSaveJournal).toHaveBeenCalledTimes(1);
+        expect((finishSaveJournal.mock.calls[0] as unknown[])[1]).toEqual(dead);
+        expect(listings(rpc).map(([, a]) => a)).toEqual([{ p_min_age_seconds: MIN_AGE_MS / 1000 }, { p_min_age_seconds: MIN_AGE_MS / 1000 }]);
+        expect(recoveryReportLine(r)).toMatch(/ save_journal_claims=2 save_journal_runs=1 save_journal_finished=2 save_journal_held=0 save_journal_unproven=0 save_journal_live=0 save_journal_remaining=0$/);
+    });
+    it('a finished run that still has a claim in the second inventory FAILS; a second inventory that cannot be read fails or holds', async () => {
+        stubRun();
+        let f = fakeAdmin([]); withRuns(f, inv([[dead]]), inv([[dead]]));
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('FAILED');
+        f = fakeAdmin([]); withRuns(f, inv([[dead]]), { data: null, error: { code: '42501' } });
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('FAILED');
+        f = fakeAdmin([]); withRuns(f, inv([[dead]]), { data: [], error: null });
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('HOLD_INCOMPLETE_LISTING');
+    });
+    it('an active or unverifiable run, or a run with a RECENT claim, is held (nothing finished); the held claims are counted', async () => {
+        stubRun();
+        for (const state of ['active', 'unverifiable'] as const) {
+            const f = fakeAdmin([]); withRuns(f, inv([[dead, 3]]));
+            const finishSaveJournal = vi.fn(async () => 1);
+            expect(await recover({ ...f, runState: async () => state, finishSaveJournal })).toMatchObject({ status: 'HOLD_ACTIVE_RUN', saveJournal: { runs: 1, finished: 0, held: 3, remaining: 3 } });
+            expect(finishSaveJournal).not.toHaveBeenCalled();
+        }
+        const f = fakeAdmin([]); const rpc = withRuns(f, inv([[dead, 2, 1], [other]]), EMPTY);
+        const finishSaveJournal = vi.fn(async () => 1);
+        terminal.mockClear();
+        expect(await recover({ ...f, runState: terminal, finishSaveJournal })).toMatchObject({ status: 'HOLD_ACTIVE_RUN', saveJournal: { claims: 3, finished: 1, held: 2 } });
+        expect(finishSaveJournal.mock.calls.map((c) => (c as unknown[])[1])).toEqual([other]);
+        expect(terminal.mock.calls.map((c) => (c as unknown[])[0])).toEqual([other]);
+        expect(listings(rpc)).toHaveLength(2);
+    });
+    it('claims it may not finish (another workflow or repository, the CURRENT run, a canary or malformed binding, unbound, live) HOLD, never RECOVERED', async () => {
+        stubRun();
+        const f = fakeAdmin([]);
+        withRuns(f, inv([[{ ...dead, workflow: `${repository}/.github/workflows/canary.yml@refs/heads/main` }], [{ ...dead, repository: 'someone/else' }],
+            [{ ...dead, runId: '39000000001' }, 2], [{ ...dead, extra: '1' }], [{ ...dead, role: 'canary-active-trial' }], [{ x: 1 }]], { unbound: 1, live: 1 }));
+        const finishSaveJournal = vi.fn(async () => 1);
+        terminal.mockClear();
+        expect(await recover({ ...f, runState: terminal, finishSaveJournal }))
+            .toMatchObject({ status: 'HOLD_UNFINISHED_CLAIMS', saveJournal: { claims: 9, runs: 6, finished: 0, unproven: 8, live: 1, remaining: 9 } });
+        expect(finishSaveJournal).not.toHaveBeenCalled(); expect(terminal).not.toHaveBeenCalled();
+    });
+    it('Sam: with NO account in Auth, a remaining claim is never NOTHING_TO_RECOVER (unbound, live, or one hidden by the age floor)', async () => {
+        stubRun();
+        for (const answer of [inv([], { unbound: 1 }), inv([], { live: 1 }), inv([[dead, 1, 1]])]) {
+            const f = fakeAdmin([]); withRuns(f, answer);
+            const r = await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) });
+            expect(r.status).not.toBe('NOTHING_TO_RECOVER');
+            expect(['HOLD_UNFINISHED_CLAIMS', 'HOLD_ACTIVE_RUN']).toContain(r.status);
+            const noAck = fakeAdmin([]); withRuns(noAck, answer);
+            expect((await recover({ ...noAck, ack: '', runState: terminal })).status).toBe('HOLD_NO_ACK');
+        }
+        const f = fakeAdmin([]); withRuns(f, EMPTY);
+        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'NOTHING_TO_RECOVER', saveJournal: { claims: 0, remaining: 0 } });
+    });
+    it('Sam: an inventory that does not prove it is complete HOLDs and touches nothing (refused as too many, clipped, malformed, not adding up)', async () => {
+        stubRun();
+        const one = inv([[dead, 2]]).data as { claims: number; live: number; unbound: number; runs: Array<Record<string, unknown>> };
+        for (const answer of [{ data: null, error: { code: '54000' } }, { data: [dead], error: null }, { data: null, error: null }, { data: 'x', error: null },
+            { data: { ...one, runs: [] }, error: null }, { data: { ...one, claims: 3 }, error: null }, { data: { ...one, claims: -1 }, error: null },
+            { data: { ...one, live: 1.5 }, error: null }, { data: { ...one, extra: 1 }, error: null }, { data: { ...one, runs: [one.runs[0], one.runs[0]], claims: 4 }, error: null },
+            { data: { ...one, runs: [{ ...one.runs[0], binding: null }] }, error: null }, { data: { ...one, runs: [{ ...one.runs[0], binding: [dead] }] }, error: null },
+            { data: { ...one, runs: [{ ...one.runs[0], recent: 3 }] }, error: null }, { data: { ...one, runs: [{ ...one.runs[0], claims: 0 }], claims: 0 }, error: null }] as Answer[]) {
+            const f = fakeAdmin([]); withRuns(f, answer);
+            const finishSaveJournal = vi.fn(async () => 1);
+            expect((await recover({ ...f, runState: terminal, finishSaveJournal })).status).toBe('HOLD_INCOMPLETE_LISTING');
+            expect(finishSaveJournal).not.toHaveBeenCalled();
+        }
+    });
+    it('fails closed on a listing error or a failed finish; a deployment without the function lists none', async () => {
+        stubRun();
+        let f = fakeAdmin([]); withRuns(f, { data: null, error: { code: '42501' } });
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).status).toBe('FAILED');
+        f = fakeAdmin([]); withRuns(f, inv([[dead]]));
+        expect((await recover({ ...f, runState: terminal, finishSaveJournal: vi.fn(async () => { throw new Error('cleanup account_save_obligations sweep failed (fail closed): 55000'); }) })).status).toBe('FAILED');
+        f = fakeAdmin([]); withRuns(f, { data: null, error: { code: 'PGRST202' } });
+        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'NOTHING_TO_RECOVER', saveJournal: { runs: 0, claims: 0 } });
+    });
+    it('Sam (6b8943d): a follow-up inventory LOST after the first read proved claims exist HOLDs; the foreign claim is untouched', async () => {
+        stubRun();
+        const f = fakeAdmin([]);
+        // owned (terminated) + foreign (active) claims; the owned one is finished; then the second read answers "no such function".
+        const rpc = withRuns(f, inv([[dead], [other]]), { data: null, error: { code: 'PGRST202' } });
+        const finishSaveJournal = vi.fn(async () => 1);
+        const r = await recover({ ...f, runState: async (b: { runId: string }) => (b.runId === dead.runId ? 'terminal' : 'active'), finishSaveJournal });
+        expect(r.status).toBe('HOLD_INCOMPLETE_LISTING');
+        expect(r.saveJournal).toMatchObject({ claims: 2, finished: 1 });
+        expect(finishSaveJournal.mock.calls.map((c) => (c as unknown[])[1])).toEqual([dead]);
+        expect(listings(rpc)).toHaveLength(2);
+        // Also after an account deletion alone (no run finished): a lost follow-up is never zero.
+        const g = fakeAdmin([user(1, journey(1), old)]); withRuns(g, inv([], { live: 1 }), { data: null, error: { code: 'PGRST202' } });
+        expect((await recover({ ...g, runState: terminal })).status).toBe('HOLD_INCOMPLETE_LISTING');
+        // The case that would have read as RECOVERED: the other claim is unbound (never held), so only a lost check could hide it.
+        const h = fakeAdmin([]); withRuns(h, inv([[dead]], { unbound: 1 }), { data: null, error: { code: 'PGRST202' } });
+        expect(await recover({ ...h, runState: terminal, finishSaveJournal: vi.fn(async () => 1) })).toMatchObject({ status: 'HOLD_INCOMPLETE_LISTING', saveJournal: { remaining: 2 } });
+    });
+    it('pre-migration compatibility stays distinct: a database WITHOUT the function at both reads is empty, not a lost check', async () => {
+        stubRun();
+        const f = fakeAdmin([user(1, journey(1), old)]);   // default rpc: "no such function" for every listing
+        expect(await recover({ ...f, runState: terminal })).toMatchObject({ status: 'RECOVERED', deleted: 1, saveJournal: { claims: 0, remaining: 0 } });
+    });
+    it('an admin that cannot call the database, or a finish that reports no counted number, FAILS (never zero)', async () => {
+        stubRun();
+        const f = fakeAdmin([]); delete (f.admin as { rpc?: unknown }).rpc;
+        expect((await recover({ ...f, runState: terminal })).status).toBe('FAILED');
+        for (const bad of [undefined, null, '1', -1, 1.5, Number.NaN]) {
+            const g = fakeAdmin([]); withRuns(g, inv([[dead]]), EMPTY);
+            expect((await recover({ ...g, runState: terminal, finishSaveJournal: vi.fn(async () => bad as never) })).status).toBe('FAILED');
+        }
     });
 });
 

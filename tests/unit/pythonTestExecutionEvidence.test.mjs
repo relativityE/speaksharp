@@ -12,7 +12,13 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 const here=path.dirname(fileURLToPath(import.meta.url)),repo=path.resolve(here,'../..');
 
 function realRuntimeOptions(f) {
-  const execPath=fs.realpathSync(execFileSync('which',['python3'],{encoding:'utf8'}).trim());
+  const nativeBinding=process.env.TEST_EFFICACY_BINDING?JSON.parse(process.env.TEST_EFFICACY_BINDING):null;
+  const pinned=nativeBinding?.pythonFixture;
+  if(nativeBinding?.phase==='native-execution') {
+    assert.ok(pinned && path.isAbsolute(pinned.execPath), 'native receipt tests require a bound Python interpreter');
+    assert.equal(hash(fs.readFileSync(pinned.execPath)),pinned.sha256,'bound Python fixture executable bytes');
+  }
+  const execPath=pinned?.execPath??fs.realpathSync(execFileSync('which',['python3'],{encoding:'utf8'}).trim());
   const version=execFileSync(execPath,['-c','import sys; print(".".join(map(str, sys.version_info[:3])))'],{encoding:'utf8'}).trim();
   const yamlFile=path.join(f.root,'yaml','__init__.py');
   const realExec=fs.realpathSync(execFileSync(execPath,['-c','import sys; print(sys.executable)'],{encoding:'utf8'}).trim());
@@ -61,6 +67,50 @@ test('Python receipts bind exact source/runtime and reject result tampering',()=
         files:[f.testFile],environment:f.environment}));
     }
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('coverage distinguishes exact Python method calls, input bytes and module execution',async()=>{
+  const {executionCoverage,pythonExecutionClaim}=await import('../../scripts/lib/testExecutionEvidence.mjs');
+  assert.equal(pythonExecutionClaim({runner:'python-unittest-input',testMethod:'Fixture.test_reads_bytes'},false),
+    'registered input bytes read by its Python test module; not a behavioral verdict',
+    'an exact method selection does not by itself witness a source callable');
+  const f=fixture();
+  const saved=Object.fromEntries(Object.keys(f.environment).map(key=>[key,process.env[key]]));
+  process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
+  Object.assign(process.env,f.environment);
+  try {
+    const source='tools/cloud-test/scripts/aggregate_receiver.py';
+    const {inputFile}=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
+    const files=[source,inputFile,f.testFile];
+    for(const file of [...files,...selectPythonContracts(files).map(item=>item.testFile)]) {
+      fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});
+      fs.writeFileSync(path.join(f.root,file),'# synthetic receipt fixture\n');
+    }
+    const body=fs.readFileSync(f.executable,'utf8');
+    const old="collected:['_evidence.test_ok'],outcomes:[{id:'_evidence.test_ok',status:'passed'}],sourceReads:b.sourceFiles??[]";
+    assert.ok(body.includes(old));
+    const replacement=`collected:[id],outcomes:[{id,status:'passed'}],sourceCalls:calls,sourceReads:(b.sourceFiles??[]).filter(row=>!calls.some(c=>c.file===row.file))`;
+    fs.writeFileSync(f.executable,body.replace('fs.writeFileSync(b.receiptFile',`const id=b.testMethod?'_evidence_'+crypto.createHash('sha256').update(b.testFile).digest('hex')+'.'+b.testMethod:'_evidence.test_ok';
+const calls=(b.sourceCalls??[]).map(call=>({...call,sha256:b.sourceFiles.find(row=>row.file===call.file).sha256}));
+fs.writeFileSync(b.receiptFile`).replace(old,replacement));
+    execFileSync('git',['init','-q'],{cwd:f.root});
+    const options={root:f.root,base:null,provenance:f.provenance,files,batch:0,
+      environment:f.environment,drain:()=>({status:'drained'})};
+    const python=producePythonReceipt(options);
+    const report=executionCoverage(files,{root:f.root,base:null,expected:f.provenance,python});
+    assert.deepEqual(report.rows.map(({file,status,claim})=>[file,status,claim]),[
+      [source,'EXECUTED','exact registered Python method and source call observed; not browser/database/live acceptance'],
+      [inputFile,'EXECUTED','registered input bytes read by its Python test module; not a behavioral verdict'],
+      [f.testFile,'EXECUTED','actual Python unittest collection and execution only; not browser/database/live acceptance'],
+    ]);
+  } finally {
+    for(const [key,value] of Object.entries(saved)) {
+      if(value===undefined) delete process.env[key];
+      else process.env[key]=value;
+    }
+    process.env.PATH=f.oldPath;
+    fs.rmSync(f.root,{recursive:true,force:true});
+  }
 });
 
 test('real Python reporter credits only the exact input actually consumed by its selected test',()=>{
@@ -266,4 +316,67 @@ test('oversized Python receipt is refused before JSON processing with bounded co
       assert.deepEqual(error.diagnostics.failedTests,[]);assert.doesNotMatch(error.message,/PRIVATE/);return true;
     });
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('source-only cloud request edits require their composed Python method', async()=>{
+  const {changedEvidencePaths}=await import('../../scripts/lib/testExecutionEvidence.mjs');
+  const f=fixture();
+  try {
+    const git=(...args)=>execFileSync('git',['-C',f.root,...args],{encoding:'utf8'}).trim();
+    git('init','-q');
+    git('config','user.email','fixture@example.test');
+    git('config','user.name','Fixture');
+    const sources=['aggregate_receiver','check_gates'].map(name=>`tools/cloud-test/scripts/${name}.py`);
+    const consumer='tools/cloud-test/tests/test_init_run_inputs.py';
+    for(const file of [...sources,consumer]) {
+      fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});
+      fs.writeFileSync(path.join(f.root,file),'# baseline\n');
+    }
+    git('add','.');git('commit','-qm','baseline');
+    const base=git('rev-parse','HEAD');
+    for(const file of sources)fs.appendFileSync(path.join(f.root,file),'# source-only edit\n');
+    assert.deepEqual(changedEvidencePaths(f.root,base),sources);
+    assert.deepEqual(selectPythonContracts(sources),[{
+      testFile:consumer,sourceFiles:sources,
+      testMethod:'ContinuityCheckpoint.test_prepare_admits_only_the_supplied_envelope_and_the_real_builder_binding_accepts_the_placed_bytes',
+      batch:0,
+    }]);
+  } finally {fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('exact cloud request method must call the two bound sources, not just import or read them',()=>{
+  const f=fixture();
+  try {
+    const files=['aggregate_receiver','check_gates'].map(name=>`tools/cloud-test/scripts/${name}.py`);
+    const [{testFile,testMethod}]=selectPythonContracts(files);
+    const method=testMethod.split('.')[1];
+    const sources=[
+      'from check_gates import authenticated_chain\ndef receive_bundle(): return authenticated_chain()\n',
+      'def authenticated_chain(): return 5\n',
+    ];
+    const put=(file,bytes)=>{
+      fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});
+      fs.writeFileSync(path.join(f.root,file),bytes);
+    };
+    files.forEach((file,index)=>put(file,sources[index]));
+    const prefix=`import sys, unittest\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))\nfrom aggregate_receiver import receive_bundle\nclass ContinuityCheckpoint(unittest.TestCase):\n def ${method}(self):\n`;
+    put(testFile,prefix+"  self.assertEqual(receive_bundle(),5)\n def test_unrelated(self): self.fail()\n");
+    const options={root:f.root,base:'d'.repeat(40),provenance:f.provenance,files,environment:f.environment,
+      drain:()=>({status:'drained'}),runtimeOptions:realRuntimeOptions(f)};
+    const receipt=producePythonReceipt(options);
+    assert.deepEqual([...validatePythonReceipt(receipt,options)],files);
+    const altered=structuredClone(receipt);
+    altered.tests[0].phase.report.collected[0]='neighbor.test_unrelated';
+    altered.tests[0].phase.report.outcomes[0].id='neighbor.test_unrelated';
+    assert.throws(()=>validatePythonReceipt(altered,options),/method missing or substituted/);
+    const stale=structuredClone(receipt);
+    stale.tests[0].phase.report.sourceCalls[0].sha256='0'.repeat(64);
+    assert.throws(()=>validatePythonReceipt(stale,options),/source call absent, substituted or stale/);
+    assert.throws(()=>producePythonReceipt({...options,files:[...files,testFile]}),/execution failed/);
+    put(testFile,prefix+`  Path(${JSON.stringify(path.join(f.root,files[0]))}).read_bytes()\n`);
+    assert.throws(()=>producePythonReceipt(options),/source call absent/);
+    put(testFile,prefix+"  self.assertTrue(True)\n def test_unrelated(self): self.assertEqual(receive_bundle(),5)\n");
+    assert.throws(()=>producePythonReceipt({...options,files:[...files,testFile]}),/source call absent/,
+      'a passing neighboring method cannot lend exact-call credit to the enrolled method');
+  } finally {fs.rmSync(f.root,{recursive:true,force:true});}
 });

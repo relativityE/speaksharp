@@ -12,7 +12,7 @@
  */
 import { appendFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
-import { cleanupRunOwnedAccount } from '../tests/live/helpers/runOwnedCleanup';
+import { cleanupRunOwnedAccount, finishRunSaveJournalCleanups, readSaveJournalInventory } from '../tests/live/helpers/runOwnedCleanup';
 import { canaryCleanup } from './lib/canaryCleanupAdapter';
 import { RUN_OWNED_PREFIX } from './lib/canaryRunOwnedSweep.mjs';
 import { cleanupLane, describeSweep, makeGetRun, setupLane, sweepLane } from './lib/canaryRunOwnedLane.mjs';
@@ -33,6 +33,9 @@ const bindFailureCleanup = async ({ admin: client, uid, email }: { admin: unknow
 };
 // In-run cleanup and the sweep: the adapter that preserves an account with any unsettled take (Sam's option c).
 const cleanup = canaryCleanup;
+// #1906: a cleanup that stopped after the Auth deletion is finished by its run binding (the shared helper's resume-by-run step).
+const finishSaveJournal = (client: unknown, binding: Readonly<{ [key: string]: string }>) => finishRunSaveJournalCleanups(client as never, binding);
+const readSaveJournal = (client: unknown, minAgeSeconds: number) => readSaveJournalInventory(client as never, minAgeSeconds);
 
 if (command === 'setup') {
     if (!GITHUB_ENV) { console.error('canary-run-owned setup: no-github-env'); process.exit(1); }
@@ -48,14 +51,14 @@ if (command === 'setup') {
 }
 
 if (command === 'cleanup') {
-    const result = await cleanupLane({ admin, env: process.env, cleanup });
-    console.log(`canary-run-owned cleanup: ${result.code} deleted=${result.deleted}`);
+    const result = await cleanupLane({ admin, env: process.env, cleanup, finishSaveJournal });
+    console.log(`canary-run-owned cleanup: ${result.code} deleted=${result.deleted}${typeof result.orphans === 'number' ? ` orphans=${result.orphans}` : ''}`);
     if (result.preserved) console.log(`::warning::canary run-owned account PRESERVED (${result.code}) for authorized recovery: run=${result.preserved.runId} attempt=${result.preserved.runAttempt} account=${result.preserved.accountPattern}`);
     process.exit(result.ok ? 0 : 1);
 }
 
 if (!GITHUB_TOKEN || !GITHUB_REPOSITORY) { console.error('canary-run-owned sweep: no-github-token'); process.exit(1); }
-const result = await sweepLane({ admin, env: process.env, cleanup, getRun: makeGetRun({ fetchImpl: fetch, token: GITHUB_TOKEN, repository: GITHUB_REPOSITORY }) });
+const result = await sweepLane({ admin, env: process.env, cleanup, finishSaveJournal, readSaveJournal, getRun: makeGetRun({ fetchImpl: fetch, token: GITHUB_TOKEN, repository: GITHUB_REPOSITORY }) });
 console.log(`canary-run-owned ${describeSweep(result.report)}`);
 for (const p of result.preserved ?? []) console.log(`::warning::canary run-owned orphan PRESERVED (${p.step}) for authorized recovery: run=${p.runId} attempt=${p.runAttempt} account=${p.accountPattern}`);
 if (result.report && Object.keys(result.report.left).length) console.log('::warning::canary run-owned sweep left accounts it could not prove finished; see counts above');

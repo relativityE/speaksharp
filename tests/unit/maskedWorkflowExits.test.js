@@ -159,7 +159,8 @@ describe('#1315 setup-test-users.yml — Generate and set SOAK_TEST_PASSWORD', (
 describe('#1315 ci.yml — Organize Canonical Artifacts', () => {
     const step = () => findStep('ci.yml', 'Organize Canonical Artifacts');
     const base = { 'artifacts/unit-artifacts/unit-metrics.json': '{"tests":1}' };
-    const shards = (ns) => Object.fromEntries(ns.map((n) => [`artifacts/reports/report-full-suite-${n}.zip`, 'zip']));
+    // The real downloaded layout: each shard's artifact (blob-report + test-results/playwright) keeps its blob-report/ folder.
+    const shards = (ns) => Object.fromEntries(ns.map((n) => [`artifacts/shard-report-${n}/blob-report/report-full-suite-${n}.zip`, 'zip']));
 
     it('copies exactly one report into each shard directory', () => {
         const r = runStep(step(), { files: { ...base, ...shards([1, 2, 3, 4]) } });
@@ -169,24 +170,39 @@ describe('#1315 ci.yml — Organize Canonical Artifacts', () => {
         }
     });
 
-    it('fails when a shard report is missing', () => {
+    it('fails when a shard artifact is missing (find names the missing shard folder under bash -e)', () => {
         const r = runStep(step(), { files: { ...base, ...shards([1, 2, 4]) } });
+        expect(r.status).not.toBe(0);
+        expect(r.out).toContain('artifacts/shard-report-3/blob-report');
+        expect(existsSync(join(r.cwd, 'artifacts/playwright/shard-4/report-full-suite-4.zip'))).toBe(false);
+    });
+
+    it('fails when a shard artifact holds no report', () => {
+        const files = { ...base, ...shards([1, 2, 4]), 'artifacts/shard-report-3/blob-report/notes.txt': 'not a report' };
+        const r = runStep(step(), { files });
         expect(r.status).not.toBe(0);
         expect(r.out).toContain('no Playwright report found for shard 3');
     });
 
     it('fails when a shard report is ambiguous', () => {
         const r = runStep(step(), {
-            files: { ...base, ...shards([1, 2, 3, 4]), 'artifacts/other/report-full-suite-2.zip': 'zip' },
+            files: { ...base, ...shards([1, 2, 3, 4]), 'artifacts/shard-report-2/blob-report/report-other-2.zip': 'zip' },
         });
         expect(r.status).not.toBe(0);
         expect(r.out).toContain('ambiguous Playwright reports for shard 2');
     });
 
+    it('ignores a stray report outside its shard folder (only the shard\'s own artifact is credited)', () => {
+        const r = runStep(step(), { files: { ...base, ...shards([1, 2, 3, 4]), 'artifacts/other/report-stray-2.zip': 'zip' } });
+        expect(r.status).toBe(0);
+        expect(existsSync(join(r.cwd, 'artifacts/playwright/shard-2/report-full-suite-2.zip'))).toBe(true);
+        expect(existsSync(join(r.cwd, 'artifacts/playwright/shard-2/report-stray-2.zip'))).toBe(false);
+    });
+
     it('fails when find returns partial output and then exits nonzero', () => {
         const r = runStep(step(), {
             files: { ...base, ...shards([1, 2, 3, 4]) },
-            stubs: { find: 'printf "%s\\n" "artifacts/reports/report-full-suite-1.zip"; exit 1' },
+            stubs: { find: 'printf "%s\\n" "artifacts/shard-report-1/blob-report/report-full-suite-1.zip"; exit 1' },
         });
         expect(r.status).not.toBe(0);
         expect(existsSync(join(r.cwd, 'artifacts/playwright/shard-1/report-full-suite-1.zip'))).toBe(false);

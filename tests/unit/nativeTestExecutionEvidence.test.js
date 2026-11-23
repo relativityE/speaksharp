@@ -10,7 +10,7 @@ import {runInNewContext} from 'node:vm';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,SQL_CONTRACTS,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
-  PROOF_CASES_TEST,REAL_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  PROOF_CASES_TEST,REAL_BROWSER_TEST,MODEL_PRIVACY_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity,executionRoute,changedEvidencePaths} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {execFileSync} from 'node:child_process';
@@ -178,6 +178,14 @@ test('Deno parses real-shaped JUnit with the actually installed jsdom-relative s
   assert.equal(JSON.parse(fs.readFileSync(require.resolve('saxes/package.json'))).version,'6.0.0');
   assert.deepEqual(parseDenoJunit(xml(),denoBinding,root),{collected:1,assertions:1});
 });
+test('Deno JUnit requires an exact named case, once, when the source contract requires it',()=>{
+  const spec='actual assertion';
+  assert.deepEqual(parseDenoJunit(xml(),denoBinding,root,[spec]),{collected:1,assertions:1});
+  assert.throws(()=>parseDenoJunit(xml().replace(spec,'some other success'),denoBinding,root,[spec]),/required case/);
+  const duplicate=xml('<testcase name="actual assertion" classname="./backend/supabase/functions/fixture.test.ts"/>'.repeat(2),
+    'tests="2" failures="0" errors="0"');
+  assert.throws(()=>parseDenoJunit(duplicate,denoBinding,root,[spec]),/required case/);
+});
 for(const [name,raw] of [
   ['absent',''],['truncated',xml().slice(0,-10)],['invalid entity',xml().replace('actual assertion','&missing;')],
   ['wrong file',xml().replaceAll('fixture.test.ts','other.test.ts')],['zero tests',xml('','tests="0" failures="0" errors="0"')],
@@ -249,16 +257,20 @@ test('INSTALLED Node reporter observes actual collection/assertion/drain and rej
   }finally{f.clean();}
 });
 
-test('real-browser native phase binds and forwards only the exact executable identity',()=>{
+for(const testFile of [REAL_BROWSER_TEST,MODEL_PRIVACY_BROWSER_TEST]) test(`${testFile}: native phase binds and forwards only the exact executable identity`,()=>{
   const f=fixture(),chrome=path.join(f.dir,'installed-chrome');
   fs.writeFileSync(chrome,'synthetic reviewed browser bytes');fs.chmodSync(chrome,0o700);
   const environment={...testEnvironment(f.dir,null,''),CT_CHROME:chrome};
-  f.contract.testFile=REAL_BROWSER_TEST;
-  f.write(REAL_BROWSER_TEST,`const test=require('node:test'),assert=require('node:assert/strict');
-    test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`);
+  f.contract.testFile=testFile;
+  f.write(testFile,testFile.endsWith('.cjs')
+    ? "const test=require('node:test'),assert=require('node:assert/strict');"
+      +`test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`
+    : "import test from 'node:test'; import assert from 'node:assert/strict';"
+      +`test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`);
   try {
     const expected={path:chrome,sha256:hash(fs.readFileSync(chrome))};
     assert.deepEqual(nativeBrowserBinding(f.contract,environment),expected);
+    assert.equal(nativeBrowserBinding({...f.contract,testFile:'tests/unit/unapproved.node.test.mjs'},environment),null);
     let phase;
     try {phase=produceNativePhase({root:f.dir,cwd:f.dir,contract:f.contract,provenance,inputSha256,runId,
       sourceCopyCommit:'e'.repeat(40),environment,drain:drainOwnedPhase});}
@@ -366,7 +378,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
 
-    assert.equal(admitted.id,'coaching-persist-entitlement-1899');
+    assert.equal(admitted.id,'coaching-consent-efficacy-1905');
     assert.equal(Object.keys(admitted.files).length,17);
     for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json','practicePrivacy.ts'])
       assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
@@ -379,7 +391,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
       f.write(file,original);
     }
 
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-persist-entitlement-1899');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-consent-efficacy-1905');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
@@ -456,9 +468,19 @@ test('coaching SQL selects its actual consumer and cannot borrow billing consump
   assert.equal(nativeTestRoute(native.replace('local-fence','unregistered-fence'),root),null);
   assert.deepEqual(selectNativeContracts(root,[native]).map(item=>item.testFile),[native]);
 });
-test('full-evidence provisions Deno on its own runner; the Edge job is not its runtime',()=>{
+test('each CI job provisions Deno once before its own required tests or evidence',()=>{
   const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');
   const workflow=yaml.parse(fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8'));
+  const draft=workflow.jobs['draft-checks'].steps;
+  const draftSetup=draft.filter(step=>step.uses==='denoland/setup-deno@v2');
+  assert.equal(draftSetup.length,1,'edge-changing and other drafts share one Deno setup');
+  assert.equal(draftSetup[0].if,undefined);
+  assert.equal(draftSetup[0].with['deno-version'],'v2.x');
+  const draftEdge=draft.findIndex(step=>step.run==='pnpm test:edge');
+  const draftBilling=draft.findIndex(step=>step.run==='pnpm test:billing-qualification');
+  assert.ok(draftEdge>draft.indexOf(draftSetup[0])&&draftBilling>draftEdge);
+  assert.equal(draft[draftEdge].if,"needs.scope.outputs.edge_changed == 'true'");
+  assert.equal(draft[draftBilling].if,undefined);
   assert.equal(workflow.jobs['full-evidence']['runs-on'],'ubuntu-26.04');
   const steps=workflow.jobs['full-evidence'].steps;
   assert.equal(steps.filter(step=>step.uses==='denoland/setup-deno@v2'&&step.with?.['deno-version']==='v2.x').length,1);
@@ -467,6 +489,21 @@ test('full-evidence provisions Deno on its own runner; the Edge job is not its r
   assert.ok(conformance>steps.findIndex(step=>step.uses==='denoland/setup-deno@v2'));
   assert.equal(steps[conformance].env.TEST_EFFICACY_DENO_REAL_RUNTIME,'1');
   assert.equal(steps[conformance].run,'node --test tests/unit/nativeTestExecutionEvidence.test.js');
+});
+
+test('ordinary full CI runs both Node evidence suites before writing the quality report',()=>{
+  const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');
+  const workflow=yaml.parse(fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8'));
+  const steps=workflow.jobs['full-evidence'].steps;
+  const matches=steps.filter(step=>step.name==='Run Node evidence contract tests');
+  assert.equal(matches.length,1,'full-evidence needs one dedicated Node step');
+  const [step]=matches;
+  assert.equal(step.run.trim(),'node --test tests/unit/semanticEfficacySelection.test.mjs tests/unit/pythonTestExecutionEvidence.test.mjs');
+  assert.equal(step.if,undefined,'required on every ordinary full-evidence run');
+  assert.equal(step['continue-on-error'],undefined,'failed assertions must stop qualification');
+  const python=steps.findIndex(entry=>entry.name==='Install pinned Python execution-evidence dependency');
+  const writer=steps.findIndex(entry=>entry.name==='Generate qualified software quality evidence');
+  assert.ok(python>=0 && python<steps.indexOf(step) && steps.indexOf(step)<writer,'after pinned setup, before the writer');
 });
 
 test('service caller provisions Deno before any live setup and the paired quality writer',()=>{

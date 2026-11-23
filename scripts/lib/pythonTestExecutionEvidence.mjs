@@ -18,6 +18,12 @@ export const PYTHON_REPORTER='scripts/lib/python-unittest-reporter.py';
 // Non-test inputs are credited only through the exact Python consumer that reads
 // or integrity-checks them.  This is deliberately a closed inventory: an
 // unregistered fixture remains UNCOVERED rather than borrowing a nearby suite.
+const FULL_REQUEST_TEST='tools/cloud-test/tests/test_init_run_inputs.py';
+const FULL_REQUEST_METHOD='ContinuityCheckpoint.test_prepare_admits_only_the_supplied_envelope_and_the_real_builder_binding_accepts_the_placed_bytes';
+const FULL_REQUEST_CALLS=Object.freeze({
+  'tools/cloud-test/scripts/aggregate_receiver.py':'receive_bundle',
+  'tools/cloud-test/scripts/check_gates.py':'authenticated_chain',
+});
 export const PYTHON_INPUT_CONTRACTS=Object.freeze([
   {inputFile:'tools/cloud-test/config/required-test-ids.v1.json',testFile:'tools/cloud-test/tests/test_required_test_ids.py'},
   {inputFile:'tools/cloud-test/harness/draft-adapters/source/d100/20260731120000_session_progress_evaluations.sql',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
@@ -33,6 +39,7 @@ export const PYTHON_INPUT_CONTRACTS=Object.freeze([
   {inputFile:'tools/cloud-test/tests/fixtures/nightly-control-plane.yml.proposed',testFile:'tools/cloud-test/tests/test_nightly_regression.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/nightly-request.json',testFile:'tools/cloud-test/tests/test_nightly_regression.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/nightly-template.synthetic.json',testFile:'tools/cloud-test/tests/test_nightly_request.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/j4a-offline-packet.patch.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/original-r15-pins.json',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/partial-request.json',testFile:'tools/cloud-test/tests/test_pipeline_and_report.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/plan-facts.PLACEHOLDER.json',testFile:'tools/cloud-test/tests/test_selected_full_case_route.py'},
@@ -49,6 +56,18 @@ export const PYTHON_INPUT_CONTRACTS=Object.freeze([
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/jobs-42406851270.json',testFile:'tools/cloud-test/tests/test_rejected_before_any_step.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/run-41960376782.json',testFile:'tools/cloud-test/tests/test_unexecuted_attempt_evidence.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/unexecuted/run-42406851270.json',testFile:'tools/cloud-test/tests/test_rejected_before_any_step.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-guarded-owner.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-nightly-entry.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-save-retry.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-supervised-adapter.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-supervised-entrypoint.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly/j4a-supervisor-termination.test.cjs.fixture',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-entry-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-guarded-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-retry-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-supervised-child.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/j4a-writer-proof.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
+  {inputFile:'tools/cloud-test/nightly/tests/fixtures/no-proc-shim.cjs',testFile:'tools/cloud-test/tests/test_nightly_suite.py'},
 ]);
 
 function regular(root,file) {
@@ -91,6 +110,7 @@ export function pythonEnvironment(environment=process.env) {
 }
 
 export function pythonTestRoute(file) {
+  if(Object.hasOwn(FULL_REQUEST_CALLS,file))return {runner:'python-unittest-input',consumer:FULL_REQUEST_TEST,applicable:true,testMethod:FULL_REQUEST_METHOD};
   const input=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile===file);
   if(input)return {runner:'python-unittest-input',consumer:input.testFile,applicable:true};
   return /^tools\/cloud-test\/(?:.*\/)?test_[^/]+\.py$/.test(file)
@@ -104,11 +124,13 @@ export function selectPythonContracts(files) {
     const contract=selected.get(route.consumer)??{testFile:route.consumer,sourceFiles:[],consumerExecution:false};
     if(route.runner==='python-unittest-input')contract.sourceFiles.push(file);
     else contract.consumerExecution=true;
+    if(route.testMethod)contract.testMethod=route.testMethod;
     selected.set(route.consumer,contract);
   }
   const contracts=[...selected.values()].map(contract=>({testFile:contract.testFile,
     ...(contract.sourceFiles.length?{sourceFiles:contract.sourceFiles}:{}),
-    ...(contract.consumerExecution?{consumerExecution:true}:{})}));
+    ...(contract.consumerExecution?{consumerExecution:true}:{}),
+    ...(contract.testMethod?{testMethod:contract.testMethod}:{})}));
   if(contracts.length>NATIVE_BATCH_SIZE*NATIVE_MAX_BATCHES)fail(`NOT RUN: Python execution exceeds ${NATIVE_MAX_BATCHES} batches of ${NATIVE_BATCH_SIZE} files`);
   return contracts.map((contract,index)=>({...contract,batch:Math.floor(index/NATIVE_BATCH_SIZE)}));
 }
@@ -190,6 +212,13 @@ function failPhase(message,phase,contract) {
   throw error;
 }
 
+function methodBinding(contract) {
+  if(!contract.testMethod)return {};
+  return {testMethod:contract.testMethod,wholeModule:contract.consumerExecution===true,
+    sourceCalls:(contract.sourceFiles??[]).filter(file=>Object.hasOwn(FULL_REQUEST_CALLS,file))
+      .map(file=>({file,callable:FULL_REQUEST_CALLS[file]}))};
+}
+
 export function producePythonReceipt({root,base,provenance,files,batch=0,drain,spawn=spawnSync,runtimeOptions,environment=process.env}={}) {
   const contracts=selectPythonContracts(files),count=Math.ceil(contracts.length/NATIVE_BATCH_SIZE);
   if(!Number.isInteger(batch)||batch<0||batch>=Math.max(count,1))fail('NOT RUN: Python batch outside selection');
@@ -204,6 +233,7 @@ export function producePythonReceipt({root,base,provenance,files,batch=0,drain,s
       const binding={schemaVersion:1,phase:'python-unittest',phaseId,runId,root:fs.realpathSync(root),testFile:contract.testFile,
         testSha256:hash(fs.readFileSync(testFile)),receiptDirectory,receiptFile,base:base??null,provenance,runtime,environment:environmentBinding};
       if(sourceFiles.length)binding.sourceFiles=sourceFiles;
+      Object.assign(binding,methodBinding(contract));
       const command=[runtime.execPath,'-I',regular(root,PYTHON_REPORTER)],result=spawn(command[0],command.slice(1),{
         cwd:root,env:fixedEnvironment(receiptDirectory,binding),encoding:'utf8',timeout:120000,killSignal:'SIGKILL',detached:true,maxBuffer:4*1024*1024});
       let processCleanup;
@@ -233,6 +263,8 @@ export function validatePythonPhase(phase,{root,base,provenance,runId,contract,r
   if(!b||b.schemaVersion!==1||b.phase!=='python-unittest'||b.runId!==runId||!b.phaseId||b.root!==fs.realpathSync(root)
     ||b.testFile!==contract.testFile||b.testSha256!==hash(fs.readFileSync(regular(root,contract.testFile)))||b.base!==(base??null)
     ||!isDeepStrictEqual(b.sourceFiles??[],(contract.sourceFiles??[]).map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))})))
+    ||!isDeepStrictEqual(Object.fromEntries(['testMethod','wholeModule','sourceCalls']
+      .filter(key=>Object.hasOwn(b,key)).map(key=>[key,b[key]])),methodBinding(contract))
     ||!isDeepStrictEqual(b.provenance,provenance)||!isDeepStrictEqual(b.runtime,runtime)
     ||!isDeepStrictEqual(b.environment,pythonEnvironment(environment))
     ||JSON.stringify(phase.command)!==JSON.stringify([runtime.execPath,'-I',regular(root,PYTHON_REPORTER)]))failPhase('Wrong Python source/runtime/provenance/command binding',phase,contract);
@@ -246,7 +278,14 @@ export function validatePythonPhase(phase,{root,base,provenance,runId,contract,r
   if(!boundedInventory||new Set(report.collected).size!==report.collected.length
     ||report.collected.length>MAX_RECEIPT_ITEMS||!Array.isArray(report.outcomes)||report.outcomes.length>MAX_RECEIPT_ITEMS
     ||report.outcomes.length!==report.collected.length)failPhase('Python collection absent, duplicated or stale',phase,contract);
-  if(!isDeepStrictEqual(report.sourceReads??[],b.sourceFiles??[]))failPhase('Python input consumption absent, substituted or stale',phase,contract);
+  const callFiles=new Set((b.sourceCalls??[]).map(item=>item.file));
+  const observedCalls=(b.sourceCalls??[]).map(item=>({...item,sha256:b.sourceFiles.find(source=>source.file===item.file).sha256}));
+  if(!isDeepStrictEqual(report.sourceCalls??[],observedCalls))failPhase('Python source call absent, substituted or stale',phase,contract);
+  if(b.testMethod) {
+    const id='_evidence_'+hash(b.testFile)+'.'+b.testMethod;
+    if(!report.collected.includes(id)||(!b.wholeModule&&report.collected.length!==1))failPhase('Required Python method missing or substituted',phase,contract);
+  }
+  if(!isDeepStrictEqual(report.sourceReads??[],(b.sourceFiles??[]).filter(item=>!callFiles.has(item.file))))failPhase('Python input consumption absent, substituted or stale',phase,contract);
   const outcomes=new Map();
   for(const item of report.outcomes) {
     if(!item||typeof item.id!=='string'||item.status!=='passed'||outcomes.has(item.id))failPhase('Python tests failed, skipped, duplicated or malformed',phase,contract);

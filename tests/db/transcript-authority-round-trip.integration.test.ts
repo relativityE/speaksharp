@@ -16,12 +16,15 @@
 // rather than silently changing what the user is told about their own transcript.
 //
 // Content-free: synthetic strings only.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { executableText } from '../deps/lib/source-text';
-import { U, db0, newSession, complete, row } from './helpers/completionEnv';
+import { U, db0, newSession, complete, row, closeCompletionDbs } from './helpers/completionEnv';
+
+afterEach(() => closeCompletionDbs());
+afterAll(() => closeCompletionDbs({ template: true }));
 import { resolveTranscriptView, TRANSCRIPT_STATES } from '../../frontend/src/lib/storage';
 
 const STORAGE = resolve(process.cwd(), 'frontend', 'src', 'lib', 'storage.ts');

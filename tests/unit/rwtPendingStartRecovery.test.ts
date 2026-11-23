@@ -3,10 +3,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-    type RecoveryControl, type RecoveryPressIo, driveRecoveryPress, recoveryPressVerdict, recoveryTakePlan, recoveryTakeVerdict,
+    PENDING_START_CONSENT_MODE, type ColdStartPressIo, type RecoveryControl, type RecoveryPressIo, coldStartPress, consentRefusalReason, driveRecoveryPress,
+    recoveryPressVerdict, recoveryTakePlan, recoveryTakeVerdict, stillTheOneEnabledControl,
 } from '../live/helpers/rwtPendingStartRecovery';
+import { CONSENT_MODES, captureConsentGate, type ChoiceClient } from '../live/helpers/rwtPracticeConsent';
+import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
 import type { SessionRowFacts } from '../live/helpers/rwtSaveRetry';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -76,7 +79,7 @@ describe('the AHT-04 spec wiring', () => {
         const row = recovery.indexOf("receipt.row('deliberate recovery take saved', pressVerdict.status, pressVerdict.detail,");
         const speak = recovery.indexOf('await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));');
         for (const [x, y] of [[drive, verdict], [verdict, row], [row, speak]]) { expect(x).toBeGreaterThan(-1); expect(y).toBeGreaterThan(x); }
-        expect(recovery).toContain('pressOnce: (control) => pressRecoveryControl(page, control),');
+        expect(recovery).toContain('pressOnce: (control, beforeClick) => pressRecoveryControl(page, control, beforeClick),');
         // The guard is armed per attempt and ALWAYS disarmed in finally (Sam, #1869 on c0c085ac).
         const press = spec.slice(spec.indexOf('async function pressRecoveryControl('), spec.indexOf('\n}\n', spec.indexOf('async function pressRecoveryControl(')));
         expect(press).toContain('await target.evaluate(armRecoveryClickGuard, { id: control, recorderStopId: RECORDER_STOP, token });');
@@ -105,6 +108,7 @@ describe('driveRecoveryPress: one observed activation of the planned control, th
                 return o.activated === false ? { activated: false, reason: 'the click did not reach the planned control' } : { activated: true };
             },
             recordingAfterPress: async () => o.records === true,
+            confirmConsent: async () => undefined,
         };
         return { io, presses };
     }
@@ -135,6 +139,7 @@ describe('driveRecoveryPress: one observed activation of the planned control, th
             recorderPresent: async () => false, offeredControl: async () => 'mic-start',
             pressOnce: async (c) => { presses.push(c); return { activated: false, staleRecorder: true, reason: 'a recorder was running at activation' }; },
             recordingAfterPress: async () => true,
+            confirmConsent: async () => undefined,
         };
         const out = await driveRecoveryPress(io, 'mic-start');
         expect(out).toEqual({ kind: 'stale-recorder' });
@@ -165,5 +170,251 @@ describe('driveRecoveryPress: one observed activation of the planned control, th
             expect(out).toEqual({ kind: 'pressed-no-recording', control });
             expect(recoveryPressVerdict(out)).toEqual({ status: 'FAIL', detail: `a proven press of ${control} for the recovery take did not start recording` });
         }
+    });
+});
+
+// J5.a (#1835, Sam Nov 20): no proven choice, no press. The owner's own row is read back immediately before EACH capture-capable
+// press: the cold Start it abandons, and the recovery press on return.
+describe('J5.a consent before every capture-capable press', () => {
+    const spec = readFileSync(path.resolve(here, '../live/rwt-pending-start-navigation.live.spec.ts'), 'utf8');
+    const OWNER = 'owner-1';
+    const SAVE_ON = { user_id: OWNER, transcript_save: true, ai_coaching: false, consent_version: 1 };
+    /** The owner's row as the server returns it right now: a row, none, or an unreadable answer. */
+    const clientOf = (current: { row: Record<string, unknown> | null | 'broken' }): ChoiceClient => ({
+        from: () => ({
+            select: () => ({
+                eq: () => ({ maybeSingle: async () => current.row === 'broken' ? { data: null, error: { code: '57014' } } : { data: current.row, error: null } }),
+                limit: async () => ({ data: [], error: null }),
+            }),
+        }),
+    });
+    const gateOver = (current: { row: Record<string, unknown> | null | 'broken' }) => {
+        const rows: Array<{ status: string; reason: string }> = [];
+        const gate = captureConsentGate({ consent: { build: 'includes_1835', choice: CONSENT_MODES.save_on, mode: 'save_on' }, client: clientOf(current),
+            ownerId: OWNER, mode: PENDING_START_CONSENT_MODE, record: (status, _d, e) => rows.push({ status, reason: e.reason }) });
+        return { gate, rows };
+    };
+    /** The recovery press with the real gate as its consent step; counts the presses that actually happened. */
+    /**
+     * The recovery press modelled as the spec's pressRecoveryControl: setup (find the control, the human reflex, arm the guard;
+     * `duringSetup` runs here), then `beforeClick`, then the click. A refusal returns `consentUnproven` and clicks nothing.
+     */
+    const recoveryOver = (confirmConsent: () => Promise<void>, duringSetup: () => void = () => undefined) => {
+        const presses: RecoveryControl[] = [];
+        const io: RecoveryPressIo = {
+            recorderPresent: async () => false, offeredControl: async () => 'mic-start',
+            pressOnce: async (c, beforeClick) => {
+                duringSetup();
+                try { await beforeClick(); } catch (error) { return { activated: false, consentUnproven: consentRefusalReason(error) }; }
+                presses.push(c);
+                return { activated: true };
+            },
+            recordingAfterPress: async () => true, confirmConsent,
+        };
+        return { io, presses };
+    };
+
+    it('the privacy row is REQUIRED for J5.a, so a receipt without it can never finalize PASS', () => {
+        expect(requiredAutomatedRows('pending-start-navigation')?.product).toContain('practice privacy choice');
+    });
+
+    it('the fixed choice is Save: Yes, Coaching: No (the recovery keeps its transcript; coaching is only a ceiling)', () => {
+        expect(CONSENT_MODES[PENDING_START_CONSENT_MODE]).toEqual({ transcriptSave: true, aiCoaching: false });
+        expect(spec).not.toMatch(/consentModeFrom|RWT_PRACTICE_CONSENT/);
+    });
+
+    it('the prompt is settled on Practice before Open Mic, and the cold Start is confirmed the statement before its press', () => {
+        const practice = spec.indexOf("await page.goto('/practice');");
+        const settle = spec.indexOf('const consent = await settleFixedConsentOnPractice({');
+        expect(settle).toBeGreaterThan(practice);
+        expect(settle).toBeLessThan(spec.indexOf("await openProductsItem(page, 'open-mic');"));
+        // A settle failure halts before any press.
+        expect(spec.slice(settle, spec.indexOf("await openProductsItem(page, 'open-mic');"))).toMatch(/\} catch \{\n\s*receipt\.halt\('practice consent'[^\n]*\n\s*return;/);
+        // The cold Start goes through coldStartPress (ready → think-time → readback → click) with the gate as its consent step;
+        // a refusal halts with no click, and the one cold click is an ElementHandle click inside it (no locator pause after the readback).
+        const cold = spec.slice(spec.indexOf('const cold = await coldStartPress({'), spec.indexOf('consentGate.recordPass();', spec.indexOf('const cold = await coldStartPress({')));
+        expect(cold).toContain("coldControl.handle = await page.getByTestId('mic-download').elementHandle({ timeout: 15_000 })");
+        expect(cold).toContain('reflex: () => new Promise((resolve) => setTimeout(resolve, activeHumanReflexMs())),');
+        expect(cold).toContain('confirmConsent: () => consentGate.confirm(),');
+        // #1916: after the readback (a server read) the pinned node must still be the one enabled `mic-download`, checked
+        // before the fault phase opens and the click; a changed node is never clicked.
+        const io = cold.slice(cold.indexOf('click: async () => {'));
+        const recheck = io.indexOf("if (!(await handle.evaluate(stillTheOneEnabledControl, 'mic-download').catch(() => false))) return false;");
+        expect(io).toMatch(/const handle = coldControl\.handle;\n\s*if \(!handle\) return false;/);
+        expect(recheck).toBeGreaterThan(-1);
+        expect(recheck).toBeLessThan(io.indexOf('watch.setFaultPhase(true);'));
+        expect(io.indexOf('watch.setFaultPhase(true);')).toBeLessThan(io.indexOf('return handle.click({ timeout: 15_000 }).then(() => true, () => false);'));
+        expect(io.split('.click(').length - 1).toBe(1);
+        expect(cold).toMatch(/if \(cold\.kind === 'consent-unproven'\) \{\n\s*receipt\.halt\('practice consent'[^\n]*\n\s*return;/);
+        expect(spec).not.toContain("getByTestId('mic-download').click(");
+        // The recovery press gets the same gate as its consent step, run INSIDE the press: after the guard is armed (the 60 s
+        // control wait and the human reflex come before that) and as the statement directly before the click.
+        expect(spec).toContain('confirmConsent: () => consentGate.confirm(),');
+        expect(spec).toContain('pressOnce: (control, beforeClick) => pressRecoveryControl(page, control, beforeClick),');
+        const press = spec.slice(spec.indexOf('async function pressRecoveryControl('), spec.indexOf('\n}\n', spec.indexOf('async function pressRecoveryControl(')));
+        expect(press.indexOf('const found = await page.waitForFunction(')).toBeLessThan(press.indexOf('await new Promise((resolve) => setTimeout(resolve, reflexMs));'));
+        expect(press).toMatch(/await target\.evaluate\(armRecoveryClickGuard, \{ id: control, recorderStopId: RECORDER_STOP, token \}\);\n(\s*\/\/[^\n]*\n)?\s*try \{ await beforeClick\(\); \} catch \(error\) \{ return \{ activated: false, consentUnproven: consentRefusalReason\(error\) \}; \}\n\s*const clicked = await target\.click\(/);
+        expect(press.split('target.click(').length - 1).toBe(1);
+    });
+
+    it('CONTROL: no saved choice means zero first presses (the cold Start confirm refuses)', async () => {
+        const { gate, rows } = gateOver({ row: null });
+        let pressed = 0;
+        await gate.confirm().then(() => { pressed += 1; }, () => undefined);
+        expect(pressed).toBe(0);
+        expect(rows).toEqual([{ status: 'FAIL', reason: 'readback_missing' }]);
+    });
+
+    it('CONTROL: a valid first choice, then changed or unreadable on return, means zero recovery presses', async () => {
+        for (const [changed, reason] of [[{ ...SAVE_ON, transcript_save: false }, 'readback_differs'], [{ ...SAVE_ON, ai_coaching: true }, 'readback_differs'],
+            [null, 'readback_missing'], ['broken', 'readback_unreadable'], [{ ...SAVE_ON, user_id: 'someone-else' }, 'readback_wrong_owner']] as const) {
+            const current: { row: Record<string, unknown> | null | 'broken' } = { row: { ...SAVE_ON } };
+            const { gate, rows } = gateOver(current);
+            await gate.confirm();          // the cold Start's confirm passes
+            gate.recordPass();             // ...and that press is the one recorded PASS
+            current.row = changed as never; // the owner's row changes before the return
+            const { io, presses } = recoveryOver(() => gate.confirm());
+            const out = await driveRecoveryPress(io, 'mic-start');
+            expect({ reason, presses: presses.length, out }).toEqual({ reason, presses: 0, out: { kind: 'consent-unproven', control: 'mic-start', reason } });
+            expect(recoveryPressVerdict(out)).toMatchObject({ status: 'HOLD' });
+            expect(rows).toEqual([{ status: 'PASS', reason: 'choice_recorded' }]); // recorded once; the later refusal throws, not re-recorded
+        }
+    });
+
+    it('the consent step runs inside the press: after its setup and immediately before the click', async () => {
+        const order: string[] = [];
+        const io: RecoveryPressIo = {
+            recorderPresent: async () => { order.push('recorder'); return false; }, offeredControl: async () => { order.push('control'); return 'mic-start'; },
+            confirmConsent: async () => { order.push('consent'); },
+            pressOnce: async (_c, beforeClick) => { order.push('setup'); await beforeClick(); order.push('click'); return { activated: true }; },
+            recordingAfterPress: async () => { order.push('recording'); return true; },
+        };
+        expect(await driveRecoveryPress(io, 'mic-start')).toEqual({ kind: 'recorded', control: 'mic-start' });
+        expect(order).toEqual(['recorder', 'control', 'setup', 'consent', 'click', 'recording']);
+    });
+
+    it('CONTROL (Sam, Nov 20): consent that changes DURING the press setup emits the recovery HOLD and dispatches zero clicks', async () => {
+        for (const [changed, reason] of [[{ ...SAVE_ON, transcript_save: false }, 'readback_differs'], [null, 'readback_missing'], ['broken', 'readback_unreadable']] as const) {
+            const current: { row: Record<string, unknown> | null | 'broken' } = { row: { ...SAVE_ON } };
+            const { gate } = gateOver(current);
+            await gate.confirm();
+            gate.recordPass();
+            // Valid when the press starts (stale-recorder and control checks pass); it changes while the press waits and arms.
+            const { io, presses } = recoveryOver(() => gate.confirm(), () => { current.row = changed as never; });
+            const out = await driveRecoveryPress(io, 'mic-start');
+            expect({ reason, clicks: presses.length, out }).toEqual({ reason, clicks: 0, out: { kind: 'consent-unproven', control: 'mic-start', reason } });
+            expect(recoveryPressVerdict(out)).toMatchObject({ status: 'HOLD' });
+        }
+    });
+
+    describe('the cold Start press (Sam, Nov 20): ready → think-time → readback → click', () => {
+        const coldOver = (confirmConsent: () => Promise<void>, o: { ready?: boolean; duringReflex?: () => void } = {}) => {
+            const order: string[] = [];
+            const io: ColdStartPressIo = {
+                ready: async () => { order.push('ready'); return o.ready !== false; },
+                reflex: async () => { order.push('reflex'); o.duringReflex?.(); },
+                confirmConsent: async () => { order.push('consent'); await confirmConsent(); },
+                click: async () => { order.push('click'); return true; },
+            };
+            return { io, order };
+        };
+        it('the readback is the last step before the click, after readiness and the human-reflex pause', async () => {
+            const { gate } = gateOver({ row: { ...SAVE_ON } });
+            const { io, order } = coldOver(() => gate.confirm());
+            expect(await coldStartPress(io)).toEqual({ kind: 'pressed' });
+            expect(order).toEqual(['ready', 'reflex', 'consent', 'click']);
+        });
+        it('CONTROL: consent that changes DURING the think-time pause dispatches zero clicks', async () => {
+            for (const [changed, reason] of [[{ ...SAVE_ON, transcript_save: false }, 'readback_differs'], [null, 'readback_missing'], ['broken', 'readback_unreadable']] as const) {
+                const current: { row: Record<string, unknown> | null | 'broken' } = { row: { ...SAVE_ON } };
+                const { gate } = gateOver(current);
+                const { io, order } = coldOver(() => gate.confirm(), { duringReflex: () => { current.row = changed as never; } });
+                expect({ reason, out: await coldStartPress(io) }).toEqual({ reason, out: { kind: 'consent-unproven', reason } });
+                expect(order).not.toContain('click');
+            }
+        });
+        it('a control that is not ready is never pressed, and no readback is spent on it', async () => {
+            const { gate } = gateOver({ row: { ...SAVE_ON } });
+            const { io, order } = coldOver(() => gate.confirm(), { ready: false });
+            expect(await coldStartPress(io)).toEqual({ kind: 'not-ready' });
+            expect(order).toEqual(['ready']);
+        });
+        // #1916 (Sam's three proofs, per journey): the readback's own time never spends the click's bound.
+        it('a SLOW readback that succeeds (longer than the 15 s click bound) still clicks exactly once', async () => {
+            vi.useFakeTimers();
+            try {
+                const { gate } = gateOver({ row: { ...SAVE_ON } });
+                const { io, order } = coldOver(async () => { await new Promise((r) => setTimeout(r, 20_000)); await gate.confirm(); });
+                const out = coldStartPress(io);
+                await vi.advanceTimersByTimeAsync(20_000);
+                expect(await out).toEqual({ kind: 'pressed' });
+                expect(order.filter((step) => step === 'click')).toHaveLength(1);
+            } finally { vi.useRealTimers(); }
+        });
+        it('a SLOW refusal clicks nothing and stays the consent HOLD (never a click failure)', async () => {
+            vi.useFakeTimers();
+            try {
+                const current: { row: Record<string, unknown> | null | 'broken' } = { row: { ...SAVE_ON } };
+                const { gate } = gateOver(current);
+                const { io, order } = coldOver(async () => {
+                    await new Promise((r) => setTimeout(r, 20_000));
+                    current.row = { ...SAVE_ON, transcript_save: false };
+                    await gate.confirm();
+                });
+                const out = coldStartPress(io);
+                await vi.advanceTimersByTimeAsync(20_000);
+                expect(await out).toEqual({ kind: 'consent-unproven', reason: 'readback_differs' });
+                expect(order).not.toContain('click');
+            } finally { vi.useRealTimers(); }
+        });
+        it('out of time: a control that never became ready still fails (not-ready), with no readback and no click', async () => {
+            const { gate } = gateOver({ row: { ...SAVE_ON } });
+            const confirm = vi.fn(() => gate.confirm());
+            const { io, order } = coldOver(confirm, { ready: false });
+            expect(await coldStartPress(io)).toEqual({ kind: 'not-ready' });
+            expect(confirm).not.toHaveBeenCalled();
+            expect(order).not.toContain('click');
+        });
+        it('a control that changed while the readback ran is not pressed (the click step refuses it): click-failed, not pressed', async () => {
+            const { gate } = gateOver({ row: { ...SAVE_ON } });
+            const order: string[] = [];
+            const io: ColdStartPressIo = {
+                ready: async () => { order.push('ready'); return true; },
+                reflex: async () => { order.push('reflex'); },
+                confirmConsent: async () => { order.push('consent'); await gate.confirm(); },
+                click: async () => { order.push('recheck'); return false; }, // stillTheOneEnabledControl said no: nothing dispatched
+            };
+            expect(await coldStartPress(io)).toEqual({ kind: 'click-failed' });
+            expect(order).toEqual(['ready', 'reflex', 'consent', 'recheck']);
+        });
+    });
+
+    describe('stillTheOneEnabledControl — the pinned node after a readback (#1916)', () => {
+        const node = (o: { connected?: boolean; id?: string; disabled?: boolean; attrDisabled?: boolean; ariaDisabled?: boolean; count?: number } = {}) => {
+            const attrs: Record<string, string> = { 'data-testid': o.id ?? 'mic-download' };
+            if (o.attrDisabled) attrs.disabled = '';
+            if (o.ariaDisabled) attrs['aria-disabled'] = 'true';
+            const el = {
+                isConnected: o.connected ?? true,
+                disabled: o.disabled ?? false,
+                getAttribute: (n: string) => attrs[n] ?? null,
+                hasAttribute: (n: string) => n in attrs,
+                ownerDocument: { querySelectorAll: (sel: string) => (sel === '[data-testid="mic-download"]' ? new Array(o.count ?? 1).fill(null) : []) },
+            };
+            return el as unknown as Element;
+        };
+        it('the same connected, enabled, only `mic-download` → true', () => {
+            expect(stillTheOneEnabledControl(node(), 'mic-download')).toBe(true);
+        });
+        it('detached, renamed (now Start or Retry), disabled any way, or no longer the only one → false', () => {
+            expect(stillTheOneEnabledControl(node({ connected: false }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ id: 'mic-start' }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ id: 'mic-retry' }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ disabled: true }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ attrDisabled: true }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ ariaDisabled: true }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ count: 2 }), 'mic-download')).toBe(false);
+            expect(stillTheOneEnabledControl(node({ count: 0 }), 'mic-download')).toBe(false);
+        });
     });
 });

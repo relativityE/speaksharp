@@ -381,6 +381,17 @@ export function checkoutNotReturned(f: { optIn: 'checked' | 'clear' | 'absent' |
   return `checkout_success_not_reached_optin_${optIn}_phone_${b(f.phoneShown, 'shown', 'none')}_alerts_${n(f.alerts)}_invalid_${n(f.invalid)}_challenge_${b(f.challenge, 'shown', 'none')}_fields_${fields}`;
 }
 
+/**
+ * Run 44915558806: the card decline is read across frames, but only Stripe's own. The page must be the hosted Checkout itself, and a
+ * frame counts only when it is that page or one of Stripe's embedded frames. A decline-looking string in any other frame (an ad, an
+ * extension, a third-party widget) can never satisfy the check.
+ */
+export const TRUSTED_CHECKOUT_FRAME_ORIGINS = Object.freeze(['https://checkout.stripe.com', 'https://js.stripe.com']);
+export function trustedCheckoutFrame(pageUrl: string, frameUrl: string): boolean {
+  const origin = (raw: string) => { try { return new URL(raw).origin; } catch { return null; } };
+  return origin(pageUrl) === 'https://checkout.stripe.com' && TRUSTED_CHECKOUT_FRAME_ORIGINS.includes(origin(frameUrl) ?? '');
+}
+
 /** Stripe Link's default-ticked "save my information" opt-in could not be cleared; the journey never creates a Link account. */
 export const HOSTED_LINK_OPT_IN_NOT_CLEARED = 'hosted_link_optin_not_cleared';
 
@@ -456,6 +467,10 @@ export function cleanupFailureCode(scope: 'stripe' | 'account', error: unknown):
   if (/post-delete verify|auth user must be gone|expect\(received\)\.toBeNull\(\)/.test(message)) return 'account_cleanup_delete_unproven';
   if (/cleanup found run-owned residue in /.test(message)) return `account_cleanup_residue_${table(/residue in ([a-z_]+) /.exec(message))}`;
   if (/cleanup residue (count|query) on /.test(message)) return `account_cleanup_residue_unread_${table(/residue (?:count|query) on ([a-z_]+) /.exec(message))}`;
+  // #1643 follow-up: the deleted account's finished save-journal rows could not be removed (the readback is a residue code above).
+  if (/cleanup account_save_obligations delete failed/.test(message)) return 'account_cleanup_save_journal_failed';
+  // Sam (#1906): this run could not claim the account's save journal while it existed (not its run, or no migration).
+  if (/cleanup account_save_obligations claim failed/.test(message)) return 'account_cleanup_save_journal_claim_failed';
   if (/pre-delete failed/.test(message)) return 'account_cleanup_predelete_failed';
   if (/take settlement/.test(message)) return 'account_cleanup_take_settlement_failed';
   if (/cleanup_uid_email_disagreement|cleanup_refused_non_run_owned_account|cleanup_run_binding_mismatch|getUserById failed/.test(message))
@@ -626,10 +641,110 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
 }
 
 /** A declined or abandoned Checkout grants nothing: no subscription, no payment, the session not complete. */
+/**
+ * J2 after a DECLINED card. In the Stripe sandbox events for run 44937743744, the decline created an `incomplete` subscription
+ * whose first invoice failed; that run's receipt did not establish that this exact session was the one it attached to, so this
+ * rule allows such a subscription only when the session itself references it. The declined session grants nothing only when:
+ * test mode, the expected session status, unpaid, every charge row for the customer `failed`; and, if a
+ * subscription is attached, it is exactly that session's subscription, for this customer, in test mode, `incomplete` (after a forced
+ * expiry also `incomplete_expired`), and its latest invoice is this customer's and has nothing paid on it. App access is checked
+ * separately and first (assertNoAppAccess). Before any card entry the plain rule (no subscription at all) still applies.
+ */
+export function assertDeclinedCheckoutGrantedNothing(input: {
+  session: unknown; subscription: unknown; invoice: unknown; customer: string; charges: unknown; chargesHasMore: unknown;
+  expectedStatus: 'open' | 'expired';
+}): string | null {
+  const session = (input.session ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
+  requireFact(session.livemode === false && session.status === input.expectedStatus && session.payment_status === 'unpaid',
+    'declined_checkout_session_not_unpaid');
+  // Every charge row must be one Stripe documents; an unknown row is unread, never "not a success". Only `failed` is allowed.
+  const charges = Array.isArray(input.charges) ? input.charges as Array<{ status?: unknown } | null> : null;
+  requireFact(charges !== null && input.chargesHasMore === false && charges.every((c) => c !== null && typeof c === 'object'
+    && ['succeeded', 'pending', 'failed'].includes(c.status as string)), 'declined_checkout_charges_unread');
+  requireFact(charges.every((c) => c?.status === 'failed'), 'declined_checkout_charged');
+  // Only an actual null or absent reference means no attachment; anything else must be a well-formed subscription reference.
+  const ref = session.subscription;
+  if (ref === null || ref === undefined) return null;
+  const attached = typeof ref === 'string' ? ref : typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined;
+  requireFact(typeof attached === 'string' && /^sub_[A-Za-z0-9]+$/.test(attached), 'declined_checkout_subscription_malformed');
+  const sub = (input.subscription ?? {}) as { id?: unknown; livemode?: unknown; customer?: unknown; status?: unknown; latest_invoice?: unknown };
+  requireFact(sub.id === attached, 'declined_checkout_subscription_unread');
+  requireFact(sub.livemode === false && sub.customer === input.customer, 'declined_checkout_subscription_foreign');
+  // While Checkout is still open after the decline only `incomplete` is allowed; `incomplete_expired` only after expiry.
+  requireFact(declinedSubscriptionStatuses(input.expectedStatus).includes(sub.status as string), 'declined_checkout_subscription_not_incomplete');
+  const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice
+    : (sub.latest_invoice as { id?: unknown } | null | undefined)?.id;
+  const invoice = (input.invoice ?? {}) as { id?: unknown; customer?: unknown; livemode?: unknown; status?: unknown; amount_paid?: unknown };
+  requireFact(typeof invoiceId === 'string' && invoice.id === invoiceId && invoice.customer === input.customer
+    && invoice.livemode === false, 'declined_checkout_invoice_unread');
+  requireFact(invoice.status !== 'paid' && invoice.amount_paid === 0, 'declined_checkout_invoice_paid');
+  return attached;
+}
+
+/** The only non-Pro profile status SpeakSharp has (no Basic product); anything else, absent included, is not observed non-Pro. */
+export const NON_PRO_PROFILE_STATUS = 'free';
+
+/**
+ * J2 app access, judged on its own and BEFORE any Stripe read so a Stripe error cannot mask it: the account cannot start a
+ * session and its profile reads exactly the non-Pro status. Anything else is `failed_checkout_granted_access`.
+ */
+export function assertNoAppAccess(input: { canStart: unknown; profileStatus: unknown }): void {
+  requireFact(input.canStart === false && input.profileStatus === NON_PRO_PROFILE_STATUS, 'failed_checkout_granted_access');
+}
+
+/**
+ * J2 the customer's subscriptions, on a complete list: none at all, except that after a decline the one subscription the declined
+ * session attached (verified unpaid by assertDeclinedCheckoutGrantedNothing) may be listed ONCE, in that phase's allowed
+ * statuses. Anything else, a duplicate, or an incomplete or unread list is `failed_checkout_subscribed`.
+ */
+export function assertSubscriptionsAllowed(input: {
+  subscriptions: unknown; hasMore: unknown; allowed: { id: string; statuses: readonly string[] } | null;
+}): void {
+  const listed = Array.isArray(input.subscriptions) ? input.subscriptions as Array<{ id?: unknown; status?: unknown } | null> : null;
+  const { allowed } = input;
+  requireFact(listed !== null && input.hasMore === false && listed.length <= (allowed === null ? 0 : 1)
+    && listed.every((sub) => allowed !== null && sub !== null && typeof sub === 'object'
+      && sub.id === allowed.id && allowed.statuses.includes(sub.status as string)), 'failed_checkout_subscribed');
+}
+
+/**
+ * J2 after the paid retry (Codex P2 on #1935): the customer's complete list holds exactly one subscription with the paid retry's
+ * id, and at most one other: the declined session's own verified subscription, still unpaid (`incomplete` or
+ * `incomplete_expired`). Any other subscription, a duplicate, or an incomplete list is `more_than_one_subscription`.
+ */
+export function assertOnePaidRetrySubscription(input: {
+  subscriptions: unknown; hasMore: unknown; paidId: string; declinedId: string | null;
+}): void {
+  const listed = Array.isArray(input.subscriptions) ? input.subscriptions as Array<{ id?: unknown; status?: unknown } | null> : null;
+  const rows = listed ?? [];
+  const paid = rows.filter((sub) => sub !== null && typeof sub === 'object' && sub.id === input.paidId);
+  const others = rows.filter((sub) => !(sub !== null && typeof sub === 'object' && sub.id === input.paidId));
+  requireFact(listed !== null && input.hasMore === false && paid.length === 1 && others.length <= (input.declinedId === null ? 0 : 1)
+    && others.every((sub) => sub !== null && typeof sub === 'object' && sub.id === input.declinedId
+      && (sub.status === 'incomplete' || sub.status === 'incomplete_expired')), 'more_than_one_subscription');
+}
+
+/** After a decline: only `incomplete` while Checkout is still open; `incomplete_expired` too, but only after expiry. */
+export function declinedSubscriptionStatuses(phase: 'open' | 'expired'): readonly string[] {
+  return phase === 'open' ? ['incomplete'] : ['incomplete', 'incomplete_expired'];
+}
+
+/** Stripe's documented Checkout Session `status` and `payment_status` values (API reference, Checkout Session object). */
+export const CHECKOUT_SESSION_STATUSES = Object.freeze(['open', 'complete', 'expired']);
+export const CHECKOUT_PAYMENT_STATUSES = Object.freeze(['paid', 'unpaid', 'no_payment_required']);
 export function assertCheckoutGrantedNothing(input: unknown, expectedStatus: 'open' | 'expired'): void {
   const session = (input ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
-  requireFact(session.livemode === false && session.status === expectedStatus && session.payment_status === 'unpaid'
-    && (session.subscription === null || session.subscription === undefined), 'failed_checkout_granted_something');
+  // Run 44937743744: the same rule as before, but a refusal now names what Stripe reported (closed tokens only, no ids), so a
+  // declined Checkout that is not open+unpaid+subscription-free says which of those it was instead of one bare code.
+  // Only Stripe's documented values are named; anything else is `other`, so no unexpected upstream string enters the receipt.
+  const named = (v: unknown, allowed: readonly string[]) => (v === null || v === undefined ? 'none'
+    : typeof v === 'string' && allowed.includes(v) ? v : 'other');
+  const status = named(session.status, CHECKOUT_SESSION_STATUSES);
+  const payment = named(session.payment_status, CHECKOUT_PAYMENT_STATUSES);
+  const subscription = session.subscription === null || session.subscription === undefined ? 'none' : 'attached';
+  const livemode = session.livemode === false ? 'test' : session.livemode === true ? 'live' : 'unread';
+  requireFact(session.livemode === false && session.status === expectedStatus && session.payment_status === 'unpaid' && subscription === 'none',
+    `failed_checkout_granted_something_status_${status}_payment_${payment}_subscription_${subscription}_mode_${livemode}`);
 }
 
 /**

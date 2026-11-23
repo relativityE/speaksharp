@@ -24,18 +24,22 @@ const AHT1811_HELPERS=[
   ['tests/live/helpers/feedbackNoSessionCleanup.ts','tests/unit/feedbackNoSessionCleanup.test.ts',["noSessionWriteUncertainty"]],
   ['tests/live/helpers/feedbackRecoveryInventory.ts','tests/unit/feedbackBoundedWrites.test.ts',["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"]],
   ['tests/live/helpers/feedbackReportCleanup.ts','tests/unit/feedbackBoundedWrites.test.ts',["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"]],
-  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
-    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"]],
-  // AHT-14 (#1868): the attempt's network transfer behind the offline gate.
+  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","betweenFilesFailureVerdict",
+    "bytesCounted","betweenFilesGate","attemptPhase","runBetweenFilesFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict",
+    "shownFailureVerdict","shownFailureSettled","pollShownFailure","worstVerdict"]],
+  // AHT-14 (#1868; J7.c option B): the attempt's model files and the held next file behind the offline gate.
   ['tests/live/helpers/rwtAdverse.ts','tests/unit/rwtAdverseRecovery.test.ts',["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
-    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
-    "ModelTransferTracker#snapshot"]],
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed","ModelTransferTracker#stateOf",
+    "ModelTransferTracker#snapshot","BetweenFilesHold#startAttempt","BetweenFilesHold#onRoute","BetweenFilesHold#held","BetweenFilesHold#release",
+    "BetweenFilesHold#releaseAll"]],
+  // J7.c option B (#1941): the isolated build refuses while a repo-root dotenv file exists.
+  ['tests/e2e/helpers/isolatedBuildDotenv.ts','tests/unit/j7cIsolatedBuildDotenv.test.ts',["rootDotenvFiles","assertNoRootDotenv"]],
   ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
   // #1882: the Focus switch take on the live clock and the rail settled on actual rows.
   ['tests/live/helpers/rwtLiveTimedTake.ts','tests/unit/rwtFocusSwitchLiveClock1882.test.ts',["readRailRowCount","railSettled"]],
   ['tests/live/helpers/rwtLiveTakeMonitor.ts','tests/unit/rwtLiveTakeMonitor1882.test.ts',["installTakeMonitor","readTakeMonitorInPage","disposeTakeMonitorInPage","armTakeMonitor","readTakeMonitor","disposeTakeMonitor","firstLiveEdge","firstBreakAfter","holdMeasuredLiveTake","stopGuardVerdict","guardedStopInPage","guardedStopClick","stopMeasuredTake","stopMonitoredTake","awaitTakeOutcome","takeOutcomeOf","liveTakeVerdict","savedTakeBinding","takeEvidenceRows"]],
   ['tests/live/helpers/benchmark-utils.ts','tests/unit/rwtStopClickCallback1258.test.ts',["confirmBenchmarkStopped"]],
-  ['tests/live/helpers/rwtPracticeConsent.ts','tests/unit/rwtPracticeConsent1882.test.ts',["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent"]],
+  ['tests/live/helpers/rwtPracticeConsent.ts','tests/unit/rwtPracticeConsent1882.test.ts',["consentModeFrom","privacyBuildOf","privacyChoiceVerdict","aiControlsVerdict","answerPracticePrivacyPrompt","consentReadbackVerdict","readPracticeChoice","probePrivacyTable","settlePracticeConsent","fixedConsentBeforeStartVerdict","settleFixedConsentOnPractice","captureConsentGate"]],
   ['tests/live/helpers/rwtCoachingOff.ts','tests/unit/rwtCoachingOff1897.test.ts',["reviewModeOf","expectedSavedFocus","savedFocusMatches","coachingOffVerdict","offBackReloadVerdict","offAnalyticsRows","readSavedFocusStatuses","readCoachingOffAfterStop","readOffRestoredView","analyticsOffThroughActions","offNoCoachingVerdict","offRepeatVerdict"]],
   ['tests/live/helpers/rwtFocusNextMarker.ts','tests/unit/rwtFocusNextMarker.test.ts',["expectedNextMarker","nextPointMarkedVerdict","sampleFocusRail"]],
   ['tests/live/helpers/rwtFocusOpenMicIsolation.ts','tests/unit/rwtFocusOpenMicIsolation.test.ts',["openMicIsolationVerdict"]],
@@ -47,7 +51,10 @@ const AHT1811_HELPERS=[
   ['tests/live/helpers/rwtNavigationRows.ts','tests/unit/rwtNavigationRows.test.ts',["sessionFactsFromRows","sessionWritesVerdict","historyPreservedVerdict","deepLinkTarget","listedOwnTarget","returnEntryMicVerdict","renderedOwnDetailVerdict","renderedOwnDetailRow"]],
   ['tests/live/helpers/rwtPendingStartRecovery.ts','tests/unit/rwtPendingStartRecovery.test.ts',["recoveryTakePlan","recoveryTakeVerdict"]],
   ['tests/live/helpers/rwtSaveRetryAttempts.ts','tests/unit/rwtSaveRetryAttempts.test.ts',["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"]],
+  ['tests/live/helpers/rwtJ3Evidence.ts','tests/unit/rwtJ3Evidence.test.ts',["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard"]],
+  ['tests/live/helpers/rwtJ4aEvidence.ts','tests/unit/rwtJ4aEvidence.test.ts',["j4aRequestNeverReachedVerdict","j4aOneSaveForAccountVerdict","saveRetryPrivacyVerdict","j4aNoSecondTakeVerdict","j4aPrivacyCleanupVerdict","j4aCoachingGuard","j4aCoachingBlockedVerdict","j4aCoachingBlockedRow"]],
   ['tests/live/helpers/rwtTwoPlaces.ts','tests/unit/rwtTwoPlaces.test.ts',["sameBrowserRefusedVerdict","displacedFenceVerdict"]],
+  ['tests/live/helpers/rwtAbandonTakeover.ts','tests/unit/rwtAbandonTakeover1258.test.ts',["pressPrivateStartForLease","releasedVerdict","answerLeaveDialog","leavePromptVerdict","returnStartVerdict","classifyRecoveryClaim","newRowsSince","priorTakeSaved","leftTakeSavedOnce","leftTakeSavedVerdict","recoveryNoticeVerdict","nextTakeOnlyItselfVerdict","modelWorkBeforeRefusal","secondTabBlockedVerdict","leaseRefusalWindowVerdict","takeOverVerdict","noCloudVerdict","takeOverRowsVerdict"]],
 ];
 test('AHT-02 through AHT-15 helpers select exact offline callable consumers on helper-only changes',()=>{
   for(const [helperFile,testFile,callables] of AHT1811_HELPERS) {
@@ -109,6 +116,30 @@ test('registers explicit canary and reader callable consumers without a generic 
     assert.ok(found.callables.length>0);
   }
   assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/unregistered.ts'),false);
+});
+test('completion environment requires its real PGlite consumer and callable execution route',()=>{
+  const helperFile='tests/db/helpers/completionEnv.ts';
+  const testFile='tests/db/atomic-completion-retention.integration.test.ts';
+  const callables=['MIG','sid','buildCompletionDb','db0','closeCompletionDbs','actingAs','newSession','complete','transcriptBearingCount','row'];
+  assert.deepEqual(registeredHelper(helperFile),{helperFile,testFile,callables});
+  assert.equal(executionRoute(helperFile,root).runner,'vitest-helper');
+  assert.equal(executionRoute(helperFile,root).applicable,true);
+  const selected=selectExecutionContracts(root,[helperFile],{helpersOnly:true});
+  assert.deepEqual(selected.map(item=>[item.helperFile,item.testFile]),[[helperFile,testFile]]);
+  const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'completion-env-helper-route-')));
+  try {
+    fs.mkdirSync(path.join(directory,'tests/db/helpers'),{recursive:true});
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(directory,'node_modules'),'dir');
+    const source=fs.readFileSync(path.join(root,helperFile),'utf8');
+    fs.writeFileSync(path.join(directory,helperFile),source);
+    assert.equal(executionRoute(helperFile,directory).applicable,false,'missing exact consumer cannot qualify');
+    fs.copyFileSync(path.join(root,testFile),path.join(directory,testFile));
+    assert.equal(executionRoute(helperFile,directory).applicable,true);
+    const broken=source.replace('function db0(', 'function renamedDb0(');
+    assert.notEqual(source,broken);
+    fs.writeFileSync(path.join(directory,helperFile),broken);
+    assert.equal(executionRoute(helperFile,directory).applicable,false,'missing registered callable cannot qualify');
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });
 test('replays the provider normalizer on raw equal-count adjacent ranges without changing call counts',()=>{
   const raw=[{scriptId:'1',url:'file:///independent-helper.js',functions:[{functionName:'loop',isBlockCoverage:true,ranges:[
@@ -179,7 +210,7 @@ function fixture() {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helper-evidence-')));
   const write = (name, content) => {fs.mkdirSync(path.dirname(path.join(directory,name)),{recursive:true}); fs.writeFileSync(path.join(directory,name),content);};
   const files = ['scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/efficacy-helper-vitest.config.mjs',
-    'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+    'scripts/lib/testExecutionEvidence.mjs','scripts/j1d-smoke/ciEvidence.mjs','scripts/j1d-smoke/smokeEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
     'scripts/run-test-efficacy.mjs','scripts/efficacy-reporter.mjs','scripts/write-software-quality-evidence.mjs','scripts/coverage-thresholds.mjs',
     'pnpm-lock.yaml','package.json',...dependencyPaths(root,TEST_EFFICACY_CONTRACTS[0].testFile)];
   for (const file of files) write(file,fs.readFileSync(path.join(root,file)));

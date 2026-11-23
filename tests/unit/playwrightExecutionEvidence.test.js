@@ -5,7 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {replayBlobLifecycle,collectPlaywrightExecution,validatePlaywrightExecution,readBlobReport,digest} from '../../scripts/lib/playwrightExecutionEvidence.mjs';
+import {replayBlobLifecycle,collectPlaywrightExecution,validatePlaywrightExecution,readBlobReport,digest,INFRA_PROBE_FILE} from '../../scripts/lib/playwrightExecutionEvidence.mjs';
 import {executionContext,executionCoverage} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
@@ -76,6 +76,31 @@ test('raw replay refuses stale source/runtime, wrong shard/project and escaped l
   ]) {const events=records();mutate(events);assert.throws(()=>replay(events));}
 });
 
+test('dedicated infra replay requires absent blob shard metadata and no ordinary test even with full callbacks',()=>{
+  const events=records();
+  const infraContext={...context,project:'infra-probe',shard:null};
+  const run=ledger=>replayBlobLifecycle(ledger.map(event=>JSON.stringify(event)).join('\n'),infraContext);
+  delete events[0].params.shard;
+  const project=events[2].params.project;
+  project.name='infra-probe';
+  project.suites[0].entries[0].location.file=path.basename(INFRA_PROBE_FILE);
+  assert.deepEqual(run(events).map(test=>test.file),[INFRA_PROBE_FILE]);
+  for(const shard of [null,{current:1,total:4}]) {
+    const altered=structuredClone(events);
+    altered[0].params.shard=shard;
+    assert.throws(()=>run(altered),/Wrong Playwright shard/);
+  }
+  const mixed=structuredClone(events);
+  mixed[2].params.project.suites[0].entries.push({
+    testId:'ordinary',title:'ordinary E2E',repeatEachIndex:0,location:{file:'ordinary.e2e.spec.ts'},
+  });
+  mixed.splice(-1,0,
+    {method:'onTestBegin',params:{testId:'ordinary',result:{id:'attempt-2',retry:0}}},
+    {method:'onTestEnd',params:{test:{testId:'ordinary',expectedStatus:'passed'},result:{id:'attempt-2',status:'passed',errors:[]}}},
+  );
+  assert.throws(()=>run(mixed),/collection must contain only the exact infra file/);
+});
+
 test('raw replay refuses a terminal callback before its begin or outside the run window',()=>{
   const endedEarly=records();[endedEarly[4],endedEarly[5]]=[endedEarly[5],endedEarly[4]];
   assert.throws(()=>replay(endedEarly));
@@ -119,7 +144,7 @@ function installedFixture() {
   const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'ordinary-playwright-receipt-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(directory,file)),{recursive:true});fs.writeFileSync(path.join(directory,file),bytes);};
   for(const file of ['scripts/efficacy-playwright-reporter.mjs','scripts/efficacy-reporter.mjs',
-    'scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py',
+    'scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/j1d-smoke/ciEvidence.mjs','scripts/j1d-smoke/smokeEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py',
     'scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
     'scripts/lib/softwareQualityEvidenceQualification.mjs','scripts/coverage-thresholds.mjs']) {
     write(file,fs.readFileSync(path.join(root,file)));
@@ -129,7 +154,9 @@ function installedFixture() {
   write('.gitignore','node_modules\nblob-report/\ntest-results/\nartifacts/\n.fixture-home/\n.fixture-temp/\n');
   fs.symlinkSync(path.join(root,'node_modules'),path.join(directory,'node_modules'),'dir');
   fs.mkdirSync(path.join(directory,'.fixture-home'));fs.mkdirSync(path.join(directory,'.fixture-temp'));
-  write('playwright.config.cjs',`module.exports={testDir:'./tests/e2e',retries:0,workers:1,projects:[{name:'full-suite'}]};\n`);
+  write('playwright.config.cjs',`module.exports={testDir:'./tests/e2e',retries:0,workers:1,projects:[{name:'full-suite',testIgnore:'**/infra.probe.e2e.spec.ts'},{name:'infra-probe',testMatch:'**/infra.probe.e2e.spec.ts'}]};\n`);
+  // Keep this alternate config in the same committed tree as the normal fixture.
+  write('playwright.infra-in-shard.config.cjs',`module.exports={testDir:'./tests/e2e',retries:0,workers:1,projects:[{name:'full-suite',testMatch:'**/infra.probe.e2e.spec.ts'}]};\n`);
   // A fixture must not leave detached Git maintenance racing its owned directory cleanup.
   const git=args=>execFileSync('git',['-c','maintenance.auto=false','-c','gc.auto=0','-c','gc.autoDetach=false',...args],
     {cwd:directory,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
@@ -140,16 +167,16 @@ function installedFixture() {
   git(['init']);const base=commit();
   const files=Array.from({length:4},(_,i)=>`tests/e2e/owned-${i+1}.e2e.spec.js`);
   const body="const {test,expect}=require('@playwright/test'); test('independent arithmetic body',()=>{expect(2+3).toBe(5);});\n";
-  files.forEach(file=>write(file,body));commit();
+  files.forEach(file=>write(file,body));write(INFRA_PROBE_FILE,body);commit();
   const environment=()=>({PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),
     HOME:path.join(directory,'.fixture-home'),TMPDIR:path.join(directory,'.fixture-temp'),LANG:'C.UTF-8',TZ:'UTC',
     CI:'true',GITHUB_ACTIONS:'true',GITHUB_JOB:'e2e',GITHUB_RUN_ID:'811',GITHUB_RUN_ATTEMPT:'2',GITHUB_SHA:git(['rev-parse','HEAD'])});
   const expected=()=>executionContext(directory,{...environment(),SOFTWARE_QUALITY_INVOCATION:randomUUID()});
   const cli=path.join(path.dirname(fs.realpathSync(path.join(root,'node_modules/playwright/package.json'))),'cli.js');
-  const run=current=>{
+  const run=(current,config='playwright.config.cjs')=>{
     fs.rmSync(path.join(directory,'blob-report'),{recursive:true,force:true});
     fs.rmSync(path.join(directory,'test-results'),{recursive:true,force:true});
-    const result=spawnSync(process.execPath,[cli,'test','--config=playwright.config.cjs','--project=full-suite',
+    const result=spawnSync(process.execPath,[cli,'test',`--config=${config}`,'--project=full-suite',
       '--workers=1',`--shard=${current}/4`,'--reporter=blob,./scripts/efficacy-playwright-reporter.mjs,line','--output=test-results/playwright'],
     {cwd:directory,env:environment(),encoding:'utf8',timeout:30000,maxBuffer:2*1024*1024});
     const artifact=path.join(directory,`artifacts/shard-report-${current}`);
@@ -159,7 +186,20 @@ function installedFixture() {
     }
     return result;
   };
-  return {directory,write,git,commit,base,files,body,expected,run,clean:()=>fs.rmSync(directory,{recursive:true,force:true})};
+  const runInfra=()=>{
+    const output='test-results/playwright-infra';
+    const artifact=path.join(directory,'artifacts/health-check-report');
+    fs.rmSync(path.join(directory,output),{recursive:true,force:true});
+    const result=spawnSync(process.execPath,[cli,'test','--config=playwright.config.cjs','--project=infra-probe',
+      '--workers=1','--reporter=blob,./scripts/efficacy-playwright-reporter.mjs,line,json',`--output=${output}`],
+    {cwd:directory,env:{...environment(),PLAYWRIGHT_EFFICACY_INFRA:'1',
+      PLAYWRIGHT_BLOB_OUTPUT_FILE:`${output}/infra-execution.zip`,PLAYWRIGHT_JSON_OUTPUT_NAME:`${output}/results.json`},
+      encoding:'utf8',timeout:30000,maxBuffer:2*1024*1024});
+    fs.rmSync(artifact,{recursive:true,force:true});
+    if(fs.existsSync(path.join(directory,output)))fs.cpSync(path.join(directory,output),artifact,{recursive:true});
+    return result;
+  };
+  return {directory,write,git,commit,base,files,body,expected,run,runInfra,clean:()=>fs.rmSync(directory,{recursive:true,force:true})};
 }
 
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
@@ -184,6 +224,47 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       assert.equal(wrapper.shards.length,4);
       assert.ok(wrapper.shards.every(item=>!Object.hasOwn(item.producer,'invocation')));
       assert.deepEqual([...validatePlaywrightExecution(wrapper,{root:f.directory,expected,requiredFiles:f.files})].sort(),f.files);
+      const requiredFiles=[...f.files,INFRA_PROBE_FILE];
+      assert.throws(()=>collectPlaywrightExecution({root:f.directory,expected,requiredFiles}),/Missing.*dedicated infra/);
+      const infraRun=f.runInfra();
+      assert.equal(infraRun.status,0,`${infraRun.stdout}\n${infraRun.stderr}`);
+      assert.ok(fs.existsSync(path.join(f.directory,'artifacts/health-check-report/results.json')));
+      const withInfra=collectPlaywrightExecution({root:f.directory,expected,requiredFiles});
+      assert.equal(withInfra.shards.length,4);
+      assert.deepEqual(withInfra.infra.producer.collection.map(t=>t.file),[INFRA_PROBE_FILE]);
+      assert.deepEqual([...validatePlaywrightExecution(withInfra,{root:f.directory,expected,requiredFiles})],requiredFiles);
+      const coverage=executionCoverage(requiredFiles,{root:f.directory,base:f.base,expected,playwright:withInfra});
+      assert.equal(coverage.status,'COMPLETE');
+      assert.match(coverage.rows.find(row=>row.file===INFRA_PROBE_FILE).claim,/dedicated browser health.*not live acceptance/);
+      assert.throws(()=>validatePlaywrightExecution(withInfra,{root:f.directory,expected,requiredFiles:f.files}),/unexpected dedicated infra/);
+      for(const mutate of [
+        entry=>{entry.producer.lineage.runAttempt='3';},
+        entry=>{entry.producer.project='full-suite';},
+        entry=>{entry.producer.shard={current:1,total:4};},
+        entry=>{entry.producer.ends[0].status='skipped';},
+        entry=>{entry.blobPath=withInfra.shards[0].blobPath;},
+      ]) {
+        const altered=structuredClone(withInfra);mutate(altered.infra);
+        altered.infra.receiptSha256=digest(JSON.stringify(altered.infra.producer));
+        assert.throws(()=>validatePlaywrightExecution(altered,{root:f.directory,expected,requiredFiles}));
+      }
+      const rawInfra=await readBlobReport(f.directory,Buffer.from(withInfra.infra.blobBase64,'base64'));
+      assert.throws(()=>replayBlobLifecycle(rawInfra,{repositoryRoot:f.directory,shard:{current:1,total:4},commit:expected.commit}),
+        /Wrong Playwright shard/);
+      // Run an actual ordinary shard containing ONLY the infra file. Keep the
+      // dedicated artifact and other shards so missing evidence can't mask this.
+      const validShard=path.join(f.directory,'artifacts/shard-report-1');
+      const backup=path.join(f.directory,'saved-valid-shard');
+      fs.renameSync(validShard,backup);
+      try {
+        const forgedRoute=f.run(1,'playwright.infra-in-shard.config.cjs');
+        assert.equal(forgedRoute.status,0,`${forgedRoute.stdout}\n${forgedRoute.stderr}`);
+        assert.throws(()=>collectPlaywrightExecution({root:f.directory,expected,requiredFiles}),
+          /Infra test cannot earn ordinary shard credit/);
+      } finally {
+        fs.rmSync(validShard,{recursive:true,force:true});
+        fs.renameSync(backup,validShard);
+      }
       const missing=executionCoverage(f.files,{root:f.directory,base:f.base,expected});
       assert.equal(missing.status,'INCOMPLETE','test totals alone do not qualify changed E2E files');
       const qualified=executionCoverage(f.files,{root:f.directory,base:f.base,expected,playwright:wrapper});

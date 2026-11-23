@@ -4,9 +4,11 @@
  * as the signed-in owner) and its reopened saved review — on its own route, rendering its own session — shows exactly that
  * pair. The row makes NO order claim (review RETURN on 4305f2b7); the after-B causal case is proved separately.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-    LATE_COACHING_ROW, accessTokenFromAuthStorage, answerOrder, classifyTarget, latestAnsweredAt, lateCoachingSavedRow, nonblankParity,
+    LATE_COACHING_ROW, accessTokenFromAuthStorage, answerOrder, classifyTarget, deferredLateCoachingSink, reopenWithinCutoff, latestAnsweredAt, lateCoachingSavedRow, nonblankParity,
     ownerNewerCompletedCounter, ownerSessionReader, sha256Hex, tokenSubject,
     type AnswerOrder, type LateCoachingDeps, type ReopenedReview, type TargetRow,
 } from '../live/helpers/rwtLateCoaching';
@@ -309,3 +311,211 @@ describe('ownerSessionReader — the account\'s OWN read, never admin (RETURN: o
         expect(tokenSubject('garbage')).toBeNull();
     });
 });
+
+/**
+ * Sam (22 Nov, run 45014809858 `target-expired`): the next take now saves and retention then expires A's text, so the ordinary
+ * reopen runs INSIDE the next take's recording window (`closesAt` = its Stop deadline) and never delays that Stop.
+ */
+describe('in-window mode: inside the next take\'s recording window, never delaying its Stop', () => {
+    const CLOSES = 6_500;
+    const inWindow = async (d: LateCoachingDeps) => {
+        const s = sink();
+        await lateCoachingSavedRow(s, A, d, { waitMs: 75_000, pollMs: 250, closesAt: CLOSES });
+        expect(s.rows).toHaveLength(1);
+        return s.rows[0];
+    };
+    it('PASS when the pair is saved and the reopen finishes inside the window; the reopen gets the absolute close of the window', async () => {
+        const d = deps({ savedAfter: 1_000, newer: () => 0 });
+        const cutoffs: Array<number | undefined> = [];
+        const open = d.openSavedReview;
+        d.openSavedReview = async (c) => { cutoffs.push(c); return open(c); };
+        const r = await inWindow(d);
+        expect(r.verdict).toBe('PASS');
+        // Sam on 4b7c4d44: the reopen gets the ABSOLUTE close, not a relative budget that starts late.
+        expect(cutoffs).toEqual([CLOSES]);
+        // The reported-only probe is taken only after the reopen, so it cannot spend the window.
+        expect(d.probes()).toBe(1);
+        expect(r.evidence).toEqual({ reason: 'saved-and-shown', newerCompletedAfterReopen: 0, answerOrder: 'unknown' });
+    });
+    it('no pair by the window\'s close is HOLD not-saved-in-window: no final read, never FAIL, never past the close', async () => {
+        const d = deps({ savedAfter: 60_000 });
+        const r = await inWindow(d);
+        expect(r).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'not-saved-in-window' } });
+        expect(d.now!()).toBeLessThanOrEqual(CLOSES);
+        expect(d.reads()).toBe(Math.ceil(CLOSES / 250));   // polls only; the ordinary mode would add a final read
+    });
+    it('a reopen that cannot finish inside the window is HOLD reopen-outside-window, released at the close', async () => {
+        const d = deps({ savedAfter: 0 });
+        d.openSavedReview = () => never<ReopenedReview>();
+        const r = await inWindow(d);
+        expect(r).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reopen-outside-window' } });
+        expect(d.now!()).toBe(CLOSES);
+    });
+    it('a pair first seen exactly at the close opens nothing: no time is left for the reopen', async () => {
+        let t = 0, opened = 0;
+        const d: LateCoachingDeps = {
+            ...deps(), now: () => t, sleep: async (ms) => { t += ms; }, timer: fakeTimer(() => t, (v) => { t = v; }),
+            // The one in-window read lands exactly at the close (in time, boundary inclusive) and sees the pair.
+            readSaved: async () => { t = CLOSES; return { ok: true, row: rowOf() }; },
+            openSavedReview: async () => { opened += 1; return reopened(); },
+        };
+        const s = sink();
+        await lateCoachingSavedRow(s, A, d, { waitMs: 75_000, pollMs: 250, closesAt: CLOSES });
+        expect(s.rows[0]).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reopen-outside-window' } });
+        expect(opened).toBe(0);
+    });
+    it('Sam on cf07d0d9: the post-reopen re-read gets only the time left in the window; none left is HOLD reread-outside-window', async () => {
+        const d = deps({ savedAfter: 0 });
+        let t0 = 0;
+        const clock = { get: () => d.now!() };
+        // The reopen itself finishes exactly at the close: no time is left for the binding re-read.
+        const sleepTo = d.sleep!;
+        d.openSavedReview = async () => { await sleepTo(CLOSES - clock.get()); t0 = clock.get(); return reopened(); };
+        const r = await inWindow(d);
+        expect(t0).toBe(CLOSES);
+        expect(r).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reread-outside-window' } });
+        expect(d.now!()).toBeLessThanOrEqual(CLOSES);
+    });
+    it('Sam on cf07d0d9: a hanging re-read or count probe is released at the close, never given a fresh budget', async () => {
+        // A re-read that never settles: HOLD at the close.
+        const hang = deps({ savedAfter: 0 });
+        const read = hang.readSaved;
+        let n = 0;
+        hang.readSaved = async () => { n += 1; return n === 1 ? read() : never(); };
+        expect(await inWindow(hang)).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'reread-outside-window' } });
+        expect(hang.now!()).toBe(CLOSES);
+        // A count probe that never settles: the verdict still lands, and the probe ends at the close (reported as null).
+        const p = deps({ savedAfter: 0 });
+        p.newerCompleted = () => never<number | null>();
+        // The reopen takes 3 s, so less than the probe's own 5 s budget is left: the window, not PROBE_MS, must bound it.
+        const sleep3 = p.sleep!;
+        p.openSavedReview = async () => { await sleep3(3_000); return reopened(); };
+        const r = await inWindow(p);
+        expect(r).toMatchObject({ verdict: 'PASS', evidence: { reason: 'saved-and-shown', newerCompletedAfterReopen: null } });
+        expect(p.now!()).toBeLessThanOrEqual(CLOSES);
+    });
+    it('the ordinary verdicts are unchanged in the window: wrong session FAIL, expired HOLD, unreadable HOLD', async () => {
+        expect(await inWindow(deps({ review: reopened({ renderedSessionId: 'session-B' }) }))).toMatchObject({ verdict: 'FAIL', evidence: { reason: 'wrong-session-rendered' } });
+        expect(await inWindow(deps({ rows: [{ transcript_state: 'expired', transcript: null, ai_suggestions: null }] }))).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'target-expired' } });
+        expect(await inWindow(deps({ readFails: true }))).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'owner-read-failed' } });
+        // The post-reopen binding read still decides: expired by the time of the re-read is HOLD window-changed.
+        expect(await inWindow(deps({ rows: [{}, { transcript_state: 'expired', transcript: null, ai_suggestions: null }] }))).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'window-changed' } });
+    });
+});
+
+describe('deferredLateCoachingSink: the row waits for the recorded order', () => {
+    it('redaction passes through at once; the row is written only at flush, with the recorded order', () => {
+        const s = sink();
+        const d = deferredLateCoachingSink(s);
+        d.sink.forbid('secret pair');
+        d.sink.row(LATE_COACHING_ROW, 'PASS', 'ok', { reason: 'saved-and-shown', answerOrder: 'unknown' });
+        expect(s.forbidden).toEqual(['secret pair']);
+        expect(s.rows).toHaveLength(0);
+        d.flush('answer-after-successor-recording');
+        d.flush('unknown');
+        expect(s.rows).toEqual([{ step: LATE_COACHING_ROW, verdict: 'PASS', detail: 'ok', evidence: { reason: 'saved-and-shown', answerOrder: 'answer-after-successor-recording' } }]);
+    });
+    it('a window that never ran flushes one HOLD window-not-observed; a second row or another step is refused', () => {
+        const s = sink();
+        const d = deferredLateCoachingSink(s);
+        d.flush('unknown');
+        expect(s.rows).toEqual([expect.objectContaining({ step: LATE_COACHING_ROW, verdict: 'HOLD', evidence: { reason: 'window-not-observed', answerOrder: 'unknown' } })]);
+        const e = deferredLateCoachingSink(sink());
+        expect(() => e.sink.row('another row', 'PASS', 'x')).toThrow();
+        e.sink.row(LATE_COACHING_ROW, 'HOLD', 'x');
+        expect(() => e.sink.row(LATE_COACHING_ROW, 'PASS', 'y')).toThrow();
+    });
+});
+
+describe('wiring: J1 checks the save take inside the repeat\'s hold and writes the row after the next take', () => {
+    const src = (f: string) => readFileSync(resolve(__dirname, '../..', f), 'utf8');
+    it('practiceAgainEvidence starts the side check after recording, never awaits it before Stop, and awaits it on every path', () => {
+        const j = src('tests/live/helpers/rwtJourney.ts');
+        const start = j.indexOf('const side = opts.holdRepeatPastSaveMinimum && opts.duringRepeatHold && ev.repeatRecordingAt');
+        const hold = j.indexOf('await holdThenStop(page, ev.repeatRecordingAt)');
+        const fin = j.indexOf('} finally {\n        await side;\n    }');
+        expect([j.indexOf('ev.repeatRecordingAt = Date.now();') < start, start < hold, hold < fin]).toEqual([true, true, true]);
+        expect(j.slice(start, hold)).not.toMatch(/await side/);
+        expect(j).toContain('closesAt: ev.repeatRecordingAt! + SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS');
+    });
+    it('the spec runs the row in the window and flushes it with the recorded order; no second late-coaching call', () => {
+        const spec = src('tests/live/rwt-open-mic-first-session.live.spec.ts');
+        expect(spec.match(/lateCoachingSavedRow\(/g)).toHaveLength(1);
+        expect(spec).toContain('lateCoachingDeps(savedSessionId ?? \'\'), { closesAt }) });');
+        expect(spec).toContain('lateCoaching.flush(answerOrder(latestAnsweredAt(aExchanges), repeatRecordingAt));');
+        expect(spec.indexOf('duringRepeatHold:')).toBeLessThan(spec.indexOf('lateCoaching.flush('));
+    });
+});
+
+/**
+ * Sam on 4b7c4d44: the reopen used a RELATIVE budget whose timer started only after newPage() resolved, so a slow page creation
+ * could cross the close while the outer witness had already reported HOLD and the page still navigated. reopenWithinCutoff takes
+ * the absolute close: it checks it right after newPage(), closes the page without navigating when it has passed, and otherwise
+ * bounds the read by the time left.
+ */
+describe('reopenWithinCutoff: the saved-review page never navigates past the window close', () => {
+    const fakePage = () => { const p = { closed: 0, close: async () => { p.closed += 1; } }; return p; };
+    it('a page created after the close is closed without navigating: zero reads', async () => {
+        let t = 0;
+        const page = fakePage();
+        let reads = 0;
+        await expect(reopenWithinCutoff({
+            newPage: async () => { t = CLOSES_AT + 1; return page; }, now: () => t, cutoffAt: CLOSES_AT,
+            read: async () => { reads += 1; return reopened(); },
+        })).rejects.toThrow(/after the window closed/);
+        expect(reads).toBe(0);
+        expect(page.closed).toBeGreaterThanOrEqual(1);
+    });
+    it('a page created exactly at the close is also refused (no time left)', async () => {
+        const page = fakePage();
+        let reads = 0;
+        await expect(reopenWithinCutoff({ newPage: async () => page, now: () => CLOSES_AT, cutoffAt: CLOSES_AT,
+            read: async () => { reads += 1; return reopened(); } })).rejects.toThrow();
+        expect(reads).toBe(0);
+    });
+    it('in time: the read runs once, the page is closed at the time LEFT (not a fresh budget), and always closed after', async () => {
+        let t = 0;
+        const page = fakePage();
+        const timers: number[] = [];
+        const r = await reopenWithinCutoff({
+            newPage: async () => { t = 4_000; return page; }, now: () => t, cutoffAt: CLOSES_AT,
+            setTimer: (ms) => { timers.push(ms); return () => undefined; },
+            read: async () => reopened(),
+        });
+        expect(r).toEqual(reopened());
+        expect(timers).toEqual([CLOSES_AT - 4_000]);
+        expect(page.closed).toBe(1);
+    });
+    it('with no cutoff (ordinary mode) it just reads and closes', async () => {
+        const page = fakePage();
+        const timers: number[] = [];
+        await reopenWithinCutoff({ newPage: async () => page, setTimer: (ms) => { timers.push(ms); return () => undefined; }, read: async () => reopened() });
+        expect(timers).toEqual([]);
+        expect(page.closed).toBe(1);
+    });
+    it('end to end in the window: a page created late is HOLD reopen-outside-window, navigates nothing, and the row lands at the close', async () => {
+        const d = deps({ savedAfter: 0 });
+        const page = fakePage();
+        let reads = 0;
+        const sleep = d.sleep!;
+        d.openSavedReview = (cutoffAt) => reopenWithinCutoff({
+            // page creation takes longer than the whole window
+            newPage: async () => { await sleep(CLOSES_AT + 500); return page; }, now: () => d.now!(), cutoffAt,
+            read: async () => { reads += 1; return reopened(); },
+        });
+        const s = sink();
+        await lateCoachingSavedRow(s, A, d, { waitMs: 75_000, pollMs: 250, closesAt: CLOSES_AT });
+        expect(s.rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ reason: 'reopen-outside-window' }) })]);
+        // the row is decided at the close (the Stop is never waited on), and the late page never navigated
+        expect(reads).toBe(0);
+        await new Promise((r) => setImmediate(r));
+        expect(reads).toBe(0);
+        expect(page.closed).toBeGreaterThanOrEqual(1);
+    });
+    it('a reopen that fails BEFORE the close is still review-unopened (only a failure at or after the close is the window)', async () => {
+        const s = sink();
+        await lateCoachingSavedRow(s, A, deps({ savedAfter: 0, review: 'throw' }), { waitMs: 75_000, pollMs: 250, closesAt: CLOSES_AT });
+        expect(s.rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ reason: 'review-unopened' }) })]);
+    });
+});
+const CLOSES_AT = 6_500;

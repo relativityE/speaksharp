@@ -64,20 +64,30 @@ describe('case 11 first activation waits for the cold/warm decision, never for a
         });
         return { page: page as never, waitReady, clicks };
     }
+    // The live caller's press is pressCaptureControl (its own tests are in benchmarkHarnessControls.test.ts); here, a press that
+    // reads back then clicks the decided control through the fake page, recording what it was asked to press.
+    const pressed: string[] = [];
+    const press = async (p: never, control: 'mic-download' | 'mic-start', beforeClick: () => Promise<void>) => {
+        pressed.push(control);
+        await beforeClick();
+        await (p as unknown as { getByTestId: (id: string) => { click: () => Promise<void> } }).getByTestId(control).click();
+    };
+    const none = async () => undefined;
+    afterEach(() => { pressed.length = 0; });
     it.each([null, 'idle'])('mode resolves before availability: %s then download-required still presses cold once', async (status) => {
         const s = scheduledPage([{ status, control: 'mic-start' }, { status: 'download-required', control: 'mic-download' }]);
-        expect(await pressPrivateStartForLease(s.page, s.waitReady)).toBe(true);
+        expect(await pressPrivateStartForLease(s.page, s.waitReady, none, press)).toBe(true);
         expect(s.clicks).toEqual(['mic-download']);
         expect(s.waitReady).not.toHaveBeenCalled();
     });
     it('a settled cold control does not wait for engine readiness', async () => {
         const s = scheduledPage([{ status: 'download-required', control: 'mic-download' }]);
-        expect(await pressPrivateStartForLease(s.page, s.waitReady)).toBe(true);
+        expect(await pressPrivateStartForLease(s.page, s.waitReady, none, press)).toBe(true);
         expect(s.clicks).toEqual(['mic-download']); expect(s.waitReady).not.toHaveBeenCalled();
     });
     it('warm readiness still checks the engine then presses Start once', async () => {
         const s = scheduledPage([{ status: 'loading', control: 'mic-start', disabled: true }, { status: 'ready', control: 'mic-start' }]);
-        expect(await pressPrivateStartForLease(s.page, s.waitReady)).toBe(false);
+        expect(await pressPrivateStartForLease(s.page, s.waitReady, none, press)).toBe(false);
         expect(s.clicks).toEqual(['mic-start']);
         expect(s.waitReady).toHaveBeenCalledExactlyOnceWith(s.page, 30_000);
     });
@@ -87,8 +97,8 @@ describe('case 11 first activation waits for the cold/warm decision, never for a
         { status: 'download-required', control: 'mic-download', hidden: true }, { status: 'ready', control: 'mic-start', disabled: true },
     ])('unresolved, failed, hidden or disabled state never starts: %j', async (state) => {
         const s = scheduledPage([state]);
-        await expect(pressPrivateStartForLease(s.page, s.waitReady)).rejects.toThrow('no actionable private control within the bound');
-        expect(s.clicks).toEqual([]); expect(s.waitReady).not.toHaveBeenCalled();
+        await expect(pressPrivateStartForLease(s.page, s.waitReady, none, press)).rejects.toThrow('no actionable private control within the bound');
+        expect(s.clicks).toEqual([]); expect(pressed).toEqual([]); expect(s.waitReady).not.toHaveBeenCalled();
     });
     it('the live caller supplies both observation windows to the first-press callback before checking refusal', () => {
         const spec = src('tests/live/rwt-abandon-and-two-tabs.live.spec.ts');
@@ -103,8 +113,50 @@ describe('case 11 first activation waits for the cold/warm decision, never for a
             expect(document.documentElement.getAttribute('data-model-status')).toBe('download-required');
             expect(s.clicks).toEqual([]);
         });
-        await pressPrivateStartForLease(s.page, s.waitReady, open);
+        await pressPrivateStartForLease(s.page, s.waitReady, open, press);
         expect(open).toHaveBeenCalledOnce(); expect(s.clicks).toEqual(['mic-download']);
+    });
+    it('#1835 (Sam, #1916): the caller\'s readback goes INTO the press of the decided control, never before it', async () => {
+        const s = scheduledPage([{ status: 'download-required', control: 'mic-download' }]);
+        const order: string[] = [];
+        const readback = vi.fn(async () => { order.push(`readback:${s.clicks.length}`); });
+        const spy = vi.fn(async (p: never, control: 'mic-download' | 'mic-start', beforeClick: () => Promise<void>) => {
+            order.push(`press:${control}`);
+            expect(readback, 'nothing is read back before the press is entered').not.toHaveBeenCalled();
+            await press(p, control, beforeClick);
+        });
+        expect(await pressPrivateStartForLease(s.page, s.waitReady, readback, spy)).toBe(true);
+        expect(spy).toHaveBeenCalledExactlyOnceWith(s.page, 'mic-download', readback);
+        expect(order).toEqual(['press:mic-download', 'readback:0']);
+        expect(s.clicks).toEqual(['mic-download']);
+    });
+    it('#1835: a slow readback that succeeds presses once; a slow refusal presses nothing and is the caller\'s own error', async () => {
+        vi.useFakeTimers();
+        try {
+            const ok = scheduledPage([{ status: 'ready', control: 'mic-start' }]);
+            const slowOk = vi.fn(() => new Promise<void>((resolve) => setTimeout(resolve, 45_000)));
+            const done = pressPrivateStartForLease(ok.page, ok.waitReady, slowOk, press);
+            await vi.advanceTimersByTimeAsync(45_000);
+            expect(await done).toBe(false);
+            expect(ok.clicks).toEqual(['mic-start']);
+            const refused = scheduledPage([{ status: 'download-required', control: 'mic-download' }]);
+            const hold = new Error('HOLD practice consent: the saved choice changed');
+            const slowNo = vi.fn(() => new Promise<void>((_, reject) => setTimeout(() => reject(hold), 45_000)));
+            const failed = pressPrivateStartForLease(refused.page, refused.waitReady, slowNo, press).then(() => null, (error: unknown) => error);
+            await vi.advanceTimersByTimeAsync(45_000);
+            expect(await failed).toBe(hold);
+            expect(refused.clicks).toEqual([]);
+        } finally { vi.useRealTimers(); }
+    });
+    it('#1835: the live caller presses through pressCaptureControl, with the consent readback LAST in its hook', () => {
+        const spec = src('tests/live/rwt-abandon-and-two-tabs.live.spec.ts');
+        const at = spec.indexOf('const coldB = await pressPrivateStartForLease(deviceB, waitForPrivateEngineReady, async () => {');
+        const call = spec.slice(at, spec.indexOf('.then(() => undefined));', at) + 25);
+        expect(call).toContain("}, (p, control, beforeClick) => pressCaptureControl(p, [control], { beforeClick, waitMs: 30_000, clickTimeoutMs: 30_000 }).then(() => undefined));");
+        const confirm = call.indexOf('await requireGate(consentGate).confirm();');
+        expect(confirm).toBeGreaterThan(call.indexOf('openedB = await deviceB.evaluate(openObservationWindow'));
+        expect(call.slice(confirm).match(/await /g)).toHaveLength(1);
+        expect(call.split('confirm()').length - 1).toBe(1);
     });
 });
 
@@ -444,11 +496,11 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(spec, 'a refusal after model work is never a PASS: the row is the whole-window verdict').toContain("receipt.row('another device is refused by the account lease', refusal.status, refusal.detail");
         expect(device, 'no 900 s wait for the first refusal').not.toMatch(/refusalShownB\.waitFor\(\{ timeout: coldB \? 900_000/);
         const takeOver = spec.slice(spec.indexOf("// The person's explicit second press is the take-over"));
-        expect(takeOver, 'the take-over presses the control the refused page renders').toContain(`await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();`);
+        expect(takeOver, 'the take-over presses the control the refused page renders, reading consent back at its click').toContain("await pressCaptureControl(deviceB, ['mic-start', 'mic-download'], { beforeClick: () => requireGate(consentGate).confirm() });");
         expect(takeOver, 'a cold take-over gets the model budget, and a take-over that never records ends the scenario')
             .toContain("if (!(await isRecording(deviceB, coldB ? 900_000 : 60_000))) throw new Error('the explicit take-over press did not start a recording');");
         expect(takeOver.indexOf('watch.setStartRefusedAllowed(false);'), 'the expected refusal is spent before the take-over press')
-            .toBeLessThan(takeOver.indexOf("await deviceB.locator('[data-testid=\"mic-start\"], [data-testid=\"mic-download\"]').first().click();"));
+            .toBeLessThan(takeOver.indexOf("await pressCaptureControl(deviceB, ['mic-start', 'mic-download'], { beforeClick: () => requireGate(consentGate).confirm() });"));
     });
 
     it('#1593 case 9: navigate away closes the Focus Points setup modal before using Products again', () => {
@@ -563,10 +615,12 @@ describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (S
         const spec = readFileSync(path.join(ROOT, 'tests/live/rwt-abandon-and-two-tabs.live.spec.ts'), 'utf8');
         const openA = spec.indexOf('await tabA.evaluate(openObservationWindow');
         const openB = spec.indexOf('await deviceB.evaluate(openObservationWindow');
-        const press = spec.indexOf('\n            });', openB); // completion of the awaited first-press helper
+        // Completion of the awaited first-press helper (its press callback is the last argument, #1835).
+        const press = spec.indexOf('.then(() => undefined));', openB);
+        expect(press).toBeLessThan(spec.indexOf('const refusalShownB = deviceB.getByText(BLOCKED_COPY)'));
         const arm = spec.indexOf('await deviceB.evaluate(armTakeoverGesture');
         // The take-over's own click (the return retry earlier in the file has its own revocation).
-        const takeover = spec.indexOf("await deviceB.locator('[data-testid=\"mic-start\"], [data-testid=\"mic-download\"]').first().click();");
+        const takeover = spec.indexOf("await pressCaptureControl(deviceB, ['mic-start', 'mic-download'], { beforeClick: () => requireGate(consentGate).confirm() });");
         const closeB = spec.indexOf('await deviceB.evaluate(closeObservationWindow');
         const closeA = spec.indexOf('await tabA.evaluate(closeObservationWindow');
         const verdict = spec.indexOf('leaseRefusalWindowVerdict({');

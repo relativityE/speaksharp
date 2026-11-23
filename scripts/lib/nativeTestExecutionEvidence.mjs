@@ -10,6 +10,7 @@ import {spawnSync} from 'node:child_process';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 export const NATIVE_REPORTER='scripts/lib/nativeTestExecutionEvidence.mjs';
 export const PROOF_CASES_TEST='tools/cloud-test/tests/node/proof/harness-fixes-r15.offline.test.cjs';
+export const MODEL_PRIVACY_BROWSER_TEST='tests/model-dropin/errorContextPrivacy.node.test.mjs';
 export const REAL_BROWSER_TEST='tools/cloud-test/tests/node/proof/real-browser-r15.test.cjs';
 export const SQL_CONSUMER='tests/unit/accountCompletionBillingSettlement.test.ts';
 export const SQL_INPUTS=Object.freeze([
@@ -33,11 +34,19 @@ export const SQL_CONTRACTS=Object.freeze([
   // the native database is NOT RUN (no ledger-12 full-chain stage yet).
   Object.freeze({consumer:'tests/db/payment-wall-guards-1863.integration.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261114170000_payment_wall_product_access_1863.sql'])}),
+  // #1643 follow-up: the deleted-account save-journal cleanup functions execute over the actual recording/journal chain in PGlite;
+  // native lock serialization and the shared live step are the realpg proof in the full-chain proof workflow.
+  Object.freeze({consumer:'tests/db/deleted-account-save-journal-cleanup.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261119200000_deleted_account_save_journal_cleanup_1643.sql'])}),
   Object.freeze({consumer:'tests/db/practicePrivacyCurrentChain.integration.test.ts',
     files:Object.freeze([
       'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
       'tests/db/fixtures/practice-privacy-choices-1835.sql',
     ])}),
+  // #1827 D2 repeat tip: the catalog gate test executes the exact migration over the shipped PGlite chain and writes its witness;
+  // the native database runs in the account-closure full-chain proof workflow (profile main-repeat-tip-134).
+  Object.freeze({consumer:'tests/db/repeatTipPostflight.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261119120000_repeat_practised_tip.sql'])}),
 ]);
 export const sqlContract=file=>SQL_CONTRACTS.find(item=>item.files.includes(file));
 export const NATIVE_HELPERS=Object.freeze([
@@ -69,9 +78,18 @@ export const NATIVE_HELPERS=Object.freeze([
     claim:'actual cleanup barrier, owned-process cleanup and launch-ownership callables with real child processes; browser and live run NOT RUN'},
   {file:'tests/model-dropin/identityExclusion.mjs',consumer:'tests/model-dropin/identityExclusion.node.test.mjs',
     callables:['assertNotMaintainedIdentity'],claim:'actual maintained-identity refusal with synthetic identifiers; credentials and accounts NOT RUN'},
+  // Bounded Supabase CLI installer for the disposable database-proof workflow: stall, retry, digest and version controls
+  // against a local fake release server.
+  {file:'scripts/ci/install-supabase-cli.mjs',consumer:'tests/unit/installSupabaseCli.test.mjs',
+    callables:['installSupabaseCli','downloadOnce'],
+    claim:'actual installer callables against a local fake release server; the real GitHub release download and hosted runner NOT RUN'},
   {file:'tools/cloud-test/scripts/resolve_rwt_served_release.mjs',consumer:'tools/cloud-test/tests/rwt_served_release.test.mjs',
     callables:['resolveRwtServedRelease','verifyRwtServedRelease'],
     claim:'actual runtime release identity and compatibility guards with mocked production responses and synthetic Git; deployment and live writes NOT RUN'},
+  // #1906 restart and recovery proofs: the runner is spawned as fresh child processes (coverage inherited through the environment).
+  {file:'tests/db/save-journal-restart-runner.mjs',consumer:'tests/db/deleted-account-save-journal-cleanup-realpg.test.mjs',
+    callables:['createPsqlAdmin','runTeardown','runRecovery','tampered'],
+    claim:'actual runner processes (shared teardown and governed recovery entry points) against an owned disposable PostgreSQL; hosted database, GitHub and live runs NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
@@ -146,6 +164,22 @@ function xmlRuntime(root) {
   return {entry,version:JSON.parse(fs.readFileSync(packageFile,'utf8')).version,
     entrySha256:hash(fs.readFileSync(entry)),packageSha256:hash(fs.readFileSync(packageFile))};
 }
+const PYTHON_RECEIPT_CONFORMANCE_TEST='tests/unit/pythonTestExecutionEvidence.test.mjs';
+function nativePythonFixtureBinding(contract) {
+  if(contract.testFile!==PYTHON_RECEIPT_CONFORMANCE_TEST)return null;
+  // Bind the parent runner's installed Python, not the fallback found after
+  // the nested Node test correctly switches to its scrubbed environment.
+  const launcher=binary('python3');
+  const probe=spawnSync(launcher,['-I','-B','-c',
+    'import json,pathlib,sys; print(json.dumps({"execPath":str(pathlib.Path(sys.executable).resolve()),"version":".".join(map(str,sys.version_info[:3]))}))'],
+    {encoding:'utf8',timeout:5000,env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
+  let observed;
+  try { observed=JSON.parse(probe.stdout); } catch { fail('NOT RUN: bound Python fixture runtime unavailable'); }
+  if(probe.status!==0||probe.signal||probe.error||!/^3\.12\.\d+$/.test(observed?.version??'')
+    ||!path.isAbsolute(observed?.execPath??'')||fs.realpathSync(observed.execPath)!==observed.execPath)
+    fail('NOT RUN: bound Python fixture requires an exact installed Python 3.12');
+  return {...observed,sha256:hash(fs.readFileSync(observed.execPath))};
+}
 export function nativeRuntime(root,runner) {
   const execPath=runner==='deno'?binary('deno'):fs.realpathSync(process.execPath);
   const version=runner==='deno'?spawnSync(execPath,['--version'],{encoding:'utf8',timeout:5000,env:{PATH:path.dirname(execPath)}}):null;
@@ -177,7 +211,12 @@ export function nativeWarmupCommand(binding) {
 // supplies its value; permission only lets the module observe absence. Network,
 // files, child processes and all other environment names remain denied.
 const checkoutTest='backend/supabase/functions/stripe-checkout/index.test.ts';
-const coachingTest='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+export const COACHING_EDGE_TEST='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+export const COACHING_EDGE_CONSENT_CASE='#1905 saved Open Mic and Focus coaching honor owner consent at send and persist';
+const COACHING_EFFICACY_PROFILE='coaching-consent-efficacy-1905';
+export const COACHING_QUALITY_TEST='backend/supabase/functions/get-ai-suggestions/evaluation/coachingBotChecks.test.ts';
+const COACHING_WRONG_TAKE_CASE='#1905 wrong-take coaching fails when only one advice section is cross-wired';
+const coachingTest=COACHING_EDGE_TEST;
 const coachingClosure=Object.freeze({
   'backend/supabase/functions/_shared/cors.ts':'74ab664c710d733534d8e0af433b0c4c48110a2dec1d5436f04f55147225e608',
   'backend/supabase/functions/deno.json':'6e88bc8b0df10b78fb39e1c26492164a351f350d6d4046eca09df4ebebd681a0',
@@ -360,6 +399,12 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
 ]);
+// #1905 adds assertions only. The authority, permission envelope and every import remain pinned.
+const coachingEfficacyProfiles=coachingProfiles.filter(item=>item.id==='coaching-persist-entitlement-1899').map(item=>({
+  id:COACHING_EFFICACY_PROFILE,files:{...item.files,
+    [coachingTest]:'765e7041f7abdbd80790f0ca34cf4f71d7ccffe078a62ae3befdc7c0e0a91449',
+  },
+}));
 export function nativeDenoPolicy(file) {
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
     initial:'absent',inherit:false,syntheticValue:file===coachingTest?'test-key':null,reinject:false},
@@ -367,7 +412,7 @@ export function nativeDenoPolicy(file) {
 }
 export function validateSyntheticSource(root,file) {
   if(file!==coachingTest)return null;
-  const profile=coachingProfiles.find(candidate=>{
+  const profile=[...coachingProfiles,...coachingEfficacyProfiles].find(candidate=>{
     try{return Object.entries(candidate.files).every(([entry,digest])=>hash(fs.readFileSync(regular(root,entry)))===digest);}
     catch{return false;}
   });
@@ -399,7 +444,7 @@ export function nativeEnvironment(cwd,environment) {
     TMPDIR:temporary,TMP:temporary,TEMP:temporary,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true',NODE_ENV:'test'};
 }
 export function nativeBrowserBinding(contract,environment) {
-  if(contract.testFile!==REAL_BROWSER_TEST)return null;
+  if(![REAL_BROWSER_TEST,MODEL_PRIVACY_BROWSER_TEST].includes(contract.testFile))return null;
   const file=environment?.CT_CHROME;
   try {
     if(typeof file!=='string'||!path.isAbsolute(file)||fs.realpathSync(file)!==file||!fs.lstatSync(file).isFile())throw new Error();
@@ -555,7 +600,7 @@ export function parseNodeEvents(raw,binding) {
     ||counts?.tests!==assertions||counts?.passed!==assertions)fail('Native Node terminal summary absent, zero-test or unsuccessful');
   return {collected:collected.length,assertions};
 }
-export function parseDenoJunit(raw,binding,root) {
+export function parseDenoJunit(raw,binding,root,requiredCases=[]) {
   const require=createRequire(path.join(root,'node_modules/jsdom/package.json'));
   const {SaxesParser}=require('saxes');
   const parser=new SaxesParser({xmlns:false});let malformed=false,rootSeen=false;
@@ -582,6 +627,7 @@ export function parseDenoJunit(raw,binding,root) {
   if(malformed||!rootSeen||stack.length!==0||suites.length!==1||!matches(suites[0].name)||!cases.length
     ||Number(suites[0].tests)!==cases.length||Number(suites[0].failures)!==0||Number(suites[0].errors)!==0
     ||Number(suites[0].skipped??0)!==0||Number(suites[0].disabled??0)!==0||cases.some(item=>!item.name||!matches(item.classname)))fail('Deno JUnit collection absent, failed, skipped or wrong-file');
+  if(requiredCases.some(name=>cases.filter(item=>item.name===name).length!==1))fail('Deno JUnit required case missing or duplicated');
   return {collected:1,assertions:cases.length};
 }
 // One tracker spans warmup and test children. Every spawn invalidates drainage
@@ -686,6 +732,7 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
   }
   const proofCases=phaseProofCasesBinding(contract,environment,binding.phaseId,root);if(proofCases)binding.proofCases=proofCases;
   const browser=nativeBrowserBinding(contract,environment);if(browser)binding.browser=browser;
+  const pythonFixture=nativePythonFixtureBinding(contract);if(pythonFixture)binding.pythonFixture=pythonFixture;
   binding.command=nativeCommand(binding);
   const env={...nativeEnvironment(cwd,environment),...(proofCases?{CT_PROOF_CASES_DIR:proofCases.directory}:{}),
     ...(browser?{CT_CHROME:browser.path}:{}),
@@ -729,6 +776,8 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
   if(JSON.stringify(b.proofCases??null)!==JSON.stringify(expectedProof))fail('Wrong or changed proof-cases binding');
   const expectedBrowser=nativeBrowserBinding(contract,environment);
   if(JSON.stringify(b.browser??null)!==JSON.stringify(expectedBrowser))fail('Wrong or changed native browser binding');
+  if(JSON.stringify(b.pythonFixture??null)!==JSON.stringify(nativePythonFixtureBinding(contract)))
+    fail('Wrong or changed native Python fixture binding');
   if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null
     ||phase.execution.processCleanup?.status!=='drained')fail('Native execution failed or did not drain');
   if(contract.runner==='deno') {
@@ -737,7 +786,9 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
     validateWarmup(phase.warmup,b);
   }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
-  const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root):parseNodeEvents(phase.stdout,b);
+  const requiredCases=contract.testFile===COACHING_QUALITY_TEST?[COACHING_WRONG_TAKE_CASE]
+    :b.syntheticSource?.id===COACHING_EFFICACY_PROFILE?[COACHING_EDGE_CONSENT_CASE]:[];
+  const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root,requiredCases):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
   return {counts,helpers:validateNativeCallables(phase.coverage,b,root,contract.helpers)};
 }

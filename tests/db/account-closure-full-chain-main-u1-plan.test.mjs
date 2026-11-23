@@ -139,7 +139,13 @@ const PAYMENT_WALL=Object.freeze({name:'20261114170000_payment_wall_product_acce
 // Reviewed #1835 bytes are physical inventory, not part of any historical replay profile.
 const PRACTICE_PRIVACY=Object.freeze({name:'20261117105700_practice_privacy_choices_1835.sql',
   version:'20261117105700',sha256:'8e21fe2237c70c75fcaeee8cb74e17b679ab187f6936b9ccd5c311c51dedf9b7'});
-const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name].includes(row.name));
+// #1827 D2 repeat tip: pinned repository inventory, withheld by every profile until its reviewed stage exists.
+const REPEAT_TIP=Object.freeze({name:'20261119120000_repeat_practised_tip.sql',
+  version:'20261119120000',sha256:'199f8593445e477cf84397e47cb9234cf3063c0a22a6b812ef9a7e8fb053f3f4'});
+// #1643 follow-up: deleted proof-account save-journal cleanup. Repository inventory that no historical profile replays.
+const SAVE_JOURNAL_CLEANUP=Object.freeze({name:'20261119200000_deleted_account_save_journal_cleanup_1643.sql',
+  version:'20261119200000',sha256:'48088287571cca34007a42018a67df6ccd702bddcda1579ec85f208daaef834c'});
+const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -168,8 +174,8 @@ test('reviewed withheld retirement is repository inventory, never historical rep
   // Adding the exact withheld pin does not let an old profile accept later applied members.
   assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,135);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,137);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name]);
 });
 // Repository registration is NOT an installed-schema or release attestation.
 test('the feedback fence is pinned and excluded from every profile before main-feedback-fence-131',()=>{
@@ -256,8 +262,31 @@ test('the refund follow-up migration is pinned inventory that no profile replays
     assert.throws(()=>buildMainU1ReplayPlan([...rows,{...REFUND,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
   }
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-coaching-retirement-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,135);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,137);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name]);
+});
+test('the deleted-account save-journal cleanup is digest-pinned inventory that no profile replays',()=>{
+  const observed=repositoryPhysical.find(row=>row.name===SAVE_JOURNAL_CLEANUP.name);
+  assert.deepEqual(observed,SAVE_JOURNAL_CLEANUP);
+  const full=repositoryPhysical.filter(row=>row.name!==SAVE_JOURNAL_CLEANUP.name);
+  for(const [profile,rows] of [
+    ['main-120',main],['main-u1-121',receiving],['main-analytics-u1-122',analyticsReceiving],
+    ['main-t2-account-126',fullReceiving],['main-t2-fence-127',fenceReceiving],['main-t2-retention-128',retentionReceiving],
+    ['main-completion-billing-129',full],['main-coaching-retirement-129',full],['main-start-abandonment-130',full],
+    ['main-feedback-fence-131',full],['main-payment-wall-132',full],['main-practice-privacy-133',full],
+    ['main-repeat-tip-134',full],
+  ]) {
+    const before=buildMainU1ReplayPlan(rows,profile);
+    const plan=buildMainU1ReplayPlan([...rows,observed],profile);
+    assert.equal(plan.migrations,before.migrations,profile);
+    assert.equal(plan.repositoryMigrations,before.repositoryMigrations+1,profile);
+    assert.deepEqual(plan.stages,before.stages,profile);
+    assert.deepEqual(plan.replayFiles,before.replayFiles,profile);
+    assert.deepEqual(plan.withheld.find(row=>row.name===SAVE_JOURNAL_CLEANUP.name),{...SAVE_JOURNAL_CLEANUP,status:'NOT REPLAYED'},profile);
+    assert.ok(plan.stages.every(stage=>!stage.versions.includes(SAVE_JOURNAL_CLEANUP.version)),profile);
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...observed,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...observed,name:observed.version+'_alias.sql'}],profile),/unreviewed migration/);
+  }
 });
 test('runtime stages only replay members and checks withheld ledger/catalog absence',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');
@@ -425,7 +454,7 @@ test('retention128 is staged after the fence with catalog and non-activation evi
     'retention_content_free_compatible()', 'retention-catalog.json', 'retention catalog/ACL',
     'completion must remain disabled after retention', 'CONTENT-FREE RETENTION FULL-CHAIN CATALOG PASSED'])
     assert.ok(tail.includes(token),token);
-  assert.ok(driver.includes('MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name].includes(name)'));
+  assert.ok(driver.includes('MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name,REPEAT_TIP_MIGRATION.name,SAVE_JOURNAL_CLEANUP_MIGRATION.name].includes(name)'));
 });
 test('fence127 runtime applies the fence only after the completion proof and native catalog finish',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');
@@ -544,7 +573,7 @@ for (const { path, sha256 } of unchangedProofs) test('original proof/helper unch
 test('U1 is excluded from initial staging and all four final proof layers remain explicit', () => {
   const driver = read('tests/db/account-closure-full-chain.mjs');
   const replay = driver.indexOf("if (args.profile !== 'main-120')");
-  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name].includes(name)'));
+  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name,START_ABANDONMENT_MIGRATION.name,FEEDBACK_FENCE_MIGRATION.name,PAYMENT_WALL_MIGRATION.name,PRACTICE_PRIVACY_MIGRATION.name,REPEAT_TIP_MIGRATION.name,SAVE_JOURNAL_CLEANUP_MIGRATION.name].includes(name)'));
   const final = driver.slice(replay, driver.indexOf('} catch (error)', replay));
   assert.ok(replay > driver.indexOf("console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED')"));
   for (const token of [
@@ -566,8 +595,8 @@ test('existing workflow collects Node tests and explicitly selects the exact129 
   const workflow = read('.github/workflows/account-closure-full-chain-proof.yml');
   const collection = workflow.indexOf('run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs');
   assert.ok(collection > workflow.indexOf('actions/setup-node@v6'));
-  assert.ok(collection < workflow.indexOf('supabase/setup-cli@v2'));
-  assert.ok(workflow.includes('profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130, main-feedback-fence-131, main-payment-wall-132, main-practice-privacy-133]'));
+  assert.ok(collection < workflow.indexOf('- name: Install pinned Supabase CLI (bounded, verified)'));
+  assert.ok(workflow.includes('profile: [main-completion-billing-129, main-coaching-retirement-129, main-start-abandonment-130, main-feedback-fence-131, main-payment-wall-132, main-practice-privacy-133, main-repeat-tip-134, main-save-journal-cleanup-135]'));
   assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=${{ matrix.profile }}'));
   assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=${{ matrix.profile }}'));
   assert.ok(!workflow.includes('--profile=main-t2-retention-128'),'the billing file makes retention128 refuse the real tree');

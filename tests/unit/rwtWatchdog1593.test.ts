@@ -689,7 +689,7 @@ describe('#1662 Codex on f527a033 — each fault phase brackets exactly its inje
         const at = src.indexOf(route);
         expect(at).toBeGreaterThan(0);
         expect(src.lastIndexOf('watch.setFaultPhase(true);', at), `${route} — opened before`).toBeGreaterThan(src.lastIndexOf('watch.setFaultPhase(false);', at));
-        // Sam, 2026-11-15 (#1868): going offline runs inside `runOfflineFault`, which calls `armFault` (opening the phase) before
+        // Sam, 2026-11-15 (#1868): going offline runs inside `runBetweenFilesFault`, which calls `armFault` (opening the phase) before
         // `setOffline(true)` and `disarmFault` (closing it) on every restore; rwtAdverseRecovery.test.ts proves that order.
         expect(src).not.toContain('context.setOffline(true)');
         expect(src).toContain('armFault: () => { watch.setFaultPhase(true); fault.armFault(); transfer.armFault(); },');
@@ -1533,7 +1533,9 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
     it('Codex P2 r4314462589: the return retry is strict — the refusal allowance and fault phase end BEFORE the second press', () => {
         const src = readFileSync('tests/live/rwt-abandon-and-two-tabs.live.spec.ts', 'utf8');
         const branch = src.slice(src.indexOf('if (refusalCopyShown) {'), src.indexOf('secondPressRecorded = await isRecording(returned, 60_000);'));
-        const click = branch.indexOf("await returned.getByTestId('mic-start').click();");
+        // #1835 (Sam, #1916): the second press reads consent back inside the press, at its click.
+        const click = branch.indexOf("await pressCaptureControl(returned, ['mic-start'], { beforeClick: () => requireGate(consentGate).confirm() });");
+        expect(click).toBeGreaterThan(-1);
         expect(branch.indexOf('watch.setStartRefusedAllowed(false);')).toBeGreaterThan(-1);
         expect(branch.indexOf('watch.setStartRefusedAllowed(false);')).toBeLessThan(click);
         expect(branch.indexOf('watch.setFaultPhase(false);')).toBeGreaterThan(-1);
@@ -1567,7 +1569,7 @@ describe('#1593 cases 9–11 — every RWT live spec is collectable', () => {
         expect(model).toContain("test('model download fails: Retry, never ready, stays Private, no Cloud; fixed → Retry saves a take'");
         expect(model).toContain("test('offline mid-download: Retry, never ready, stays Private, no Cloud; back online → Retry saves a take'");
         expect(model).not.toContain("'mic-denied'");
-        expect(denied).toContain("test('mic denied: stated truthfully, nothing records, no Cloud; allowed → a take saves'");
+        expect(denied).toContain("test('mic denied: stated truthfully, capture never starts, no take saved, no Cloud; same-page recovery untested'");
         expect(denied).toMatch(/^test\.use\(\{\n {4}permissions: \[\], /m);
         expect(denied).toContain("'--use-fake-ui-for-media-stream=deny'");
         for (const spec of [model, denied]) {
