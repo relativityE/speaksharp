@@ -1,0 +1,18 @@
+# Mobile privacy disclosure cleanup
+
+**Deliverable:** a reviewable data inventory and proposed copy for in-app prompts, both store forms and the privacy policy.
+**Expected outcome:** exact signed builds enforce what is disclosed; Private audio, optional saved transcript, third-party coaching, telemetry and account data are not conflated.
+
+| Data / operation | Expected behavior to verify | Disclosure and test |
+| --- | --- | --- |
+| Microphone and Private audio | Private on-device transcription uses mic audio locally; don't claim anything about additional modes or builds not tested. | iOS usage description / Android runtime permission: “SpeakSharp uses your microphone to transcribe your practice on this device.” Deny/no permission means no capture. Check signed-build network trace. |
+| Transcript and session results | Saving transcript text is opt-in; measured results and necessary account/session metadata are separate. Turning saving off affects future sessions, not prior saves. | Suggested toggle: “Save my transcript so I can reopen it or download a report.” Describe stored fields, access, retention and deletion after verification. Verify no text persists when off. |
+| AI coaching | Separate opt-in, requires transcript saving. Disclose provider and what is sent before enabling; no transcript or measurements to AI while off. | Suggested consent: “Send this session’s saved transcript and speaking measurements to [verified provider] for AI coaching. Your recording is not sent for coaching.” Name provider and applicable retention in the linked policy. Test off→on→off, rejection, and stale or cross-owner consent. |
+| Analytics, diagnostics, account and subscription records | Inventory exact SDKs, account IDs, events, retention and provider handling. | Classify linkage, use and sharing for both stores; verify raw audio/transcript not attached to diagnostics or billing. Do not guess “not collected” or re-use answers from a different build. |
+| Delete account | Distinct from disabling save or cancelling subscription. Verify app path and public request URL, deletion completion and narrow disclosed retention where applicable. | Link to [#1952](https://github.com/relativityE/speaksharp/pull/1952) and [#1953](https://github.com/relativityE/speaksharp/pull/1953). Do not promise working final deletion from the negative-control test alone. |
+
+Current web baseline: [privacy utilities](https://github.com/relativityE/speaksharp/blob/911ec968/frontend/src/components/privacy/PracticePrivacyPrompt.tsx) have no preselected choices; saving and AI are separate, and AI requires saving. [Settings](https://github.com/relativityE/speaksharp/blob/911ec968/frontend/src/components/privacy/PrivacySettingsCard.tsx) allows changing choices. Mobile runtime, local caching, third-party SDKs and any Apple/Google purchase integrations need their own readback.
+
+Before publishing: verify data types, recipient, retention and deletion against exact signed builds; reconcile Apple privacy answers, applicable privacy manifests/required-reason APIs, Google Data safety and the privacy policy; add AI-output reporting in-app if Google policy applies; check reviewer explanations and support links. This draft does not publish legal or marketing copy or activate functionality.
+
+[Apple Privacy Details](https://developer.apple.com/app-store/app-privacy-details/) · [Consent with third-party AI](https://developer.apple.com/news/?id=ey6d8onl) · [Google User Data](https://support.google.com/googleplay/android-developer/answer/10144311?hl=en) · [AI policy](https://support.google.com/googleplay/android-developer/answer/14094294?hl=en)
