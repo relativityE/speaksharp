@@ -65,8 +65,9 @@ export async function handleAccountCompletionRequest(request: Request, status: S
     const issue = body.action === 'completion_status_issue';
     const acknowledge = body.action === 'completion_status_ack';
     const read = body.action === 'completion_status_read';
+    const readiness = body.action === 'completion_readiness';
     const keys = issue ? ['action', 'requestId'] : ['action', 'requestId', 'token'];
-    if ((!issue && !acknowledge && !read) || Object.keys(body).length !== keys.length
+    if ((!issue && !acknowledge && !read && !readiness) || Object.keys(body).length !== keys.length
       || !keys.every(key => Object.hasOwn(body, key)) || (!issue && !token(body.token))) {
       return reply(400, { error: 'invalid_request' });
     }
@@ -76,6 +77,7 @@ export async function handleAccountCompletionRequest(request: Request, status: S
     if (!/^Bearer \S{1,4096}$/.test(request.headers.get('authorization') ?? '')) {
       return reply(401, { error: 'sign_in_required' });
     }
+    if (readiness) return reply(200, await status.readiness(request, { requestId: body.requestId, token: body.token }));
     return reply(200, issue ? await status.issue(request, { requestId: body.requestId })
       : await status.acknowledge(request, { requestId: body.requestId, token: body.token }));
   } catch (error) {

@@ -149,6 +149,36 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
     })).toMatchObject({outcome:'completed',requestId:a.request,accountDeleted:true,canRetry:false,expiresAt:expect.any(Number)});
     expect(c.authDeletes()).toBe(1);
   });
+  it('J1.f/J7.d step 6: readiness through actual SQL never acknowledges a pre-ack token and leaves the capability row unchanged across polls',async()=>{
+    const a=await seed(),wrapper=statusWrapper(a);
+    const issued=await wrapper.issue(statusRequest(),{requestId:a.request});
+    expect(issued.outcome).toBe('status_capability');if(issued.outcome!=='status_capability')throw Error('fixture issue failed');
+    const proof={requestId:a.request,token:issued.token};
+    const row=()=>value<string>(`SELECT json_build_object('n',(SELECT count(*) FROM account_completion_status_capabilities WHERE user_id='${a.user}'),
+      'hash',token_hash,'ack',acknowledged_at,'exp',expires_at)::text FROM account_completion_status_capabilities WHERE user_id='${a.user}'`);
+    // Before acknowledgment: no decision, and the poll does not acknowledge the page's token as a side effect.
+    expect(await wrapper.readiness(statusRequest(),proof)).toEqual({outcome:'unavailable',canRetry:false});
+    expect(await value(`SELECT acknowledged_at IS NULL FROM account_completion_status_capabilities WHERE user_id='${a.user}'`)).toBe(true);
+    expect(await wrapper.acknowledge(statusRequest(),proof)).toEqual({outcome:'status_acknowledged',requestId:a.request});
+    const before=await row();
+    for(let poll=0;poll<5;poll++){
+      const decided=await wrapper.readiness(statusRequest(),proof);
+      expect(decided).toMatchObject({outcome:'execution_ready',requestId:a.request});
+    }
+    expect(await row(),'one row, same hash, same acknowledgment, same deadline').toBe(before);
+    expect(await wrapper.read(proof)).toMatchObject({outcome:'pending',reason:'ready'}); // the page's token still reads
+    expect(await value(`SELECT count(*)::int FROM account_completion_executions WHERE user_id='${a.user}'`)).toBe(0);
+  });
+  it('J1.f/J7.d step 6: readiness through actual SQL refuses another owner presenting this token and a disabled configuration',async()=>{
+    const a=await seed(),b=await seed(),wrapper=statusWrapper(a);
+    const issued=await wrapper.issue(statusRequest(),{requestId:a.request});
+    if(issued.outcome!=='status_capability')throw Error('fixture issue failed');
+    const proof={requestId:a.request,token:issued.token};
+    await wrapper.acknowledge(statusRequest(),proof);
+    expect(await statusWrapper(b).readiness(statusRequest(),proof)).toEqual({outcome:'unavailable',canRetry:false});
+    await sql('UPDATE account_completion_configuration SET enabled=false');
+    expect(await wrapper.readiness(statusRequest(),proof)).toEqual({outcome:'unavailable',canRetry:false});
+  });
   it('issues a hash-only read capability and requires its exact owner acknowledgment',async()=>{
     const a=await seed();
     expect(await issueStatus(a)).toBe(true);
