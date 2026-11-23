@@ -192,14 +192,17 @@ describe('G03 active numeric check: source, identity and verdicts', () => {
     });
 
     it('the registered set: today\'s recordProgress.ts either IS blob 52eec014 and qualifies as registered-repeat, or the check refuses it', () => {
-        const current = blobs({ ...HISTORICAL_BYTES, [RECORD]: CURRENT_RECORD });
-        if (gitBlobId(CURRENT_RECORD) === REGISTERED_BLOB) {
-            expect(sha256(CURRENT_RECORD)).toBe(NUMERIC_SOURCE_SETS[1].sha256[3]);
-            expect(preflightActive(R_CONFIG, { readBlob: current }).set).toBe('registered-repeat-c921a350');
-        } else {
-            // recordProgress.ts changed since c921a350: the active check must HOLD until a new set is sealed.
-            expect(matchingNumericSet(R, current)).toBeNull();
-        }
+        const isRegisteredBlob = gitBlobId(CURRENT_RECORD) === REGISTERED_BLOB;
+        const observed = {
+            isRegisteredBlob,
+            hashMatchesSet: sha256(CURRENT_RECORD) === NUMERIC_SOURCE_SETS[1].sha256[3],
+            set: matchingNumericSet(R, blobs({ ...HISTORICAL_BYTES, [RECORD]: CURRENT_RECORD })),
+        };
+        // Still blob 52eec014: it must qualify as registered-repeat. Changed since c921a350: the active check must refuse it
+        // (HOLD until a new set is sealed). Either way, one unconditional assertion.
+        expect(observed).toEqual(isRegisteredBlob
+            ? { isRegisteredBlob: true, hashMatchesSet: true, set: 'registered-repeat-c921a350' }
+            : { isRegisteredBlob: false, hashMatchesSet: false, set: null });
     });
 
     it('no trusted SHA: the historical origin with unreadable git bytes is NOT_RUN', () => {
