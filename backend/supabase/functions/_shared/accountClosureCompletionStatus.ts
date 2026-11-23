@@ -14,8 +14,8 @@ export type StatusCapabilityReply =
 /**
  * J1.f/J7.d step 6: the server's owner- and request-bound readiness DECISION for one completion effect. Distinct from
  * the generic status reason: it re-authenticates the live owner, proves that owner holds this exact acknowledged
- * capability, and reads `pending/ready` twice under the deployed scope. It never issues, rotates, extends or
- * acknowledges a capability, never returns a token, and expires within READINESS_TTL_MS. The executor re-checks
+ * capability (an idempotent UPDATE on that already-acknowledged row), and reads `pending/ready` twice under the deployed
+ * scope. It never issues, rotates, extends or newly acknowledges a capability, never returns a token, and expires within READINESS_TTL_MS. The executor re-checks
  * everything independently; this decision only lets the page offer the button.
  */
 export type ExecutionReadiness =
@@ -132,11 +132,12 @@ export function createAccountCompletionStatus(input: CompletionBinding, ports: P
           const parsed = status(value, requestId, now());
           return parsed.outcome === 'pending' && parsed.reason === 'ready';
         };
-        // Read FIRST: the read RPC requires an already-acknowledged, unexpired capability, so the owner check below can
-        // never acknowledge a fresh token as a side effect.
+        // GUARD — read FIRST. The read RPC answers only for an already-acknowledged, unexpired capability, so an
+        // unacknowledged token is refused here and can never reach the write below.
         if (!ready(structuredClone(await transport.rpc('read_account_completion_status_v1', readArgs)))) return unavailable();
-        // Owner binding: true only for THIS authenticated owner + request + scope + token. Idempotent on an acknowledged
-        // capability (coalesce keeps the original acknowledgment); it never inserts, rotates or extends.
+        // Owner binding — an idempotent UPDATE, not a read: true only for THIS authenticated owner + request + scope +
+        // token. On the already-acknowledged row it rewrites the same acknowledged_at (coalesce); it never inserts,
+        // rotates or extends. The guard above is what keeps it from ever acknowledging a fresh token.
         const owned = await transport.rpc('acknowledge_account_completion_status_v1', {
           p_user_id: userId, p_request_id: requestId, p_scope_digest: transport.scopeDigest, p_token_hash: tokenHash,
         });
