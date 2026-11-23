@@ -235,9 +235,10 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
     expect(committedTranscript, 'a click in silence must not commit a phrase').toBe('');
   });
 
-  it('keeps the normal live window on a warm take (no replayed backlog)', async () => {
-    // A warm take: the model was ready before the mic opened, so nothing is replayed. Slow decodes let audio
-    // pile up between passes; each live decode must still be cut to the normal window, as before this fix.
+  it('a warm take decodes all audio piled up between slow passes, bounded by the catch-up cap (no replayed backlog)', async () => {
+    // A warm take: the model was ready before the mic opened, so nothing is replayed. Slow decodes let audio pile up
+    // between passes. J3.b (live run 45144884602): each live decode now keeps all of that pile-up, bounded by the
+    // catch-up cap, instead of cutting it to the 3 s window and skipping the older part live.
     const decode = mocks.transcribe.getMockImplementation()!;
     mocks.transcribe.mockImplementation(async (audio: Float32Array, opts?: { final?: boolean }) => {
       if (opts?.final !== true) await new Promise((r) => setTimeout(r, 1500));
@@ -246,9 +247,10 @@ describe('Focus Point 1 on a cold start: speech spoken while the model loads rea
 
     const { liveDecodes } = await coldStartTake([], 2000);
 
-    const maxWarmSeconds = Math.max(PRIV_STT.LIVE_DECODE_WINDOW_SECONDS, PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS);
+    const maxWarmSeconds = Math.max(PRIV_STT.LIVE_DECODE_CATCHUP_MAX_SECONDS, PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS);
     expect(liveDecodes.length, 'sanity: live decoding ran').toBeGreaterThan(1);
-    expect(Math.max(...liveDecodes.map((a) => a.length / SR)), 'sanity: audio piled up to a full window').toBeGreaterThanOrEqual(maxWarmSeconds - 0.05);
+    // The pile-up between 1.5 s decodes exceeds the old 3 s window, and is decoded rather than dropped.
+    expect(Math.max(...liveDecodes.map((a) => a.length / SR)), 'pile-up beyond the old window is decoded').toBeGreaterThan(PRIV_STT.LIVE_DECODE_WINDOW_SECONDS);
     for (const audio of liveDecodes) expect(audio.length / SR).toBeLessThanOrEqual(maxWarmSeconds + 1e-9);
   });
 });

@@ -210,6 +210,7 @@ type SpeechGateStats = {
 const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
 const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
 const LIVE_DECODE_WINDOW_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES;
+const LIVE_DECODE_CATCHUP_MAX_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_CATCHUP_MAX_SAMPLES;
 const COLD_START_DECODE_MAX_SAMPLES = PRIV_STT_DERIVED.COLD_START_DECODE_MAX_SAMPLES;
 // Speech-energy blocks for a cold-start backlog's gates (100 ms, like a mic frame).
 const SPEECH_ENERGY_BLOCK_SAMPLES = Math.round(PRIVATE_STT_SAMPLE_RATE * 0.1);
@@ -2301,12 +2302,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       });
       return oldest;
     }
-    const maxLiveSamples = hasCommittedTranscript
-      ? LIVE_DECODE_WINDOW_SAMPLES
-      : Math.max(
-        LIVE_DECODE_WINDOW_SAMPLES,
-        secondsToSamples(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS, PRIVATE_STT_SAMPLE_RATE),
-      );
+    // The input is the audio gathered since the previous decode (the live buffer is cleared at every decode), plus
+    // any audio held for a first-transcript retry. Keep all of it up to the catch-up cap: dropping its older part
+    // skipped live speech on slow devices, before and after the first commit (J3.b, live run 45144884602).
+    const maxLiveSamples = Math.max(
+      LIVE_DECODE_CATCHUP_MAX_SAMPLES,
+      secondsToSamples(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS, PRIVATE_STT_SAMPLE_RATE),
+    );
 
     if (audio.length <= maxLiveSamples) return audio;
 

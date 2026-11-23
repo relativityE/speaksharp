@@ -832,7 +832,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
-    it('REGRESSION: caps post-transcript live v2 decode windows while keeping full utterance audio for stop', async () => {
+    it('REGRESSION (J3.b): post-transcript live decodes keep all audio since the last decode, bounded by the catch-up cap; Stop keeps the full utterance', async () => {
         vi.useFakeTimers();
         mocks.transcribe
             .mockResolvedValueOnce(Result.ok('private local preview words'))
@@ -861,9 +861,9 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
 
         expect(mocks.transcribe).toHaveBeenCalledTimes(1);
-        expect((mocks.transcribe.mock.calls[0][0] as Float32Array).length).toBe(
-            PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES,
-        );
+        // Under the catch-up cap, nothing gathered since the last decode is dropped (the old 3 s window dropped 1 s here).
+        expect(PRIV_STT_DERIVED.LIVE_DECODE_CATCHUP_MAX_SAMPLES).toBeGreaterThan(longLiveChunk.length);
+        expect((mocks.transcribe.mock.calls[0][0] as Float32Array).length).toBe(longLiveChunk.length);
 
         await privateWhisper.stop();
 
