@@ -145,10 +145,10 @@ describe('Focus journey wiring', () => {
         expect(journey).toMatch(/switchFocusTakeId = switchFocusId;/);
         expect(journey).toMatch(/editedTakeId = takeBId && takeBId !== predecessor && takeBId !== persistedId \? takeBId : null;/);
     });
-    it('the numeric row uses the harness adapter (no copy) on the opened panel, with the bound attempt, and closes the panel', () => {
+    it('the numeric row uses the G03 active check (parity-pinned to the harness adapter) on the opened panel, with the bound attempt, and closes the panel', () => {
         const step = journey.slice(at("test.step('saved and displayed comparison numbers match'"), at("// ── #1258 Focus-only"));
-        expect(step).toContain("draft-adapters/progress-numeric.cjs");
-        expect(step).toMatch(/expectedAttemptId: boundAttemptId/);
+        expect(step).toContain('observeActive({');
+        expect(step).toMatch(/expectedAttemptId: boundAttemptId, product: 'focus_points'/);
         expect(step).toMatch(/page: panelPage, db: admin, sourceSessionId: persistedId, repeatSessionId/);
         expect(step).toMatch(/numericComparisonRow\(receipt, result, repeatEligibility, saveTakeMs\)/);
         expect(step).toMatch(/finally \{\s*await progressPanelTab\?\.close\(\)/);
