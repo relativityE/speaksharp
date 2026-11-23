@@ -64,6 +64,11 @@ export const PRIV_STT = {
   // live/provisional decodes use a recent window. Stop/final save still uses
   // the full utterance buffer.
   LIVE_DECODE_WINDOW_SECONDS: 3.0,
+  // J3.b (live run 45144884602, PO option a): after the first transcript commits, each live decode takes ALL audio
+  // gathered since the previous decode (the live buffer is cleared at every decode), bounded by this cap. A slow
+  // device then decodes a longer catch-up window instead of dropping the older part of what it gathered, so speech
+  // between windows is no longer skipped live. Fast devices gather ~1 s between decodes and are unaffected.
+  LIVE_DECODE_CATCHUP_MAX_SECONDS: 8.0,
   // Cold start (Focus Point 1, 2026-11-16): when the mic opens before the model is ready, the speech
   // spoken while it loaded reaches the live path as one backlog (the mic replays up to 15 s, #960). For a
   // take that starts with such a backlog, until its first transcript is committed or
@@ -362,6 +367,10 @@ export const PRIV_STT_DERIVED = {
   ),
   LIVE_DECODE_WINDOW_SAMPLES: secondsToSamples(
     PRIV_STT.LIVE_DECODE_WINDOW_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  LIVE_DECODE_CATCHUP_MAX_SAMPLES: secondsToSamples(
+    PRIV_STT.LIVE_DECODE_CATCHUP_MAX_SECONDS,
     PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
   ),
   COLD_START_DECODE_MAX_SAMPLES: secondsToSamples(

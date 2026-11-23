@@ -381,6 +381,47 @@ describe('TranscriptionService', () => {
         );
     });
 
+    it('J3.b: carries the live-text-incomplete mark on finals and partials, and adds nothing when it is absent', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
+
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string; liveTextIncomplete?: boolean } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('mock', mockEngine);
+        await service.startTranscription();
+
+        mockEngine.triggerTranscript({ transcript: { final: 'clean words' } });
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({ transcript: { final: 'clean words', replacesRollingTranscript: undefined } });
+        mockEngine.triggerTranscript({ transcript: { final: 'after a gap', liveTextIncomplete: true } });
+        expect(mockOnTranscriptUpdate.mock.lastCall?.[0].transcript.liveTextIncomplete).toBe(true);
+        mockEngine.triggerTranscript({ transcript: { partial: 'tail words', liveTextIncomplete: true } });
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({ transcript: { partial: 'tail words', liveTextIncomplete: true } });
+        mockEngine.triggerTranscript({ transcript: { partial: 'clean tail' } });
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({ transcript: { partial: 'clean tail' } });
+        // A capped decode that yielded no text: the flag travels alone instead of being dropped as empty.
+        mockEngine.triggerTranscript({ transcript: { liveTextIncomplete: true } });
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({ transcript: { liveTextIncomplete: true } });
+        // An update with neither text nor flag is still dropped.
+        const calls = mockOnTranscriptUpdate.mock.calls.length;
+        mockEngine.triggerTranscript({ transcript: { partial: '' } });
+        expect(mockOnTranscriptUpdate.mock.calls.length).toBe(calls);
+    });
+
     it('#891 Phase 5.6 (SHADOW): app-mic transcript updates publish transcript telemetry; mock mode does not', async () => {
         const { getSessionTelemetryBus, __resetSessionTelemetryBusForTests } =
             await import('../../telemetry/sessionTelemetryBus');
