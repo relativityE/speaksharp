@@ -72,8 +72,8 @@ This index is not the acceptance tally. “None identified here” means no qual
 | J8.a | None identified here |
 | J8.b | None identified here |
 | J8.c | None identified here |
-| J9.a | None identified here; sandbox result is not live acceptance |
-| J9.b | Production paid-account continuity not reached / unverified |
+| J9.a | No quality finding identified; kept history, Progress, and billing portal not yet verified in Stripe test mode |
+| J9.b | No quality finding identified; Stripe test-mode charge and restored access not yet run |
 
 ## Contribution template
 
