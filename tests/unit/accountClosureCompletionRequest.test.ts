@@ -12,13 +12,14 @@ function fixture() {
     issue: vi.fn<Status['issue']>(async () => ({ outcome: 'status_capability', requestId, token, expiresAt: 2000 })),
     acknowledge: vi.fn<Status['acknowledge']>(async () => ({ outcome: 'status_acknowledged', requestId })),
     read: vi.fn<Status['read']>(async () => ({ outcome: 'completed', requestId, accountDeleted: true, canRetry: false })),
+    readiness: vi.fn<Status['readiness']>(async () => ({ outcome: 'execution_ready', requestId, expiresAt: 3000 })),
   };
 }
 function req(body: unknown, authorization: string | null = 'Bearer synthetic') {
   return new Request('https://app.example.test/unselected', { method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) }, body: JSON.stringify(body) });
 }
-const allUnused = (f: ReturnType<typeof fixture>) => { expect(f.issue).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); expect(f.read).not.toHaveBeenCalled(); };
+const allUnused = (f: ReturnType<typeof fixture>) => { expect(f.issue).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); expect(f.read).not.toHaveBeenCalled(); expect(f.readiness).not.toHaveBeenCalled(); };
 beforeEach(() => { vi.stubGlobal('crypto', webcrypto); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -113,5 +114,26 @@ describe('inactive completion status HTTP contract', () => {
     expect(authenticate).not.toHaveBeenCalled(); expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc.mock.calls[0]).toHaveLength(2);
     expect(JSON.stringify(rpc.mock.calls)).not.toContain(token);
+  });
+});
+
+describe('J1.f/J7.d step 6: completion_readiness action', () => {
+  it('routes the owner-authenticated readiness decision with the held token and nothing else', async () => {
+    const f = fixture(), request = req({ action: 'completion_readiness', requestId, token });
+    const response = await handleAccountCompletionRequest(request, f);
+    expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ outcome: 'execution_ready', requestId, expiresAt: 3000 });
+    expect(f.readiness).toHaveBeenCalledExactlyOnceWith(request, { requestId, token });
+    expect(f.issue).not.toHaveBeenCalled(); expect(f.acknowledge).not.toHaveBeenCalled(); expect(f.read).not.toHaveBeenCalled();
+  });
+  it('requires a bearer: a capability alone never yields a readiness decision', async () => {
+    const f = fixture();
+    const response = await handleAccountCompletionRequest(req({ action: 'completion_readiness', requestId, token }, null), f);
+    expect(response.status).toBe(401); allUnused(f);
+  });
+  it.each([{ action: 'completion_readiness', requestId }, { action: 'completion_readiness', requestId, token: 'short' },
+    { action: 'completion_readiness', requestId, token, userId: requestId }])('refuses malformed readiness input %j', async (body) => {
+    const f = fixture();
+    expect((await handleAccountCompletionRequest(req(body), f)).status).toBe(400); allUnused(f);
   });
 });

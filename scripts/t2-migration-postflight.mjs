@@ -17,12 +17,17 @@ try {
     encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'],
     env: { ...process.env, PGOPTIONS: `${process.env.PGOPTIONS || ''} -c default_transaction_read_only=on` },
   }).trim().split('\n');
-  if (mode === 'verify' && ['release', 'edge-release'].includes(version)) {
+  if (mode === 'verify' && ['release', 'edge-release', 'account-closure-release'].includes(version)) {
     const candidate = read(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`);
     if (candidate.length !== 1) throw new Error('incomplete T2 release ledger');
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const contract = version === 'edge-release' ? t2EdgeReleaseContract(root, candidate[0])
-      : t2ReleaseContract(root, candidate[0], { catalogContext: 'retained-production' });
+    const contract = version === 'release' ? t2ReleaseContract(root, candidate[0], { catalogContext: 'retained-production' })
+      : t2EdgeReleaseContract(root, candidate[0]);
+    // The account-closure-only route (deletion rollout step 5) is admitted ONLY on the post-129 ledger, whose snapshot
+    // also proves the settlement function exact and completion OFF and unbound. Any other ledger fails closed here.
+    if (version === 'account-closure-release' && contract.profile !== 'post-129-completion-settlement') {
+      throw new Error('T2 account-closure release requires the post-129 completion settlement ledger');
+    }
     const evidence = assertT2ReleaseSnapshot(contract, read(t2ReleaseSnapshotQuery(contract)));
     console.log(JSON.stringify({ mode, version, ...evidence, sourcePins: contract.pins,
       scope: 'read-only installed release catalog; no activation or customer-flow proof' }));

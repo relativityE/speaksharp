@@ -7,13 +7,14 @@
  */
 import {
   accountCompletionStatus,
+  accountExecutionReadiness,
   accountStatusAcknowledgment,
   accountStatusCapability,
   completionCapabilities,
   type AccountCompletionStatus,
 } from './accountCompletionStatus';
 
-export type CompletionAction = 'completion_status_issue' | 'completion_status_ack' | 'completion_status_read';
+export type CompletionAction = 'completion_status_issue' | 'completion_status_ack' | 'completion_status_read' | 'completion_readiness';
 /** One POST of a JSON body; `bearer` is sent only for issue/ack. Returns the parsed JSON body or throws. */
 export type CompletionTransport = (body: Record<string, string>, bearer: string | null) => Promise<unknown>;
 
@@ -85,4 +86,26 @@ export async function readCompletionStatus(
   const still = completionCapabilities.get(ownerId, requestId, now());
   if (completionCapabilities.epoch() !== readAt || !still?.acknowledged || still.token !== held.token) return unavailable();
   return accountCompletionStatus(reply, requestId);
+}
+
+/**
+ * J1.f/J7.d step 6: ask the server for its owner- and request-bound readiness decision, presenting the capability this
+ * owner already holds and acknowledged (never issuing one). Returns the deadline until which the page may offer the
+ * effect, or null. The live owner's bearer is required. The executor re-checks everything independently.
+ */
+export async function requestExecutionReadiness(
+  transport: CompletionTransport, ownerId: string, requestId: string, bearer: string, now: () => number,
+): Promise<number | null> {
+  const held = completionCapabilities.get(ownerId, requestId, now());
+  if (!held?.acknowledged) return null;
+  const askedAt = completionCapabilities.epoch();
+  let reply: unknown;
+  try {
+    reply = await transport({ action: 'completion_readiness', requestId, token: held.token }, bearer);
+  } catch {
+    return null;
+  }
+  const still = completionCapabilities.get(ownerId, requestId, now());
+  if (completionCapabilities.epoch() !== askedAt || !still?.acknowledged || still.token !== held.token) return null;
+  return accountExecutionReadiness(reply, requestId, now());
 }
