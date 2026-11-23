@@ -242,6 +242,18 @@ test('repeat-tip profile refuses changed installed or withheld bytes and unknown
   }], repeatTipProfile), /unreviewed migration/);
 });
 
+test('completion-settlement rehearsal replays the save-journal plan and keeps 129 out of the version-sorted stages', () => {
+  // 129 is applied by the proof's own exact step AFTER these stages (--include-all), as Production will receive it.
+  const profile = 'main-completion-settlement-136';
+  const saveJournal = buildMainU1ReplayPlan(rows, 'main-save-journal-cleanup-135');
+  const plan = buildMainU1ReplayPlan(rows, profile);
+  assert.equal(parseMainProofArguments([`--profile=${profile}`]).profile, profile);
+  assert.deepEqual(plan.stages, saveJournal.stages);
+  assert.equal(plan.migrations, saveJournal.migrations);
+  assert.deepEqual(plan.withheld.map(row => row.version), [billing, refund]);
+  assert.ok(plan.stages.every(stage => !stage.versions.includes(billing)), '129 is never a version-sorted plan stage');
+});
+
 test('save-journal release stage appends exactly the reviewed cleanup to the repeat-tip ledger', () => {
   const profile = 'main-save-journal-cleanup-135';
   const before = buildMainU1ReplayPlan(rows, repeatTipProfile).stages.at(-1).versions;

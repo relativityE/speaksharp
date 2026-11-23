@@ -24,7 +24,9 @@ const step = name => {
 };
 const ledger = () => [
   '20260812002000 | 20260812002000 |',
-  ...EXACT_MIGRATION_ALLOWLIST.map(entry => `${entry.version} | ${entry.version === version ? '' : entry.version} |`),
+  // 129 is listed once, as the still-pending billing successor below, never as an applied allowlist row.
+  ...EXACT_MIGRATION_ALLOWLIST.filter(entry => entry.version !== billingVersion)
+    .map(entry => `${entry.version} | ${entry.version === version ? '' : entry.version} |`),
   `${billingVersion} | |`,
 ].join('\n');
 
@@ -34,7 +36,8 @@ describe('exact local retirement apply wiring', () => {
     expect(config.targetSha256).toBe(createHash('sha256').update(readFileSync(resolve(root, 'backend/supabase/migrations', file))).digest('hex'));
     expect(config.requiredAppliedVersions).toContain('20261025021046');
     // The later #1831 start-abandonment and #1811 feedback-fence entries are excluded too: each stays pending until its own exact apply.
-    expect(config.excludedMigrations.map(row => row.version)).toEqual(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000', '20260812042000', billingVersion]);
+    // Migration 129 is now also a later allowlisted target, so it is excluded once, at its allowlist position, still held.
+    expect(config.excludedMigrations.map(row => row.version)).toEqual(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000', billingVersion, '20260812042000']);
     expect(expectedAuthorizationPhrase('a'.repeat(40), config)).toBe(`APPLY ${version} ${file} SHA256 ${config.targetSha256} AT ${'a'.repeat(40)}`);
     expect(assertBeforeApply(ledger(), config).pending).toEqual([version, billingVersion]);
     expect(() => assertBeforeApply(ledger().replace('20261025021046 | 20261025021046', '20261025021046 | '), config)).toThrow();
@@ -42,8 +45,11 @@ describe('exact local retirement apply wiring', () => {
   });
 
   it('isolates the exact pinned pending billing successor without enabling its application', () => {
-    expect(() => resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: billingVersion })).toThrow(/not in/);
-    expect(EXACT_MIGRATION_ALLOWLIST.some(row => row.version === billingVersion)).toBe(false);
+    // 129 is its own exact target now (isolated --include-all, the refund follow-up held), never part of this one.
+    const own = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: billingVersion });
+    expect([own.requiresIncludeAll, own.excludedMigrations.map(row => row.version)]).toEqual([true, ['20260812042000', '20261112130000']]);
+    expect(EXACT_MIGRATION_ALLOWLIST.filter(row => row.version === billingVersion)).toHaveLength(1);
+    expect(config.excludedMigrations.find(row => row.version === billingVersion)?.mustRemainPending).toBe(true);
     expect(() => assertBeforeApply(ledger().replace(`${billingVersion} | |`, `${billingVersion} | ${billingVersion} |`), config)).toThrow(/must remain pending/);
     expect(() => assertBeforeApply(ledger().replace(`${billingVersion} | |`, ''), config)).toThrow(/absent/);
     const source = resolve(root, 'backend/supabase');
@@ -64,7 +70,8 @@ describe('exact local retirement apply wiring', () => {
     expect(assertAfterApply(ledger(), after, config).pending).toEqual([billingVersion]);
     expect(() => assertAfterApply(ledger(), after.replace(`${billingVersion} | |`, `${billingVersion} | ${billingVersion} |`), config)).toThrow(/history delta/);
     const oldTarget = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: '20261025021046' });
-    expect(oldTarget.excludedMigrations.some(row => row.version === billingVersion)).toBe(false);
+    // An earlier C1 target predates the hold: 129 is excluded only as an ordinary later allowlisted entry, once.
+    expect(oldTarget.excludedMigrations.filter(row => row.version === billingVersion)).toEqual([{ version: billingVersion, file: billingFile }]);
   });
 
   it('fails closed for missing, skipped or failed target postflight', () => {

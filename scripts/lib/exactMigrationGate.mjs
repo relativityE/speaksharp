@@ -333,6 +333,16 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // Migration 129 (#1740 completion billing settlement), after #1906 and with the #1829 refund hold. Its version
+        // sorts BEFORE eight already-applied entries above, so it is pushed with --include-all from a workspace whose
+        // only pending file is this one (OUT_OF_ORDER_TARGETS); the dry-run gate proves that. Schema-only: completion
+        // stays OFF and unbound (its own guard and the completion-settlement postflight both require it).
+        version: RETIREMENT_WITHHELD_BILLING.version,
+        file: RETIREMENT_WITHHELD_BILLING.file,
+        sha256: RETIREMENT_WITHHELD_BILLING.sha256,
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -389,6 +399,17 @@ function parseExcludedMigrations(env) {
 }
 
 /** Resolve the workflow-pinned exact-migration contract, retaining the webhook gate as the default. */
+// Allowlisted targets whose version sorts before already-applied migrations. `supabase db push` refuses such a file
+// without --include-all; the isolated workspace leaves it the ONLY pending file, and the dry-run gate proves that.
+export const OUT_OF_ORDER_TARGETS = Object.freeze([RETIREMENT_WITHHELD_BILLING.version]);
+
+// One exclusion per version: an allowlisted later entry and a reviewed hold can name the same migration (129 is both).
+const uniqueExclusions = rows => {
+    const seen = new Map();
+    for (const row of rows) seen.set(row.version, seen.has(row.version) ? { ...seen.get(row.version), ...row } : row);
+    return [...seen.values()];
+};
+
 export function resolveExactMigrationConfig(env = process.env) {
     if (env.SELECTED_TARGET_VERSION) {
         const targetIndex = EXACT_MIGRATION_ALLOWLIST.findIndex(({ version }) => version === env.SELECTED_TARGET_VERSION);
@@ -399,17 +420,18 @@ export function resolveExactMigrationConfig(env = process.env) {
             targetFile: target.file,
             targetSha256: target.sha256,
             classification: target.classification,
-            requiresIncludeAll: targetIndex === 0,
+            requiresIncludeAll: targetIndex === 0 || OUT_OF_ORDER_TARGETS.includes(target.version),
             requiredAppliedVersions: [
                 APPLIED_WEBHOOK_PREREQUISITE,
                 ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version),
             ],
-            excludedMigrations: [
+            excludedMigrations: uniqueExclusions([
                 ...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
                     .map(({ version, file }) => ({ version, file })),
                 ...(target.version === '20261110173548' ? [RETIREMENT_WITHHELD_BILLING] : []),
                 ...(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
-            ],
+                ...(target.version === RETIREMENT_WITHHELD_BILLING.version ? [ABANDONMENT_WITHHELD_REFUND] : []),
+            ]),
             allowlisted: true,
         };
     }
@@ -794,6 +816,7 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     // #1827 D2 repeat tip: attempt columns, private helpers and triggers exact; no API role can execute a helper (read-only).
     Object.freeze({ id: 'postflight_20261119120000', targetFile: '20261119120000_repeat_practised_tip' }),
     Object.freeze({ id: 'postflight_20261119200000', targetFile: '20261119200000_deleted_account_save_journal_cleanup_1643' }),
+    Object.freeze({ id: 'postflight_20261027192550', targetFile: '20261027192550_account_completion_billing_settlement' }),
 ]);
 
 /**
