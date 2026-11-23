@@ -7,8 +7,8 @@
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import Stripe from "npm:stripe@16";
 import { handler } from "../../backend/supabase/functions/stripe-webhook/index.ts";
-import { runBillingQualification, assertStripeTestMode, REQUIRED_PHASES } from "./runner.ts";
-import { migratedDb } from "./pglite_supabase.ts";
+import { runBillingQualification, assertStripeTestMode, applyEvent, REQUIRED_PHASES } from "./runner.ts";
+import { migratedDb, effectiveTier } from "./pglite_supabase.ts";
 
 // The REAL Stripe SDK signature verifier (pure crypto, no network). The fake Stripe delegates webhook
 // verification to this, so every event's signature scheme AND ~5-min timestamp tolerance are genuinely
@@ -196,4 +196,81 @@ Deno.test("when the lifecycle AND cleanup both fail, BOTH are preserved (Aggrega
   const msgs = (err as AggregateError).errors.map((e) => (e as Error).message).join("\n");
   assertStringIncludes(msgs, "handler returned HTTP");     // the original lifecycle failure
   assertStringIncludes(msgs, "cleanup failed");            // the leaked-fixture evidence
+});
+
+// J9.b review (#1937): the same test event delivered twice through the REAL handler into the migrated ledger. No Stripe
+// call, no hosted run: the fake Stripe only answers the handler's own subscription read. The first delivery binds Pro. By
+// design (migration 1290) every delivery re-applies the hydrated snapshot and the ledger receipt is audit state, so the
+// second delivery leaves exactly one receipt, and the only change in any public table is the profile's updated_at moving
+// forward: entitlement, billing identity, period and ledger are unchanged.
+async function publicTables(db: Awaited<ReturnType<typeof migratedDb>>["db"]): Promise<Record<string, string[]>> {
+  const names = (await db.query<{ t: string }>(
+    "SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1",
+  )).rows.map((r) => r.t);
+  const out: Record<string, string[]> = {};
+  for (const name of names) {
+    out[name] = (await db.query<{ r: string }>(`SELECT to_jsonb(x)::text AS r FROM public."${name.replaceAll('"', '""')}" x ORDER BY 1`))
+      .rows.map((r) => r.r);
+  }
+  return out;
+}
+
+/** The public tables with each profile's updated_at set aside, returned separately so the test can bound that one change. */
+async function tablesBesideTouch(db: Awaited<ReturnType<typeof migratedDb>>["db"]): Promise<{ rows: Record<string, string[]>; touched: string[] }> {
+  const rows = await publicTables(db);
+  const profiles = rows.user_profiles.map((r) => JSON.parse(r) as Record<string, unknown>);
+  rows.user_profiles = profiles.map(({ updated_at: _touched, ...rest }) => JSON.stringify(rest));
+  return { rows, touched: profiles.map((p) => String(p.updated_at)) };
+}
+
+Deno.test("the same event delivered twice through the REAL handler is applied once and leaves entitlement and the ledger unchanged", async (t) => {
+  const userId = "00000000-0000-0000-0000-00000000b111";
+  const checkout = (frozen: number) => ({
+    id: "evt_dup_checkout", type: "checkout.session.completed", created: frozen,
+    data: { object: { id: "cs_test_billing_qualification", metadata: { userId }, client_reference_id: userId, subscription: "sub_1", customer: "cus_1" } },
+  });
+  const updated = (frozen: number) => ({ id: "evt_dup_update", type: "customer.subscription.updated", created: frozen + 60, data: { object: { id: "sub_1" } } });
+  for (const reserved of [false, true]) {
+    await t.step(reserved ? "an owned open checkout reservation" : "a checkout without a reservation", async () => {
+      const deps = baseDeps(fakeStripe());
+      const { db, supabase } = await migratedDb(userId);
+      const snapshots: unknown[] = [];
+      const recording = { rpc: async (fn: string, args: Record<string, unknown>) => {
+        const r = await supabase.rpc(fn, args);
+        if (fn === "apply_stripe_subscription_snapshot") snapshots.push(r);
+        return r;
+      } };
+      try {
+        if (reserved) {
+          const op = (await db.query<{ id: string }>("SELECT public.begin_account_checkout($1) AS id", [userId])).rows[0].id;
+          await db.query("SELECT public.record_account_checkout($1,$2,$3)", [userId, op, "cs_test_billing_qualification"]);
+        }
+        const receipts = async (id: string) => (await db.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM public.processed_webhook_events WHERE event_id = $1", [id])).rows[0].n;
+        assertEquals(await effectiveTier(db, userId), "free");
+        for (const event of [checkout(deps.frozenTime), updated(deps.frozenTime)]) {
+          await applyEvent(deps, recording, event, `${event.type} first delivery`);
+          assertEquals(await effectiveTier(db, userId), "pro");
+          assertEquals(await receipts(event.id), 1);
+          const once = await tablesBesideTouch(db);
+          const before = snapshots.length;
+          // The identical event again, freshly signed as Stripe's retry would be: still 2xx, still one receipt, and nothing
+          // changed but the profile's updated_at, which only moves forward.
+          await applyEvent(deps, recording, event, `${event.type} duplicate delivery`);
+          assertEquals(snapshots.length, before + 1, "the duplicate reached the real snapshot RPC, not an early return");
+          assertEquals(await receipts(event.id), 1);
+          const twice = await tablesBesideTouch(db);
+          assertEquals(twice.rows, once.rows);
+          assertEquals(twice.touched.length, 1);
+          assert(Date.parse(twice.touched[0]) >= Date.parse(once.touched[0]), "updated_at never moves backward");
+          assertEquals(await effectiveTier(db, userId), "pro");
+        }
+        if (reserved) {
+          assertEquals((await db.query("SELECT phase FROM public.account_checkout_operations")).rows, [{ phase: "settled" }]);
+        }
+      } finally {
+        await db.close();
+      }
+    });
+  }
 });
