@@ -39,6 +39,17 @@ describe('SessionDuringState — the shared slot map', () => {
         expect(screen.queryByTestId('coverage-pace-nudge')).toBeNull();
     });
 
+    it('J3.b: shows the live-text-incomplete notice only when the take dropped live audio', () => {
+        const { rerender } = render(<SessionDuringState {...duringProps} />);
+        expect(screen.queryByTestId('live-text-incomplete')).toBeNull();
+        rerender(<SessionDuringState {...duringProps} transcript={{ ...duringProps.transcript, liveTextIncomplete: true }} />);
+        const notice = within(screen.getByTestId('session-slot-c')).getByTestId('live-text-incomplete');
+        expect(notice).toHaveAttribute('role', 'status');
+        expect(notice).toHaveTextContent('Live text may be incomplete. The final transcript uses the full recording.');
+        rerender(<SessionDuringState {...duringProps} transcript={{ ...duringProps.transcript, liveTextIncomplete: false }} />);
+        expect(screen.queryByTestId('live-text-incomplete')).toBeNull();
+    });
+
     it('the transcript header carries live counts and the "not scored until you stop" note', () => {
         render(<SessionDuringState {...duringProps} />);
         expect(screen.getByTestId('transcript-header-meta')).toHaveTextContent('184 words · 2.6 fillers/min');

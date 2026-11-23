@@ -25,6 +25,12 @@ export interface Transcript {
    * {@link TranscriptUpdate}. A blank/whitespace final never wipes existing text. Defaults to append.
    */
   replacesRollingTranscript?: boolean;
+  /**
+   * J3.b: true once this take's live decoding dropped audio (a slow device's catch-up exceeded the live window). The
+   * live text may miss words; the Stop-time final decode still covers the whole recording. Set only by Private's
+   * live updates, latched for the take, absent otherwise.
+   */
+  liveTextIncomplete?: boolean;
 }
 
 // TranscriptionError definition removed (Moved to consolidated errors.ts)
