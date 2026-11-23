@@ -305,29 +305,33 @@ jobs:
   # SHA, on the post-129 ledger with completion OFF and unbound, and prove that only account-closure advanced. No other
   # function, no migration, no secrets and no authority invalidation (that write is a separate decision). The
   # ten-function path above is unchanged.
-  # The exact SHA and confirm phrase are intent, not approval to publish. Publication waits on a PROTECTED environment
-  # with required reviewers. A job that names a missing environment would silently create an unprotected one, so this
-  # read-only job refuses unless the environment exists with a required_reviewers rule.
-  require-account-closure-reviewer-gate:
+  # Approval (PO, 2026-11-23, option 1): no second GitHub reviewer exists (every agent shares one login), so the
+  # approval is the PO's yes recorded in the coordinator's approval thread, and the coordinator dispatches this
+  # operation once at the exact SHA with the confirm phrase. Publication uses the EXISTING production-db environment,
+  # the same main-only gate every production migration apply uses. A job that names a missing environment would
+  # silently create an unprotected one, so this read-only job refuses unless production-db exists and allows main only.
+  require-account-closure-main-gate:
     needs: [validate-edge-configuration]
     if: ${{ inputs.deploy_production == true && inputs.operation == 'account-closure-only' && needs.validate-edge-configuration.outputs.account_closure_only == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require the protected account-closure environment with required reviewers
+      - name: Require the existing production-db environment, restricted to main
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          rules="$(gh api "repos/$REPOSITORY/environments/production-account-closure" --jq '[.protection_rules[].type]' 2>/dev/null)" \
-            || { echo '::error::environment production-account-closure does not exist; it must be created with required reviewers first'; exit 1; }
-          jq -e 'index("required_reviewers") != null' <<< "$rules" >/dev/null \
-            || { echo "::error::production-account-closure has no required-reviewer rule ($rules)"; exit 1; }
+          policy="$(gh api "repos/$REPOSITORY/environments/production-db" --jq '.deployment_branch_policy.custom_branch_policies' 2>/dev/null)" \
+            || { echo '::error::environment production-db does not exist; this route never creates an environment'; exit 1; }
+          [ "$policy" = true ] || { echo "::error::production-db is not restricted to selected branches ($policy)"; exit 1; }
+          branches="$(gh api "repos/$REPOSITORY/environments/production-db/deployment-branch-policies" --jq '[.branch_policies[].name]')"
+          jq -e '. == ["main"]' <<< "$branches" >/dev/null \
+            || { echo "::error::production-db must allow main only ($branches)"; exit 1; }
 
   deploy-account-closure-only:
-    needs: [validate-edge-configuration, verify-t2-database-prerequisites, require-account-closure-reviewer-gate]
-    if: ${{ inputs.deploy_production == true && inputs.operation == 'account-closure-only' && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.outputs.account_closure_only == 'true' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'false' && needs.verify-t2-database-prerequisites.result == 'success' && needs.require-account-closure-reviewer-gate.result == 'success' }}
-    environment: production-account-closure
+    needs: [validate-edge-configuration, verify-t2-database-prerequisites, require-account-closure-main-gate]
+    if: ${{ inputs.deploy_production == true && inputs.operation == 'account-closure-only' && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.outputs.account_closure_only == 'true' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'false' && needs.verify-t2-database-prerequisites.result == 'success' && needs.require-account-closure-main-gate.result == 'success' }}
+    environment: production-db
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

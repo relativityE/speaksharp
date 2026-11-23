@@ -91,7 +91,7 @@ describe('deploy-supabase-migrations Edge deploy/readback job conditions', () =>
 });
 
 // ── Deletion rollout step 5 (plan #1952): the account-closure-only route ─────────────────────────────────────────────
-describe('account-closure-only: reviewer-gated, exactly one function, post-129 ledger, full-roster reconciliation', () => {
+describe('account-closure-only: main-gated, exactly one function, post-129 ledger, full-roster reconciliation', () => {
   const release = yaml.load(readFileSync(resolve(process.cwd(), '.github/workflows/production-release.yml'), 'utf8'));
   const job = jobs['deploy-account-closure-only'];
   const steps = job.steps;
@@ -111,15 +111,20 @@ describe('account-closure-only: reviewer-gated, exactly one function, post-129 l
     expect(jobs['deploy-edge-functions'].if).toContain("needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true'");
   });
 
-  it('publication waits on a PROTECTED environment that must already have required reviewers', () => {
-    expect(job.environment).toBe('production-account-closure');
-    const gate = jobs['require-account-closure-reviewer-gate'];
-    expect(job.needs).toContain('require-account-closure-reviewer-gate');
-    expect(job.if).toContain("needs.require-account-closure-reviewer-gate.result == 'success'");
-    expect(gate.environment).toBeUndefined(); // read-only check; must never create the environment by naming it
+  it('publication uses the existing main-only production-db environment and never names a missing one', () => {
+    expect(job.environment).toBe('production-db');
+    const gate = jobs['require-account-closure-main-gate'];
+    expect(job.needs).toContain('require-account-closure-main-gate');
+    expect(job.if).toContain("needs.require-account-closure-main-gate.result == 'success'");
+    expect(gate.environment).toBeUndefined(); // read-only check; must never create an environment by naming it
     const run = gate.steps[0].run;
-    expect(run).toContain('gh api "repos/$REPOSITORY/environments/production-account-closure"');
-    expect(run).toContain(`jq -e 'index("required_reviewers") != null'`);
+    expect(run).toContain('gh api "repos/$REPOSITORY/environments/production-db"');
+    expect(run).toContain('custom_branch_policies');
+    expect(run).toContain(`jq -e '. == ["main"]'`);
+    // The abandoned reviewer environment must not come back: naming it would silently create an unprotected one.
+    expect(JSON.stringify(jobs)).not.toContain('production-account-closure');
+    // Same gate as every production migration apply.
+    expect(jobs['deploy-production-db'].environment).toBe('production-db');
   });
 
   it('never runs authority invalidation or the database job for this operation', () => {
