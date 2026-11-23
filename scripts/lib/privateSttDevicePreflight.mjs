@@ -9,7 +9,7 @@ const timing = x => object(x, ['bytes','transferMs','setupMs'])
 const checks = ['allow', 'deny', 'workerStarted', 'noDownloadBeforeConsent', 'coldDownloadVerified',
   'betweenFilesRetrySaved', 'midFileRetrySaved', 'cancelSafe', 'cacheEvictionTruthful',
   'warmNoSetupPrompt', 'warmSaved', 'lockRecovered', 'backgroundRecovered'];
-const fields = ['target','physical','wifi','mobileThrottled','warmBytes','takes', ...checks];
+const fields = ['target','physical','wifi','mobileThrottled','warmBytes','warmReadyMs','takes', ...checks];
 
 export function privateSttDevicePreflight(receipt, expectedSha) {
   const hold = reason => ({ status: 'HOLD', reason });
@@ -28,6 +28,9 @@ export function privateSttDevicePreflight(receipt, expectedSha) {
     if (!timing(d.wifi) || !timing(d.mobileThrottled)) return hold('cold_transfer');
     if (!object(d.warmBytes,['session2','session3']) || d.warmBytes.session2 !== 0 || d.warmBytes.session3 !== 0)
       return hold('warm_cache');
+    if (!object(d.warmReadyMs, ['session2', 'session3'])
+        || ![d.warmReadyMs.session2, d.warmReadyMs.session3].every(ms => metric(ms) && ms <= 5000))
+      return hold('warm_cache_ready_latency');
     if (!Array.isArray(d.takes) || d.takes.length < 20 || d.takes.length > 200) return hold('warm_sample');
     const ordinals = new Set();
     let timely = 0;
