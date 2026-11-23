@@ -433,13 +433,18 @@ export type ShownFailure = {
     sameAttempt: boolean | null; cardText: string | null; toastTexts: readonly string[] | null;
     retryVisible: boolean | null; retryEnabled: boolean | null;
 };
+/** Whether any part of a read that WAS read (the card, the shown toasts) says "not supported"; an unreadable part hides nothing read. */
+function shownNotSupported(o: ShownFailure): boolean {
+    return [o.cardText ?? '', ...(o.toastTexts ?? [])].some((text) => NOT_SUPPORTED_WORDING.test(text));
+}
 export function shownFailureVerdict(o: ShownFailure | null): Verdict {
     if (o === null) return { status: 'HOLD', detail: 'what the page showed on the failed attempt was not read' };
     if (o.sameAttempt !== true) return { status: 'HOLD', detail: 'what the page showed could not be bound to the failed attempt' };
-    if (o.cardText === null || o.toastTexts === null) return { status: 'HOLD', detail: 'what the page showed on the failed attempt was unreadable' };
-    if ([o.cardText, ...o.toastTexts].some((text) => NOT_SUPPORTED_WORDING.test(text))) {
+    // Codex P2 on ee8ffe4a: "not supported" in whatever part was read is FAIL, even when another part was unreadable.
+    if (shownNotSupported(o)) {
         return { status: 'FAIL', detail: 'after the network dropped, the page told the person it is not supported: a product bug, not a pass' };
     }
+    if (o.cardText === null || o.toastTexts === null) return { status: 'HOLD', detail: 'what the page showed on the failed attempt was unreadable' };
     if (o.retryVisible !== true || o.retryEnabled !== true) {
         return { status: 'FAIL', detail: `the failed attempt offered no enabled Retry (${o.retryVisible !== true ? 'not shown' : 'disabled'})` };
     }
@@ -469,16 +474,16 @@ export function shownToastTexts(toasts: readonly Element[]): string[] {
 
 /**
  * Whether a read of the failed attempt ends the observation window early. Only a read that can no longer pass does: one no
- * longer bound to the failed attempt (HOLD; a pass needs the whole window on that attempt), or a bound, readable read in which
- * something shown says "not supported" (FAIL whatever follows). Sam, 2026-11-23 (#1941, blocking): a correct card with Retry
+ * longer bound to the failed attempt (HOLD; a pass needs the whole window on that attempt), or a bound read in which anything
+ * read and shown says "not supported", even if another part was unreadable (FAIL whatever follows). Sam, 2026-11-23 (#1941, blocking): a correct card with Retry
  * enabled and a toast is NOT final, because a "not supported" toast can still arrive on a later read; a pass is judged only on
  * the last read of the whole window. (This replaces the early stop on a correct card plus any toast from Elon on 90cf2eba; his
  * case, a toast that renders before the card's setup-failed line, is still read past, because nothing stops before the bound.)
  */
 export function shownFailureSettled(o: ShownFailure): boolean {
-    if (o.sameAttempt !== true) return true;
-    if (o.cardText === null || o.toastTexts === null) return false;
-    return [o.cardText, ...o.toastTexts].some((text) => NOT_SUPPORTED_WORDING.test(text));
+    // Codex P2 on ee8ffe4a: "not supported" seen in the readable part ends it as FAIL even if the other part was unreadable,
+    // so a later read without that toast can never turn it into a PASS. A read with nothing forbidden but a part unreadable reads on.
+    return o.sameAttempt !== true || shownNotSupported(o);
 }
 
 /**

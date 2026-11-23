@@ -348,9 +348,15 @@ describe('J7.c option B — what the person sees on the failed attempt (PO and S
             expect(shownFailureSettled(shown({ sameAttempt }))).toBe(true);
             expect(shownFailureVerdict(shown({ sameAttempt })).status).toBe('HOLD');
         }
-        // Unreadable reads are read again.
-        expect(shownFailureSettled(shown({ cardText: null, toastTexts: ['not supported'] }))).toBe(false);
+        // Unreadable reads with nothing forbidden in what was read are read again.
+        expect(shownFailureSettled(shown({ cardText: null }))).toBe(false);
         expect(shownFailureSettled(shown({ toastTexts: null }))).toBe(false);
+        // Codex P2 on ee8ffe4a: "not supported" in the part that WAS read is final and FAIL, whatever part was unreadable.
+        for (const partial of [shown({ cardText: null, toastTexts: ['Private mode is not supported in this browser'] }),
+            shown({ cardText: 'This browser is unsupported', toastTexts: null })]) {
+            expect(shownFailureSettled(partial)).toBe(true);
+            expect(shownFailureVerdict(partial).status).toBe('FAIL');
+        }
     });
     describe('pollShownFailure: reads the whole observation window unless a read can no longer pass', () => {
         const run = async (reads: ShownFailure[], budgetMs = 5_000) => {
@@ -372,6 +378,13 @@ describe('J7.c option B — what the person sees on the failed attempt (PO and S
             const reads = [...Array(12).fill(shown()), notSupported];
             const r = await run(reads, 5_000);
             expect(r.reads).toBe(13); // read 13 is at 3000 ms, inside the 5 s window
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
+        });
+        it('CONTROL (Codex P2 on ee8ffe4a): "not supported" seen while the card was unreadable stays FAIL; a later clean read cannot pass it', async () => {
+            const partial = shown({ cardText: null, toastTexts: ['Private mode is not supported in this browser'] });
+            const r = await run([shown(), partial, shown(), shown()], 1_000);
+            expect(r.reads).toBe(2);
+            expect(r.last).toEqual(partial);
             expect(shownFailureVerdict(r.last).status).toBe('FAIL');
         });
         it('CONTROL (Sam): the correct card with no toast, held for the whole window, is PASS', async () => {
