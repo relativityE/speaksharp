@@ -114,8 +114,9 @@ async function pollSubscriptionStatus(stripe: StripeLike, subId: string, want: s
   }
 }
 
-/** Post a signed synthetic event to the REAL handler; reject the phase at the response boundary on non-2xx. */
-async function applyEvent(
+/** Post a signed synthetic event to the REAL handler; reject the phase at the response boundary on non-2xx. Exported so the
+ *  offline duplicate-delivery proof (runner.test.ts) drives the same signed path. */
+export async function applyEvent(
   deps: RunnerDeps, supabase: SupabaseLike, event: Record<string, unknown>, phase: string,
 ): Promise<void> {
   const body = JSON.stringify(event);

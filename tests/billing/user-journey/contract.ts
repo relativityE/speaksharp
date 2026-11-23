@@ -246,12 +246,13 @@ const INVALID_FIELD_TOKENS: Readonly<Record<string, string>> = Object.freeze({
   cardCvc: 'cvc', 'payment-cvcInput': 'cvc', email: 'email',
 });
 /**
- * The disposable Stripe Customer the journey preassigns. Only CONVERSION gets the fixture's own run-owned email (Sam on #1892:
- * "existing-customer sandbox conversion"); every other journey's Customer request is exactly what it was before (clock + owner marker).
+ * The disposable Stripe Customer the journey preassigns. Only CONVERSION and J9.b's RESTORE_ACCESS, which pays through the same
+ * hosted Checkout, get the fixture's own run-owned email (Sam on #1892: "existing-customer sandbox conversion"); every other
+ * journey's Customer request is exactly what it was before (clock + owner marker).
  */
 export function fixtureCustomerFields(journey: string, f: { clock: string; email: string; marker: string }): Record<string, string> {
   const base: Record<string, string> = { test_clock: f.clock, 'metadata[speaksharp_test]': f.marker };
-  return journey === 'conversion' ? { ...base, email: f.email } : base;
+  return journey === 'conversion' || journey === 'restore_access' ? { ...base, email: f.email } : base;
 }
 
 /**

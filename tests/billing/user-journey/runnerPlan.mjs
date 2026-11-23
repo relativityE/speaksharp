@@ -102,6 +102,12 @@ export const PHASES = [
     events: ['checkout.session.completed', 'charge.refunded', 'customer.subscription.updated', 'customer.subscription.deleted'],
     proves: 'full refund; the customer uses the balance of the month as Pro; then the membership ends with no second charge; access after the end pending policy',
   }),
+  // J9.b: trial end walls the app and the saved take; one test-mode payment restores both (Akin, 2026-11-21: test charge only).
+  browser('restore_access', ['full'], {
+    requires: ['payment_gate'],
+    events: ['checkout.session.completed'],
+    proves: 'a take saved in the trial is walled after it ends, then one $10 test-mode payment restores access and the same take; Manage billing shows the plan',
+  }),
   // J9.a: a returning paid account. Seeded earlier sessions, no takes and no coaching; seeded test-mode proof only.
   browser('paid_account_kept', ['full'], {
     requires: ['payment_gate'],

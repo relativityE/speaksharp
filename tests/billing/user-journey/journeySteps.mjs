@@ -8,7 +8,7 @@ export const BILLING_JOURNEYS = Object.freeze(['conversion', 'renewal_recovery',
  * Branches only the Stripe test-mode runner's full mode adds. Each has its own fixture, test and receipt.
  * `paid_account_kept` is J9.a: a seeded test-mode proof, never evidence of calendar-time longevity.
  */
-export const FULL_MODE_JOURNEYS = Object.freeze(['failed_checkout', 'portal_recovery', 'refund_period_end', 'paid_account_kept']);
+export const FULL_MODE_JOURNEYS = Object.freeze(['failed_checkout', 'portal_recovery', 'refund_period_end', 'restore_access', 'paid_account_kept']);
 export const RUNNER_JOURNEYS = Object.freeze([...BILLING_JOURNEYS, ...FULL_MODE_JOURNEYS]);
 /**
  * The outcome 8 paid value loop (#1822). It has its own spec, Playwright config and runner mode (`paid_loop`), so the
@@ -44,6 +44,11 @@ export const REQUIRED_STEPS = Object.freeze({
   refund_period_end: Object.freeze([...PAID,
     'refund_issued', 'refund_cancellation_scheduled', 'cancellation_delivery', 'paid_until_period_end',
     'expiry_delivery', 'no_second_charge', 'account_retained', 'access_expired', 'history_retained', 'cleanup']),
+  // J9.b (Akin, 2026-11-21): "There will be no "real charge". Test charge is the success criteria. Period." A take saved during
+  // the trial is listed on Progress; after the trial ends the member is walled from the app and from that take; one Stripe
+  // test-mode payment restores both, the same take comes back unchanged, Manage billing shows the plan, and one more take saves.
+  restore_access: Object.freeze(['trial_granted', 'pre_expiry_take', 'pre_expiry_progress', 'trial_expired', 'history_walled',
+    ...PAID, 'returned_to_app', 'single_charge', 'paid_ui', 'history_restored', 'portal_plan', 'next_recording', 'cleanup']),
   // J9.a: earlier sessions seeded during the trial, then paid once by test card. A fresh sign-in keeps Pro, finds the
   // sessions and Progress, asks for no new coaching, and sees the $10 monthly plan as current in Manage billing.
   paid_account_kept: Object.freeze(['history_seeded', 'trial_expired', ...PAID, 'sign_in_again', 'entitlement_kept',

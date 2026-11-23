@@ -51,7 +51,7 @@ describe('C1 ordered exact-operation enforcement', () => {
         expect(index).toBeLessThan(job.steps.findIndex(step => step.uses?.startsWith('supabase/setup-cli@')));
         expect(index).toBeLessThan(job.steps.findIndex(step => /\bsupabase\s/.test(step.run ?? '')));
         const guard = job.steps[index];
-        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' || inputs.target_version == '20261112133000' || inputs.target_version == '20261114100000' || inputs.target_version == '20261114170000' || inputs.target_version == '20261117105700' || inputs.target_version == '20261119120000' || inputs.target_version == '20261119200000' }}");
+        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' || inputs.target_version == '20261110173548' || inputs.target_version == '20261112133000' || inputs.target_version == '20261114100000' || inputs.target_version == '20261114170000' || inputs.target_version == '20261117105700' || inputs.target_version == '20261119120000' || inputs.target_version == '20261119200000' || inputs.target_version == '20261027192550' }}");
         expect(guard['continue-on-error']).toBeUndefined();
         expect(guard.env).toBeUndefined();
         expect(job.env.SUPABASE_DB_PASSWORD).toBe('${{ secrets.SUPABASE_DB_PASSWORD }}');
@@ -125,14 +125,14 @@ describe('pre-apply connectivity covers every target whose checks read the verif
         expect(connectivity.run).toContain('"$RUNNER_TEMP/pooler.env"');
         const readers = steps.slice(connectivityIndex + 1, apply).filter(step => step.run?.includes('$RUNNER_TEMP/pooler.env'));
         const targets = [...new Set(readers.flatMap(step => [...String(step.if ?? '').matchAll(/'(20\d{12})'/g)].map(m => m[1])))];
-        expect(targets).toEqual(expect.arrayContaining(['20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000']));
+        expect(targets).toEqual(expect.arrayContaining(['20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000', '20261027192550']));
         const missing = targets.filter(version => {
             const file = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version)?.file ?? version;
             return !connectivity.if.includes(`'${version}'`) && !connectivity.if.includes(file.replace(/\.sql$/, ''));
         });
         expect(missing).toEqual([]);
         // The two release targets are named explicitly, not by a substring of another target.
-        for (const version of ['20261114170000', '20261117105700', '20261119120000', '20261119200000']) {
+        for (const version of ['20261114170000', '20261117105700', '20261119120000', '20261119200000', '20261027192550']) {
             expect(connectivity.if).toContain(`steps.contract.outputs.target_version == '${version}'`);
         }
     });
@@ -166,6 +166,41 @@ describe('#1906 cleanup exact-operation enforcement', () => {
         const postflights = Object.fromEntries(TARGET_POSTFLIGHT_GATES.map(gate => [gate.id,'skipped']));
         expect(() => assertTerminalOutcome({ ...base, postflights })).toThrow();
         expect(() => assertTerminalOutcome({ ...base, postflights: { ...postflights, postflight_20261119200000: 'success' } })).not.toThrow();
+    });
+});
+
+describe('migration 129 completion-settlement exact-operation enforcement', () => {
+    it('cannot apply without the verified preflight or claim success without its own postflight', () => {
+        const version = '20261027192550';
+        const workflow = yaml.load(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml', 'utf8'));
+        const steps = Object.values(workflow.jobs).find(job => job.steps?.some(step => step.id === 'apply')).steps;
+        const apply = steps.findIndex(step => step.id === 'apply');
+        const connect = steps.findIndex(step => step.id === 'connectivity_preflight');
+        const before = steps.findIndex(step => step.run?.includes('node scripts/completion-settlement-migration-postflight.mjs before'));
+        const after = steps.findIndex(step => step.id === `postflight_${version}`);
+        const terminal = steps.findIndex(step => step.id === 'terminal');
+        expect(workflow.on.workflow_dispatch.inputs.target_version.options).toContain(version);
+        expect(connect).toBeGreaterThanOrEqual(0);
+        expect(before).toBeGreaterThan(connect);
+        expect(before).toBeLessThan(apply);
+        expect(steps[before]['continue-on-error']).not.toBe(true);
+        expect(steps[before].if).toContain(version);
+        expect(after).toBeGreaterThan(apply);
+        expect(after).toBeLessThan(terminal);
+        expect(steps[after].if).toContain("steps.apply.outcome == 'success'");
+        expect(steps[after].if).toContain(version);
+        expect(steps[after].run).toContain('node scripts/completion-settlement-migration-postflight.mjs after');
+        expect(steps[terminal].run).toContain('steps.postflight_20261027192550.outcome');
+        const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: version });
+        expect(config.requiredAppliedVersions).toContain('20261119200000');
+        expect(config.excludedMigrations.map(row => row.version)).toEqual(['20260812042000', '20261112130000']);
+        const base = { apply: 'success', verify: 'success', lint: 'success', targetFile: config.targetFile };
+        const postflights = Object.fromEntries(TARGET_POSTFLIGHT_GATES.map(gate => [gate.id,'skipped']));
+        expect(() => assertTerminalOutcome({ ...base, postflights })).toThrow();
+        // Another target's postflight never stands in for 129's own.
+        expect(() => assertTerminalOutcome({ ...base, postflights: { ...postflights, postflight_20261119200000: 'success' } })).toThrow();
+        expect(() => assertTerminalOutcome({ ...base, postflights: { ...postflights, postflight_20261027192550: 'failure' } })).toThrow();
+        expect(() => assertTerminalOutcome({ ...base, postflights: { ...postflights, postflight_20261027192550: 'success' } })).not.toThrow();
     });
 });
 
@@ -481,7 +516,8 @@ describe('exact migration gate', () => {
             expect(verifyMigrationSourceIdentity(source, config).targetSha256).toBe(target.sha256);
             actualPhrases.push(expectedAuthorizationPhrase(sha, config));
             const prefix = target.classification === 'commercial-activation' ? 'ACTIVATE COMMERCIAL TRIAL WITH' : 'APPLY';
-            const outOfOrderDisclosure = target.version === '20260811143000' ? ' USING ISOLATED --include-all' : '';
+            // Migration 129 sorts before already-applied entries, so its phrase discloses the isolated --include-all too.
+            const outOfOrderDisclosure = ['20260811143000', '20261027192550'].includes(target.version) ? ' USING ISOLATED --include-all' : '';
             expectedPhrases.push(`${prefix} ${target.version} ${target.file} SHA256 ${target.sha256}${outOfOrderDisclosure} AT ${sha}`);
         }
         expect(actualPhrases).toEqual(expectedPhrases);
@@ -550,15 +586,23 @@ describe('exact migration gate', () => {
                 sha256: '47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8', mustRemainPending: true,
             };
             const withheld = target.version === '20261110173548' ? [billing]
-                : ['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000'].includes(target.version) ? [billing, refund] : [];
-            expect(config.requiresIncludeAll).toBe(targetIndex === 0);
+                : ['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000'].includes(target.version) ? [billing, refund]
+                    : target.version === billing.version ? [refund] : [];
+            // Only #1276 and migration 129 sort before already-applied history; both push from an isolated workspace.
+            expect(config.requiresIncludeAll).toBe(targetIndex === 0 || target.version === billing.version);
             expect(config.requiredAppliedVersions).toEqual([
                 '20260812002000',
                 ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version),
             ]);
-            expect(config.excludedMigrations).toEqual(
-                [...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version, file }) => ({ version, file })), ...withheld],
-            );
+            // 129 is both a later allowlisted entry and a reviewed hold for the six targets before it: it is excluded ONCE,
+            // at its allowlist position, still pinned by hash and still required to remain pending.
+            const later = EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version, file }) => ({ version, file }));
+            expect(config.excludedMigrations).toEqual([
+                ...later.map(row => withheld.find(hold => hold.version === row.version) ?? row),
+                ...withheld.filter(hold => !later.some(row => row.version === hold.version)),
+            ]);
+            expect(config.excludedMigrations.filter(row => row.version === billing.version).length)
+                .toBe(target.version === billing.version ? 0 : later.some(row => row.version === billing.version) ? 1 : 0);
 
             const fixture = mkdtempSync(join(tmpdir(), `allowlisted-${target.version}-`));
             try {
@@ -601,19 +645,21 @@ describe('exact migration gate', () => {
                         ? ` ${entry.version} | ${entry.version} | applied`
                         : ` ${entry.version} |                | pending`);
                 }
-                for (const entry of withheld) {
+                // A hold that is also a later allowlisted entry (129) is already listed above: the CLI lists a version once.
+                const extraHolds = withheld.filter(hold => !EXACT_MIGRATION_ALLOWLIST.some(entry => entry.version === hold.version));
+                for (const entry of extraHolds) {
                     beforeRows.push(` ${entry.version} | | pending`);
                     afterRows.push(` ${entry.version} | | pending`);
                 }
                 const before = beforeRows.join('\n');
                 const after = afterRows.join('\n');
                 expect(assertBeforeApply(before, config).pending).toEqual(
-                    [...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex).map(({ version }) => version), ...withheld.map(row => row.version)],
+                    [...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex).map(({ version }) => version), ...extraHolds.map(row => row.version)],
                 );
                 expect(assertExactDryRun(`Would push these migrations:\n • ${target.file}`, config))
                     .toEqual({ files: [target.file] });
                 expect(assertAfterApply(before, after, config)).toEqual({
-                    pending: [...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version }) => version), ...withheld.map(row => row.version)],
+                    pending: [...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version }) => version), ...extraHolds.map(row => row.version)],
                     appliedDelta: `${target.version}:pending->applied`,
                 });
 
@@ -768,4 +814,39 @@ describe('C1 exact source/catalog postflight',()=>{
       expect(()=>c1Contract(root,'after','unselected')).toThrow();
     }
   });
+});
+
+describe('migration 129 exact apply (completion billing settlement): out of order, isolated, refund held', () => {
+    const settlement = '20261027192550';
+    const refund = '20261112130000';
+    const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: settlement });
+    const index = EXACT_MIGRATION_ALLOWLIST.findIndex(({ version }) => version === settlement);
+    const list = (settlementApplied = false, refundApplied = false) => [
+        matched, ' 20260812002000 | 20260812002000 | applied',
+        ...EXACT_MIGRATION_ALLOWLIST.map(({ version }, i) => i < index || (i === index && settlementApplied)
+            ? ` ${version} | ${version} | applied` : ` ${version} |                | pending`),
+        refundApplied ? ` ${refund} | ${refund} | applied` : ` ${refund} | | pending`,
+    ].join('\n');
+
+    it('is pushed with an isolated --include-all, disclosed in the phrase, after every earlier allowlisted target', () => {
+        expect(index).toBe(EXACT_MIGRATION_ALLOWLIST.length - 2); // before commercial activation, which stays last
+        expect(config.requiresIncludeAll).toBe(true);
+        expect(expectedAuthorizationPhrase('a'.repeat(40), config)).toContain('USING ISOLATED --include-all');
+        expect(config.requiredAppliedVersions.at(-1)).toBe('20261119200000');
+        expect(config.excludedMigrations.map(({ version }) => version)).toEqual(['20260812042000', refund]);
+        expect(config.excludedMigrations.find(({ version }) => version === refund)?.mustRemainPending).toBe(true);
+    });
+
+    it('applies only 129: the dry run may name nothing else, and the refund follow-up must stay pending', () => {
+        expect(assertBeforeApply(list(), config).pending).toEqual([settlement, '20260812042000', refund]);
+        expect(assertExactDryRun(`Would push these migrations:\n • ${config.targetFile}`, config)).toEqual({ files: [config.targetFile] });
+        expect(() => assertExactDryRun(`Would push these migrations:\n • ${config.targetFile}\n • 20261112130000_stripe_refund_followups.sql`, config)).toThrow();
+        expect(() => assertExactDryRun('Would push these migrations:\n • 20261112130000_stripe_refund_followups.sql', config)).toThrow();
+        expect(() => assertBeforeApply(list(false, true), config)).toThrow(/must remain pending/);
+        expect(() => assertBeforeApply(list(true), config)).toThrow();
+        expect(assertAfterApply(list(), list(true), config)).toEqual({
+            pending: ['20260812042000', refund], appliedDelta: `${settlement}:pending->applied`,
+        });
+        expect(() => assertAfterApply(list(), list(true, true), config)).toThrow();
+    });
 });

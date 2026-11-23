@@ -2,20 +2,35 @@
 // Nightly AHT suite: J8's ONE receipt (tests/live/rwt-feedback-association-boundaries.live.spec.ts, suite
 // `feedback-association-boundaries-j8`) turned into the J8 invocation's case result, so case-results.cjs can split it per leg.
 //
-// Offline mapping only. It wires no adapter and satisfies no gate: J8 stays NOT RUN behind `no-j8-harness-adapter` until Sam's
-// reviewed parent admission (the runner's admission record and its account-create attempt, recorded before signup) lands.
+// The mapping satisfies no gate. In the nightly plan J8 stays NOT RUN behind `no-j8-harness-adapter`. The dedicated nightly entry
+// (j8-nightly-entry.cjs, Sam: "a dedicated nightly entry, not an rc-gates step") records the account-create attempt before the
+// signup, runs the spec, and reads its receipt and its independent readback through this mapping.
 //
 // Rules, all fail closed:
 // - Every plan row of J8.a, J8.b and J8.c is emitted exactly once, naming the ONE leg it was observed on. A row is the worst of
 //   the receipt steps it rests on; a step the receipt does not carry is HOLD, never PASS.
 // - Leg-scoped steps (`J8.x: …`) prove only their own leg. A journey-wide step is used only where the property is one of the
 //   whole journey (one account, one browser context), so it holds for every leg if it holds for the journey.
-// - A plan row the receipt has no step for yet is a named GAP: HOLD with its reason, never borrowed from another leg.
+// - Every plan row rests on steps the receipt writes for that row's own leg (or for the whole journey); none is borrowed.
 // - A leg's `prerequisites` step decides whether the leg ran. FAIL: every row of the leg FAILs (a failed setup is a failure, never
 //   hidden as NOT RUN). Anything else that is not PASS (HOLD, HUMAN, EXTERNAL): the leg was NOT RUN, so its rows are NOT RUN unless
 //   one already FAILs.
+// - RECEIVED is never read from the browser (Sam: "the final submit's captured events prove sent, not received"). Each leg's
+//   received row rests on the independent PostHog readback verdict of the ONE journey the receipt binds to that leg, and the
+//   readback must be for this receipt's suite, release and exact bound journeys. J8.b's binding window starts at its final
+//   submit and drops the fault-leg journeys, so none of the three fault attempts can be its received evidence. No readback,
+//   or one that does not match, is HOLD.
 // - Every receipt step the mapping does not consume floors the rows it could affect: a journey-wide one every leg, a leg-scoped one
 //   that leg. FAIL floors to FAIL; anything else that is not PASS floors to HOLD. So a renamed, new or failed step is never ignored.
+// - One exception, by name only: `feedback retention` is deferred for J8 (not a J8 plan row). The spec writes it HOLD because the
+//   parent deletes the account after the spec exits, so retention after deletion is not observed in the run. Written HOLD it is
+//   listed in `unmapped` (marked deferred) and floors nothing; written FAIL it still floors every leg to FAIL, and any other verdict
+//   that is not PASS (HUMAN, EXTERNAL) still floors to HOLD.
+// - The reviewed finalizer's report-only rows (`NON_GATING_ROWS` in tests/live/helpers/rwtAcceptance.ts, PO 2026-09-28) keep their
+//   exemption here, by the same names and on the same terms: written exactly HOLD (every time) a row floors nothing and is listed in
+//   `unmapped` (marked nonGating); FAIL, HUMAN or EXTERNAL on it still floors. The J8 spec writes `signup-stage telemetry received`
+//   HOLD on every run (telemetryClassRows), so without this no J8 run could PASS. The list mirrors the finalizer's closed list exactly
+//   (a test reads that list from its source); no other row, and no leg-scoped copy of one, is exempt.
 const { rowsForLeg } = require('./journey-plan.cjs');
 
 const J8_SUITE = 'feedback-association-boundaries-j8';
@@ -27,7 +42,14 @@ const receiptOutcome = (v) => (v === 'PASS' || v === 'FAIL' ? v : 'HOLD');
 
 const J = (step) => Object.freeze({ scope: 'journey', step });
 const L = (step) => Object.freeze({ scope: 'leg', step });
-const GAP = (reason) => Object.freeze({ gap: reason });
+/** The leg's received evidence: the independent readback verdict of the leg's one bound journey (never a receipt row). */
+const READBACK = Object.freeze({ scope: 'readback', step: 'received feedback (independent readback)' });
+const BINDINGS_ROW = 'J8 leg readback bindings';
+const READBACK_STAGES = Object.freeze(['share_feedback']);
+/** Receipt steps J8 defers: a HOLD written for one of these floors nothing (see the rules above). */
+const DEFERRED_STEPS = Object.freeze(['feedback retention']);
+/** The finalizer's report-only rows (rwtAcceptance.ts `NON_GATING_ROWS`), by name: a HOLD on one of these floors nothing. */
+const NON_GATING_STEPS = Object.freeze(['base_q4 primary', 'signup-stage telemetry received']);
 
 const ACCOUNT = [J('run-owned signup'), J('canary claim in fresh login')];
 const NO_CLOUD_STT = [J('no Cloud speech-to-text request')];
@@ -36,17 +58,22 @@ const FAULT_ROWS = (name) => ['fault exercised', 'alert copy truthful', 'dialog 
     'no fresh acknowledgement before the Retry', 'Retry treated as stored', 'exactly one stored row for the leg key']
     .map((s) => L(`feedback leg ${name}: ${s}`));
 const NO_SESSION_SUBMIT = [L('fresh acknowledgment'), L('no-session report stored once'), L('no-session association'),
-    L('no-session diagnostic binding'), L('received feedback')];
+    L('no-session diagnostic binding'), L('received feedback'), READBACK];
 
-const J8A_START = GAP('the receipt has no J8.a-scoped Start-press count; the journey-wide count covers J8.b\'s two takes');
-const J8B_ACK = GAP('the receipt has no J8.b-scoped fresh acknowledgment row for the older-take submit');
-const J8B_RECEIVED = GAP('the receipt has no J8.b-scoped received feedback row (the finalizer writes it for J8.a and J8.c only)');
+// The three former named gaps (Sam, #1926 merge tree), each now its own leg-scoped receipt row:
+// - J8.a's own zero-Start observation (`J8.a: no Start press`, from the journey's start to the end of its submit);
+// - J8.b's own Start presses (`J8.b: Start presses within budget`, its two takes against AHT-07's budget). The journey-wide
+//   count alone cannot prove J8.b's: a press in J8.a would hide a missing one in J8.b;
+// - J8.b's fresh acknowledgment and its final older-take pair (`J8.b: final feedback pair sent`, Sam's d25925d0). That row is
+//   SENT only; J8.b's received row also needs the independent readback of the final submit's own journey (READBACK).
+const J8A_NO_START = L('no Start press');
+const J8B_OWN_STARTS = L('Start presses within budget');
 
 /** Each plan row: the receipt steps it rests on. Keys are the plan's own row names (`rowsForLeg`), checked at load. */
 const MAP = Object.freeze({
     'J8.a': {
         'invariant:owner-bound': ACCOUNT,
-        'invariant:start-press-budget': [J8A_START],
+        'invariant:start-press-budget': [J8A_NO_START],
         'invariant:no-cloud-stt': NO_CLOUD_STT,
         'invariant:owned-pages-closed': PAGES_CLOSED,
         'AHT-08:owner-bound': ACCOUNT,
@@ -54,23 +81,24 @@ const MAP = Object.freeze({
         'AHT-08:feedback-stored-once': [L('no-session report stored once')],
         'AHT-08:no-session-association': [L('no-session association')],
         'AHT-08:no-coaching-association': [L('no-session diagnostic binding'), L('no coaching before any take')],
-        'AHT-08:received-feedback-proof': [L('received feedback'), J('J8 leg readback bindings')],
-        'AHT-08:start-press-budget': [J8A_START],
+        'AHT-08:received-feedback-proof': [L('received feedback'), J(BINDINGS_ROW), READBACK],
+        'AHT-08:start-press-budget': [J8A_NO_START],
         'AHT-08:no-cloud-stt': NO_CLOUD_STT,
         'AHT-08:owned-pages-closed': PAGES_CLOSED,
     },
     'J8.b': {
         'invariant:owner-bound': ACCOUNT,
-        'invariant:start-press-budget': [J('Start presses within budget'), J8A_START],
+        'invariant:start-press-budget': [J8B_OWN_STARTS, J('Start presses within budget')],
         'invariant:no-cloud-stt': NO_CLOUD_STT,
         'invariant:owned-pages-closed': PAGES_CLOSED,
         'AHT-07:owner-bound': ACCOUNT,
-        'AHT-07:fresh-acknowledgment': [J8B_ACK],
+        'AHT-07:fresh-acknowledgment': [L('fresh acknowledgment')],
         'AHT-07:feedback-stored-once': [L('older-take report stored once')],
         'AHT-07:older-take-association': [L('two saved takes'), L('older-take association')],
         'AHT-07:older-coaching-association': [L('older take coaching request observed'), L('older-take diagnostic binding'),
             L('feedback diagnostic chain'), J('coaching request budget')],
-        'AHT-07:received-feedback-proof': [J8B_RECEIVED, J('J8 leg readback bindings')],
+        'AHT-07:received-feedback-proof': [L('final feedback pair sent'), L('final submit isolated from the fault legs'), J(BINDINGS_ROW),
+            READBACK],
         'AHT-07:feedback-failure-retry-form': [...FAULT_ROWS('synthetic 42501'), ...FAULT_ROWS('request lost'),
             ...FAULT_ROWS('stored response lost')],
         'AHT-07:feedback-transport-form-retry': FAULT_ROWS('request lost'),
@@ -80,7 +108,7 @@ const MAP = Object.freeze({
             L('feedback attempts are three faults, three Retries and one final submit'), L('final submit isolated from the fault legs'),
             J('feedback writer drained'), J('J8 write windows')],
         'AHT-07:feedback-readback-preflight': [J('feedback fence open')],
-        'AHT-07:start-press-budget': [J('Start presses within budget'), J8A_START],
+        'AHT-07:start-press-budget': [J8B_OWN_STARTS, J('Start presses within budget')],
         'AHT-07:no-cloud-stt': NO_CLOUD_STT,
         'AHT-07:owned-pages-closed': PAGES_CLOSED,
     },
@@ -90,7 +118,7 @@ const MAP = Object.freeze({
         'invariant:no-cloud-stt': NO_CLOUD_STT,
         'invariant:owned-pages-closed': PAGES_CLOSED,
         'new:no-session-choice-with-takes': [...NO_SESSION_SUBMIT, L('both saved takes unchanged'), L('no extra Start or coaching'),
-            J('J8 leg readback bindings')],
+            J(BINDINGS_ROW)],
     },
 });
 for (const leg of LEGS) {
@@ -102,29 +130,95 @@ for (const leg of LEGS) {
 const reportedId = (row) => (row.startsWith('invariant:') || row.startsWith('new:') ? row.slice(row.indexOf(':') + 1) : row);
 const toResult = (o) => (o === 'NOT RUN' ? 'NOT_RUN' : o);
 
+const sameSet = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+const readbackStages = (j) => (Array.isArray(j?.stages) ? j.stages.map(String) : null);
+
+/**
+ * Each leg's received outcome from the independent readback (rc-gates' readback-verdicts shape: { suite, release, journeys:
+ * [{ journeyId, stages, verdict }], missingBindings }). PASS only when the readback is this receipt's (suite, release, and exactly
+ * the receipt's bound journeys and stages) and the leg's ONE bound journey (the receipt's own `J8 leg readback bindings`, PASS)
+ * declares exactly `share_feedback` and QUALIFIED. An observed received FAIL is FAIL. Anything else is HOLD.
+ */
+function readbackOutcomes(receipt, readback) {
+    const hold = (why) => Object.fromEntries(LEGS.map((l) => [l, { outcome: 'HOLD', why }]));
+    if (readback === undefined || readback === null) return hold('no independent readback');
+    if (typeof readback !== 'object' || Array.isArray(readback) || !Array.isArray(readback.journeys) || !Array.isArray(readback.missingBindings))
+        return hold('the readback is malformed');
+    if (readback.suite !== J8_SUITE || typeof receipt.release !== 'string' || readback.release !== receipt.release)
+        return hold('the readback is not for this receipt\'s suite and release');
+    // Sam on b1f8323f (3): the readback carries its own run, attempt and create-attempt binding, and it must be this receipt's.
+    const b = readback.binding;
+    if (!b || typeof b !== 'object' || typeof receipt.meta?.runnerAttempt !== 'string' || b.createAttempt !== receipt.meta.runnerAttempt
+        || typeof b.runId !== 'string' || !b.runId || typeof b.runAttempt !== 'string' || !b.runAttempt)
+        return hold('the readback is not bound to this receipt\'s run and create attempt');
+    const bound = Array.isArray(receipt.readback?.journeys) ? receipt.readback.journeys : null;
+    if (!bound) return hold('the receipt binds no readback journeys');
+    const key = (j) => `${String(j?.journeyId)}=${(readbackStages(j) ?? ['?']).join(',')}`;
+    if (!sameSet(bound.map(key), readback.journeys.map(key))) return hold('the readback does not cover exactly the receipt\'s bound journeys');
+    const bindings = receipt.rows.find((r) => r && r.step === BINDINGS_ROW);
+    const legIds = Object.fromEntries(LEGS.map((leg) => [leg, String(bindings?.evidence?.[leg] ?? '').split(',').filter(Boolean)]));
+    const all = LEGS.flatMap((leg) => legIds[leg]);
+    if (new Set(all).size !== all.length) return hold('one journey is bound to more than one leg');
+    const out = {};
+    for (const leg of LEGS) {
+        const ids = legIds[leg];
+        if (!bindings || bindings.verdict !== 'PASS' || ids.length !== 1) { out[leg] = { outcome: 'HOLD', why: 'the leg has no single bound journey' }; continue; }
+        const mine = readback.journeys.filter((j) => j && j.journeyId === ids[0]);
+        const declared = bound.filter((j) => j && j.journeyId === ids[0]);
+        if (mine.length !== 1 || declared.length !== 1 || !sameSet(readbackStages(mine[0]) ?? [], READBACK_STAGES)
+            || !sameSet(readbackStages(declared[0]) ?? [], READBACK_STAGES)) {
+            out[leg] = { outcome: 'HOLD', why: 'the leg\'s journey is not bound once to its feedback stage' };
+            continue;
+        }
+        // A received verdict must carry what the readback CLI itself checked: this journey on this release.
+        const v = mine[0].verdict;
+        const got = mine[0].received;
+        if ((v === 'QUALIFIED' || v === 'FAIL') && (!got || got.journey_id !== ids[0] || got.release_sha !== receipt.release)) {
+            out[leg] = { outcome: 'HOLD', why: 'the readback verdict carries no evidence of this journey on this release' };
+            continue;
+        }
+        // J8.b is received only for the final submit's own journey (its window starts at the final submit's click).
+        if (leg === 'J8.b' && v === 'QUALIFIED' && readback.finalSubmit?.journeyId !== ids[0]) {
+            out[leg] = { outcome: 'HOLD', why: 'the readback is not bound to the final submit\'s journey' };
+            continue;
+        }
+        out[leg] = v === 'QUALIFIED' ? { outcome: 'PASS', why: 'received' } : v === 'FAIL' ? { outcome: 'FAIL', why: 'readback observed a received failure' }
+            : { outcome: 'HOLD', why: 'the readback did not qualify the leg\'s journey' };
+    }
+    return out;
+}
+
 /**
  * The J8 invocation's case result from its receipt body. Throws on a receipt that is not J8's or is malformed (the runner then
  * records every J8 leg FAIL with the reason). Returns { caseId: 'J8', assertions: [{ id, leg, result, sources }], unmapped }.
  */
-function mapJ8Receipt(receipt) {
+function mapJ8Receipt(receipt, readback) {
     if (!receipt || typeof receipt !== 'object' || receipt.suite !== J8_SUITE)
         throw new Error(`expected the ${J8_SUITE} receipt, got ${receipt?.suite ?? 'nothing'}`);
     if (!Array.isArray(receipt.rows) || receipt.rows.length === 0) throw new Error('the J8 receipt has no rows');
     const steps = new Map();
+    // Every verdict written for a step, as written: an exempt step is excused only when each of its rows says exactly HOLD.
+    const written = new Map();
+    const received = readbackOutcomes(receipt, readback);
     for (const r of receipt.rows) {
         if (!r || typeof r.step !== 'string' || !r.step || typeof r.verdict !== 'string') throw new Error('the J8 receipt has a malformed row');
         const o = receiptOutcome(r.verdict);
         steps.set(r.step, steps.has(r.step) ? worse(steps.get(r.step), o) : o);
+        written.set(r.step, [...(written.get(r.step) ?? []), r.verdict]);
     }
+    const exemptHold = (step) => (DEFERRED_STEPS.includes(step) || NON_GATING_STEPS.includes(step)) && written.get(step).every((v) => v === 'HOLD');
     const legOf = (step) => LEGS.find((l) => step.startsWith(`${l}: `)) ?? null;
-    const stepName = (leg, s) => (s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
+    const stepName = (leg, s) => (s.scope === 'journey' ? s.step : `${leg}: ${s.step}`);
+    // A receipt row can never stand in for the readback: the readback outcome is read from `received`, not from `steps`.
+    const sourceOutcome = (leg, s) => (s.scope === 'readback' ? received[leg].outcome : steps.has(stepName(leg, s)) ? steps.get(stepName(leg, s)) : 'HOLD');
     const consumed = new Set(LEGS.map((l) => `${l}: prerequisites`));
-    for (const leg of LEGS) for (const sources of Object.values(MAP[leg])) for (const s of sources) if (!s.gap) consumed.add(stepName(leg, s));
+    for (const leg of LEGS) for (const sources of Object.values(MAP[leg])) for (const s of sources) if (s.scope !== 'readback') consumed.add(stepName(leg, s));
     // Unconsumed steps floor what they could affect: never ignored, never a PASS on their own.
     const floor = { journey: 'PASS', 'J8.a': 'PASS', 'J8.b': 'PASS', 'J8.c': 'PASS' };
     const unmapped = [];
     for (const [step, o] of steps) {
         if (consumed.has(step)) continue;
+        if (exemptHold(step)) { unmapped.push({ step, outcome: o, ...(DEFERRED_STEPS.includes(step) ? { deferred: true } : { nonGating: true }) }); continue; }
         unmapped.push({ step, outcome: o });
         if (o === 'PASS') continue;
         const key = legOf(step) ?? 'journey';
@@ -137,10 +231,8 @@ function mapJ8Receipt(receipt) {
             let outcome = 'PASS';
             const used = [];
             for (const s of sources) {
-                if (s.gap) { outcome = worse(outcome, 'HOLD'); used.push(`GAP: ${s.gap}`); continue; }
-                const name = stepName(leg, s);
-                used.push(name);
-                outcome = worse(outcome, steps.has(name) ? steps.get(name) : 'HOLD');
+                used.push(s.scope === 'readback' ? `${stepName(leg, s)}: ${received[leg].why}` : stepName(leg, s));
+                outcome = worse(outcome, sourceOutcome(leg, s));
             }
             outcome = worse(worse(outcome, floor.journey), floor[leg]);
             if (prerequisites !== 'PASS') used.push(`${leg}: prerequisites`);
@@ -153,4 +245,4 @@ function mapJ8Receipt(receipt) {
     return { caseId: 'J8', assertions, unmapped };
 }
 
-module.exports = { J8_SUITE, J8_RECEIPT_MAP: MAP, mapJ8Receipt };
+module.exports = { J8_DEFERRED_STEPS: DEFERRED_STEPS, J8_NON_GATING_STEPS: NON_GATING_STEPS, J8_SUITE, J8_RECEIPT_MAP: MAP, mapJ8Receipt };

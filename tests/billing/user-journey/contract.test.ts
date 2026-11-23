@@ -539,11 +539,13 @@ test('the hosted email is found by the observed control first: Link\'s text inpu
 
 // Sam on #1892 (a3fb4404): the fixture email was unconditional in shared setup, and a combined selector's .first() did not give the
 // observed control priority.
-test('only conversion\'s Customer carries the fixture email; every other journey\'s Customer request is unchanged', () => {
+// J9.b's restore_access pays through the same hosted Checkout as conversion, so it is the one other journey with the email.
+test('only conversion\'s and restore_access\'s Customer carry the fixture email; every other journey\'s Customer request is unchanged', () => {
   const f = { clock: 'clock_1', email: 'rwt-journey-billing-x@example.com', marker: 'rwt-journey-billing-x' };
   const before = { test_clock: 'clock_1', 'metadata[speaksharp_test]': 'rwt-journey-billing-x' }; // the request every journey sent before #1892
   assert.deepEqual(fixtureCustomerFields('conversion', f), { ...before, email: f.email });
-  const others = RUNNER_JOURNEYS.filter((j) => j !== 'conversion');
+  assert.deepEqual(fixtureCustomerFields('restore_access', f), { ...before, email: f.email });
+  const others = RUNNER_JOURNEYS.filter((j) => j !== 'conversion' && j !== 'restore_access');
   assert.ok(others.length >= 2, String(others));
   for (const journey of others) assert.deepEqual(fixtureCustomerFields(journey, f), before, journey);
 });
