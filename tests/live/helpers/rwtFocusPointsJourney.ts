@@ -679,7 +679,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     { acquisition: binding && !binding.ok ? binding.reason : 'missing', acquisitionsAtArm: sealed.acquisitionsAtArm, polledFirstSec });
             } else {
                 const verdicts = classifyMarkerTiming({ windows, observations: sealed.observations, invokedAtMs: binding.invokedAtMs,
-                    expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])) });
+                    expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])), pendingSeenAtMs: sealed.pendingSeenAtMs });
                 const status = markerTimingStatus(verdicts);
                 receipt.row('marker timing vs audio', status,
                     status === 'PASS' ? 'each marker\'s whole change interval lies while its point was spoken or within 5 s after, before the next point'
@@ -688,7 +688,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     { perPoint: verdicts.join(','), maxAfterPointSec: LIVE_MARKER_MAX_AFTER_SECONDS, clock: 'page-side observation after getUserMedia invocation',
                         invokedAtMs: binding.invokedAtMs, armedAtMs: sealed.armedAtMs, frozenAtMs: sealed.frozenAtMs ?? 'none',
                         boundsMs: sealed.observations.map((o) => `${o.point}:${o.status}:${o.afterMs - binding.invokedAtMs}..${o.observedAtMs - binding.invokedAtMs}`).join(','),
-                        observations: sealed.observations.length, railGenerations: sealed.railGenerations, rejected: sealed.rejected.length, polledFirstSec });
+                        observations: sealed.observations.length, railGenerations: sealed.railGenerations, rejected: sealed.rejected.length, polledFirstSec,
+                        pendingSeenMs: (sealed.pendingSeenAtMs ?? []).map((t) => (t === null ? 'none' : String(t - binding.invokedAtMs))).join(',') });
             }
             // Runbook v12: red "Not detected" is a FINAL, after-Stop verdict only — never during speech.
             const redDuring = await page.locator('[data-testid="focus-points-rail-list"] [data-marker="missed"]').count();
