@@ -17,12 +17,13 @@ const read = async () => {
     return JSON.parse(rows[0].json_build_object);
 };
 const contract = (mode: string) => completionSettlementContract(root, mode, target);
+let verifiedBefore: { ledger: string[] } | null = null;
 const refused = async (phase: 'before' | 'after', sql: string, refusal: RegExp) => {
     await db.exec('BEGIN');
     try {
         await db.exec(sql);
         const snapshot = await read();
-        expect(() => assertCompletionSettlementSnapshot(contract(phase), snapshot)).toThrow(refusal);
+        expect(() => assertCompletionSettlementSnapshot(contract(phase), snapshot, verifiedBefore)).toThrow(refusal);
     } finally {
         await db.exec('ROLLBACK');
     }
@@ -40,7 +41,7 @@ describe('migration 129 exact completion-settlement catalog postflight', () => {
     afterAll(async () => { await db?.close(); });
 
     it('129 sorts inside the reviewed ledger window, never appended', () => {
-        const after = completionSettlementLedger('after');
+        const after = completionSettlementLedger(COMPLETION_SETTLEMENT_PREDECESSOR);
         expect(after).toHaveLength(COMPLETION_SETTLEMENT_PREDECESSOR.length + 1);
         expect(after.indexOf(target)).toBe(after.indexOf('20261025021046') + 1);
         expect(after.at(-1)).toBe('20261119200000');
@@ -51,12 +52,18 @@ describe('migration 129 exact completion-settlement catalog postflight', () => {
     it('before: the exact production window, the family absent and completion OFF and unbound; drift is refused', async () => {
         const before = await read();
         expect(assertCompletionSettlementSnapshot(contract('before'), before)).toMatchObject({ target: 'absent', completion: 'off-unbound' });
-        expect(() => assertCompletionSettlementSnapshot(contract('after'), before)).toThrow(/ledger/);
+        expect(() => assertCompletionSettlementSnapshot(contract('after'), before, before)).toThrow(/ledger/);
+        expect(() => assertCompletionSettlementSnapshot(contract('after'), before)).toThrow(/requires the verified before ledger/);
+        // Identity, not count: an unreviewed version, a missing required predecessor or an unordered ledger is refused.
+        await refused('before', "INSERT INTO supabase_migrations.schema_migrations VALUES ('20261119999999')", /unreviewed version/);
+        await refused('before', "DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261024083000'", /required predecessor is missing/);
+        expect(() => assertCompletionSettlementSnapshot(contract('before'), { ...before, ledger: [...before.ledger].reverse() })).toThrow(/version-ordered/);
         await refused('before', 'UPDATE public.account_completion_configuration SET enabled = true', /OFF and unbound/);
         await refused('before', "UPDATE public.account_completion_configuration SET scope_digest = 'bound'", /OFF and unbound/);
         await refused('before', 'INSERT INTO public.account_completion_configuration VALUES (true, false, NULL)', /OFF and unbound/);
         await refused('before', "DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261119200000'", /ledger/);
         await refused('before', "INSERT INTO supabase_migrations.schema_migrations VALUES ('20261120000000')", /ledger/);
+        verifiedBefore = before;
         await refused('before', "INSERT INTO supabase_migrations.schema_migrations VALUES ('20261112130000')", /withheld/);
         await refused('before', `CREATE FUNCTION public.settle_account_completion_billing_v1(text) RETURNS boolean
             LANGUAGE sql AS $$ SELECT false $$`, /already present/);
@@ -67,11 +74,14 @@ describe('migration 129 exact completion-settlement catalog postflight', () => {
             'backend/supabase/migrations/20261027192550_account_completion_billing_settlement.sql'), 'utf8'));
         const unrecorded = await read();
         expect(() => assertCompletionSettlementSnapshot(contract('before'), unrecorded)).toThrow(/already present/);
-        expect(() => assertCompletionSettlementSnapshot(contract('after'), unrecorded)).toThrow(/ledger/);
+        expect(() => assertCompletionSettlementSnapshot(contract('after'), unrecorded, verifiedBefore)).toThrow(/ledger/);
         await db.query('INSERT INTO supabase_migrations.schema_migrations VALUES ($1)', [target]);
         await db.exec('SET search_path=pg_catalog');
         const after = await read();
-        expect(assertCompletionSettlementSnapshot(contract('after'), after)).toMatchObject({ target: 'exact', completion: 'off-unbound' });
+        expect(assertCompletionSettlementSnapshot(contract('after'), after, verifiedBefore)).toMatchObject({ target: 'exact', completion: 'off-unbound' });
+        // The after ledger is the verified before ledger plus 129 only: any other change since the receipt is refused.
+        expect(() => assertCompletionSettlementSnapshot(contract('after'), after, { ledger: verifiedBefore!.ledger.slice(1) })).toThrow(/ledger/);
+        expect(() => assertCompletionSettlementSnapshot(contract('after'), after)).toThrow(/requires the verified before ledger/);
         expect(after.functions[0][14]).toEqual([false, false, true]); // EXECUTE: anon no, authenticated no, service_role yes
 
         const signature = 'public.settle_account_completion_billing_v1(uuid,uuid,uuid,text,jsonb)';

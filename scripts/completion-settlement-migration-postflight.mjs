@@ -29,7 +29,7 @@ try {
   });
   const snapshot = JSON.parse(output);
   if (prior && prior.snapshot.major !== snapshot.major) throw new Error('completion settlement server major changed');
-  const result = assertCompletionSettlementSnapshot(contract, snapshot);
+  const result = assertCompletionSettlementSnapshot(contract, snapshot, prior?.snapshot ?? null);
   if (mode === 'before') writeFileSync(receipt, JSON.stringify({ version, targetSha256: contract.targetSha256, endpointSha256, snapshot }),
     { flag: 'wx', mode: 0o600 });
   console.log(JSON.stringify({ ...result, scope: 'installed catalog only; no settlement invoked; completion OFF and unbound' }));

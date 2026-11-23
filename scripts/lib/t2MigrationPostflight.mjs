@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { EXACT_MIGRATION_ALLOWLIST } from './exactMigrationGate.mjs';
+import { EXACT_MIGRATION_ALLOWLIST, resolveExactMigrationConfig } from './exactMigrationGate.mjs';
 import { completionSettlementContract, completionSettlementSnapshotQuery } from './completionSettlementMigrationPostflight.mjs';
 import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './c1MigrationPostflight.mjs';
 import { RETIREMENT_CATALOG_DELTA } from './retirementCatalogPins.mjs';
@@ -474,11 +474,17 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release catalog context unknown');
   }
   const observed = typeof installed === 'string' ? JSON.parse(installed) : installed;
-  // Migration 129 sorts INSIDE this window. Once installed (after every successor below), the ledger is the full
-  // 15-entry release ledger with 129 at its version-ordered position; nothing else is admitted alongside it.
-  const settled = Array.isArray(observed) && observed.length === 16 && observed.includes(NEXT_RELEASE_SOURCE.version);
+  // Migration 129 sorts INSIDE this window. The post-129 order is DERIVED from the observed ledger: without 129 it must
+  // be a release ledger this contract already admits (validated below, by identity), and with 129 exactly that ledger
+  // with 129 at its version-ordered position. No count of later migrations is assumed.
+  const settled = Array.isArray(observed) && observed.includes(NEXT_RELEASE_SOURCE.version);
   const ledger = settled ? observed.filter(version => version !== NEXT_RELEASE_SOURCE.version) : observed;
-  if (settled && (ledger.length !== 15 || JSON.stringify(observed) !== JSON.stringify([...ledger, NEXT_RELEASE_SOURCE.version].sort()))) {
+  // 129 is admitted only where its exact apply could have produced it: every version the exact gate requires before
+  // 129 that falls in this window must be present (identity from the gate, not a count). Earlier ledgers stay refused.
+  const settlementPrerequisites = settled ? resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: NEXT_RELEASE_SOURCE.version })
+    .requiredAppliedVersions.filter(version => version >= T2_VERSIONS[0]) : [];
+  if (settled && (JSON.stringify(observed) !== JSON.stringify([...ledger, NEXT_RELEASE_SOURCE.version].sort())
+    || settlementPrerequisites.some(version => !ledger.includes(version)))) {
     throw new Error('T2 release ledger unknown, mixed or incomplete');
   }
   const versions = [...T2_VERSIONS, ...C1_VERSIONS, ...(ledger?.length >= 9 ? [RETIREMENT_VERSION] : []),

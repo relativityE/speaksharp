@@ -399,7 +399,11 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
     expect(cleanup.knownAbsent.families).toEqual(['settle_account_completion_billing_v1']);
     // Appended out of order, before #1906, with a gap, or beside any other extra entry: refused.
     expect(() => t2ReleaseContract(process.cwd(), [...fifteen, settlementVersion])).toThrow(/ledger/);
+    // Derived from the exact gate, not counted: 129 is admitted only after every version its exact apply requires, so an
+    // earlier admitted ledger with 129 (which that gate can never produce) stays refused.
     expect(() => t2ReleaseContract(process.cwd(), [...fourteen, settlementVersion].sort())).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), [settlementVersion, ...fifteen])).toThrow(/ledger/);
+    expect(() => t2ReleaseContract(process.cwd(), [...sixteen, settlementVersion])).toThrow(/ledger/);
     expect(() => t2ReleaseContract(process.cwd(), sixteen.filter(version => version !== '20261110173548'))).toThrow(/ledger/);
     expect(() => t2ReleaseContract(process.cwd(), [...sixteen, '20261119200001'])).toThrow(/ledger/);
     expect(t2KnownAbsentQuery(settled)).toContain("p.proname IN ('')");

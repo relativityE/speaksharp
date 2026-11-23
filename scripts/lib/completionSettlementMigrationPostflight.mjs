@@ -6,9 +6,10 @@ import { join } from 'node:path';
 import { EXACT_MIGRATION_ALLOWLIST } from './exactMigrationGate.mjs';
 
 export const COMPLETION_SETTLEMENT_VERSION = '20261027192550';
-// The production ledger window this release is reviewed against (read-only preflight, 23 November 2026): every applied
-// version from 20261018090000, ending with #1906's save-journal cleanup. 129 sorts INSIDE it, so "after" is this list
-// with 129 at its version-ordered position, never appended.
+// Every version that must already be applied in the ledger window (from 20261018090000) before 129: the reviewed
+// production baseline of 23 November 2026, through #1906's save-journal cleanup. This is a required SET, not a count:
+// the window may only otherwise hold reviewed allowlisted versions. The post-129 order is DERIVED from the verified
+// before-ledger (129 inserted at its version-ordered position), never from a fixed length.
 export const COMPLETION_SETTLEMENT_PREDECESSOR = Object.freeze([
   '20261018090000', '20261018170000', '20261019010000', '20261019055102', '20261019202856', '20261020230653',
   '20261024083000', '20261025021046', '20261110173548', '20261112133000', '20261114100000',
@@ -22,9 +23,10 @@ const hash = (algorithm, value) => createHash(algorithm).update(value).digest('h
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const fail = reason => { throw new Error(`completion settlement ${reason}`); };
 
-export const completionSettlementLedger = (mode) => mode === 'after'
-  ? [...COMPLETION_SETTLEMENT_PREDECESSOR, COMPLETION_SETTLEMENT_VERSION].sort()
-  : [...COMPLETION_SETTLEMENT_PREDECESSOR];
+/** The post-129 ledger derived from a verified before-ledger: the same versions with 129 at its ordered position. */
+export const completionSettlementLedger = (beforeLedger) => [...beforeLedger, COMPLETION_SETTLEMENT_VERSION].sort();
+const ordered = ledger => ledger.every((version, index) => index === 0 || ledger[index - 1] < version);
+const reviewed = new Set(EXACT_MIGRATION_ALLOWLIST.map(row => row.version));
 
 export function completionSettlementContract(root, mode, version) {
   if (!['before', 'after'].includes(mode) || version !== COMPLETION_SETTLEMENT_VERSION) fail('phase/target invalid');
@@ -66,17 +68,23 @@ export function completionSettlementSnapshotQuery() {
       FROM public.account_completion_configuration))::text;`;
 }
 
-export function assertCompletionSettlementSnapshot(contract, snapshot) {
+/** `before` is the verified pre-apply snapshot (from the before receipt); the after phase cannot be judged without it. */
+export function assertCompletionSettlementSnapshot(contract, snapshot, before = null) {
   // Production is PostgreSQL 17; 18 is admitted only because this snapshot reads nothing whose shape differs by major.
   if (!snapshot || ![17, 18].includes(snapshot.major)) fail('unsupported PostgreSQL major');
   if (!Array.isArray(snapshot.ledger) || held.some(v => snapshot.ledger.includes(v))) fail('ledger contains a withheld migration');
   if (!same(snapshot.completion, { rows: 1, disabledUnbound: true })) fail('completion is not OFF and unbound');
   const after = contract.mode === 'after';
-  if (!same(snapshot.ledger, completionSettlementLedger(contract.mode))) fail('ledger does not match the phase');
+  if (!snapshot.ledger.every(version => typeof version === 'string') || !ordered(snapshot.ledger)) fail('ledger is not a version-ordered set');
   if (!after) {
+    if (snapshot.ledger.includes(contract.version)) fail('ledger does not match the phase');
+    if (COMPLETION_SETTLEMENT_PREDECESSOR.some(version => !snapshot.ledger.includes(version))) fail('ledger does not match the phase: a required predecessor is missing');
+    if (snapshot.ledger.some(version => !reviewed.has(version))) fail('ledger does not match the phase: unreviewed version present');
     if (!same(snapshot.functions, [])) fail('target function family already present');
     return { mode: 'before', version: contract.version, target: 'absent', completion: 'off-unbound', postgresMajor: snapshot.major };
   }
+  if (!before || !Array.isArray(before.ledger)) fail('after phase requires the verified before ledger');
+  if (!same(snapshot.ledger, completionSettlementLedger(before.ledger))) fail('ledger does not match the phase');
   if (!same(snapshot.functions, [contract.expectedFunction])) fail('function catalog differs');
   return { mode: 'after', version: contract.version, target: 'exact', completion: 'off-unbound', postgresMajor: snapshot.major };
 }
