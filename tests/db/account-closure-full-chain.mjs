@@ -19,6 +19,7 @@ import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery, t2ExpectedCatalog, assertT2C
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
 import { retirementContract, retirementSnapshotQuery, assertRetirementSnapshot } from '../../scripts/lib/retirementMigrationPostflight.mjs';
 import { saveJournalCleanupContract, saveJournalCleanupSnapshotQuery, assertSaveJournalCleanupSnapshot } from '../../scripts/lib/saveJournalCleanupMigrationPostflight.mjs';
+import { completionSettlementContract, completionSettlementSnapshotQuery, assertCompletionSettlementSnapshot } from '../../scripts/lib/completionSettlementMigrationPostflight.mjs';
 
 // Installed successor evidence is separate from every historical replay. The
 // operational pre/post verifier is used unchanged, including its before receipt.
@@ -1011,7 +1012,12 @@ const PRACTICE_PRIVACY_PROFILE='main-practice-privacy-133';
 // #1827 outcome 4 D2 (ledger 14): the installed practice-privacy profile plus 20261119120000, staged after it.
 const REPEAT_TIP_PROFILE='main-repeat-tip-134';
 const SAVE_JOURNAL_PROFILE='main-save-journal-cleanup-135';
-const FROM_REPEAT_TIP=[REPEAT_TIP_PROFILE,SAVE_JOURNAL_PROFILE];
+// Migration 129 (completion billing settlement) the way Production will receive it: AFTER the full save-journal profile,
+// out of version order (--include-all), its version sorting inside the applied history. Not a plan stage: the plan's
+// stages are version-sorted, so 129 is applied after them by its own exact step and checked against the derived ledger.
+const SETTLEMENT_PROFILE='main-completion-settlement-136';
+const FROM_SAVE_JOURNAL=[SAVE_JOURNAL_PROFILE,SETTLEMENT_PROFILE];
+const FROM_REPEAT_TIP=[REPEAT_TIP_PROFILE,...FROM_SAVE_JOURNAL];
 const FROM_PRACTICE_PRIVACY=[PRACTICE_PRIVACY_PROFILE,...FROM_REPEAT_TIP];
 const FROM_PAYMENT_WALL=[PAYMENT_WALL_PROFILE,...FROM_PRACTICE_PRIVACY];
 const FROM_FEEDBACK_FENCE=[FEEDBACK_FENCE_PROFILE,...FROM_PAYMENT_WALL];
@@ -1032,7 +1038,7 @@ function selectedAdditions(profile) {
     ...(FROM_PAYMENT_WALL.includes(profile)?[{...PAYMENT_WALL_MIGRATION,stage:'payment-wall'}]:[]),
     ...(FROM_PRACTICE_PRIVACY.includes(profile)?[{...PRACTICE_PRIVACY_MIGRATION,stage:'practice-privacy'}]:[]),
     ...(FROM_REPEAT_TIP.includes(profile)?[{...REPEAT_TIP_MIGRATION,stage:'repeat-tip'}]:[]),
-    ...(profile===SAVE_JOURNAL_PROFILE?[{...SAVE_JOURNAL_CLEANUP_MIGRATION,stage:'save-journal-cleanup'}]:[])];
+    ...(FROM_SAVE_JOURNAL.includes(profile)?[{...SAVE_JOURNAL_CLEANUP_MIGRATION,stage:'save-journal-cleanup'}]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
@@ -1113,7 +1119,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
     :profile===PAYMENT_WALL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,PRACTICE_PRIVACY_MIGRATION,REPEAT_TIP_MIGRATION,SAVE_JOURNAL_CLEANUP_MIGRATION]
     :profile===PRACTICE_PRIVACY_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,REPEAT_TIP_MIGRATION,SAVE_JOURNAL_CLEANUP_MIGRATION]
     :profile===REPEAT_TIP_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS,SAVE_JOURNAL_CLEANUP_MIGRATION]
-    :profile===SAVE_JOURNAL_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
+    :FROM_SAVE_JOURNAL.includes(profile)?[MAIN_COMPLETION_BILLING_MIGRATION,...REVIEWED_UNRELATED_MIGRATIONS]
     :REVIEWED_WITHHELD_MIGRATIONS;
   const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
   for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
@@ -1161,7 +1167,8 @@ export function runMainClosureProof() {
   const migrations = manifest.filter(row=>row.version!==null&&plan.replayFiles.includes(row.name));
   const completeT2=T2_PROFILES.includes(args.profile);
   const billingT2=args.profile===BILLING_PROFILE;
-  const saveJournalT2=args.profile===SAVE_JOURNAL_PROFILE;
+  const saveJournalT2=FROM_SAVE_JOURNAL.includes(args.profile);
+  const settlementT2=args.profile===SETTLEMENT_PROFILE;
   const repeatTipT2=FROM_REPEAT_TIP.includes(args.profile);
   const practicePrivacyT2=args.profile===PRACTICE_PRIVACY_PROFILE||repeatTipT2;
   const paymentWallT2=args.profile===PAYMENT_WALL_PROFILE||practicePrivacyT2;
@@ -1622,8 +1629,31 @@ export function runMainClosureProof() {
       const after=check('after');
       writeFileSync(join(evidence,'save-journal-installed-catalog.json'),JSON.stringify({before,after},null,2));
     }
-    assert.deepEqual(history(),plan.stages.at(-1).versions,'historical final ledger differs from replay profile');
-    for(const row of plan.withheld) assert.equal(existsSync(join(directory,'migrations',row.name)),false,'withheld migration was staged');
+    if(settlementT2) {
+      // Native PG17 rehearsal of the exact Production order: the verified post-#1906 ledger, then 129 alone.
+      const sourceRoot=process.cwd(), version=MAIN_COMPLETION_BILLING_MIGRATION.version;
+      const read=() => JSON.parse(sql(`BEGIN READ ONLY; SET LOCAL search_path TO pg_catalog; ${completionSettlementSnapshotQuery()} COMMIT;`));
+      const beforeSnapshot=read();
+      const before=assertCompletionSettlementSnapshot(completionSettlementContract(sourceRoot,'before',version),beforeSnapshot);
+      const release=observeSuccessorReleaseCatalog({ sql, root: sourceRoot, from: 'post-1906-save-journal-cleanup', to: 'post-129-completion-settlement',
+        apply: () => {
+          cpSync(join(root,MAIN_COMPLETION_BILLING_MIGRATION.name),join(directory,'migrations',MAIN_COMPLETION_BILLING_MIGRATION.name));
+          cli(['migration','up','--local','--include-all']);
+          assert.deepEqual(history(),[...plan.stages.at(-1).versions,version].sort(),'settlement installed ledger differs');
+        },
+        mutations: [
+          ['settlement-authenticated-execute', 'GRANT EXECUTE ON FUNCTION public.settle_account_completion_billing_v1(uuid,uuid,uuid,text,jsonb) TO authenticated;'],
+          ['completion-enabled', 'UPDATE public.account_completion_configuration SET enabled = true WHERE singleton;'],
+        ],
+        retain: receipt => writeFileSync(join(evidence,'completion-settlement-installed-t2.json'),JSON.stringify(receipt,null,2)) });
+      assert.deepEqual(release.changedFromPredecessor, {}, 'completion settlement changed T2 inventory');
+      const after=assertCompletionSettlementSnapshot(completionSettlementContract(sourceRoot,'after',version),read(),beforeSnapshot);
+      writeFileSync(join(evidence,'completion-settlement-installed-catalog.json'),JSON.stringify({before,after},null,2));
+    }
+    assert.deepEqual(history(),settlementT2 ? [...plan.stages.at(-1).versions,MAIN_COMPLETION_BILLING_MIGRATION.version].sort()
+      : plan.stages.at(-1).versions,'historical final ledger differs from replay profile');
+    for(const row of plan.withheld) if(!(settlementT2 && row.name===MAIN_COMPLETION_BILLING_MIGRATION.name))
+      assert.equal(existsSync(join(directory,'migrations',row.name)),false,'withheld migration was staged');
     if(!retirementT2) assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname='public' AND p.proname IN ('finish_account_coaching_local_v1','fence_account_coaching_expired_v1'))
       AND to_regclass('public.account_coaching_local_fences') IS NULL
