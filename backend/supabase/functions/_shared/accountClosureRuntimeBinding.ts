@@ -9,6 +9,8 @@ const closed = (v: unknown, keys: string[]): v is Record<string, unknown> => obj
 const sha = (v: unknown, n = 64): v is string => typeof v === 'string' && new RegExp(`^[a-f0-9]{${n}}$`).test(v);
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v);
 function stop(): never { throw new Error('closure_runtime_binding_unavailable'); }
+/** Loopback hosts a local disposable stack serves on; never a hosted project. */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
  * Backend-only, independently prepared current deployment/config/schema facts.
@@ -36,9 +38,7 @@ export function verifyAccountClosureRuntimeBinding(raw: string | undefined, targ
   if (!closed(manifest, ['version', 'deploymentId', 'scope']) || manifest.version !== 1
     || typeof manifest.deploymentId !== 'string' || !manifest.deploymentId
     || manifest.deploymentId !== actualDeploymentId
-    || url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash || url.pathname !== '/') stop();
-  const match = /^([a-z0-9-]{1,63})\.supabase\.co$/.exec(url.hostname);
-  if (!match || !manifest.deploymentId.startsWith(`${match[1]}_`)) stop();
+    || url.username || url.password || url.search || url.hash || url.pathname !== '/') stop();
   const s = manifest.scope;
   if (!closed(s, ['attestationId', 'generation', 'bindingDigest', 'context'])
     || !uuid(s.attestationId) || typeof s.generation !== 'string'
@@ -46,7 +46,20 @@ export function verifyAccountClosureRuntimeBinding(raw: string | undefined, targ
     || !sha(s.bindingDigest) || !closed(s.context, ['candidateSha', 'configDigest', 'migrationDigest', 'projectId', 'environment'])
     || !sha(s.context.candidateSha, 40) || !sha(s.context.configDigest)
     || s.context.migrationDigest !== ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256
-    || s.context.projectId !== match[1] || !['production', 'disposable'].includes(String(s.context.environment))) stop();
-  return { target: { projectId: match[1], environment: s.context.environment as 'production' | 'disposable', url: url.origin },
+    || typeof s.context.projectId !== 'string' || !/^[a-z0-9-]{1,63}$/.test(s.context.projectId)
+    || !['production', 'disposable'].includes(String(s.context.environment))) stop();
+  // The TARGET decides the mode, never the manifest. A hosted target (https, no port, <project>.supabase.co — the URL
+  // the platform supplies to a deployed function) keeps its existing rule. The only other target admitted is a local
+  // test stack: plain http on a loopback host, and then ONLY for a manifest that declares `disposable`. A hosted
+  // deployment cannot reach the local mode by claiming `disposable`, because its own target is never loopback; a
+  // `production` manifest is refused on loopback.
+  const hosted = url.protocol === 'https:' && !url.port ? /^([a-z0-9-]{1,63})\.supabase\.co$/.exec(url.hostname) : null;
+  const local = url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);
+  if (hosted) {
+    if (s.context.projectId !== hosted[1]) stop();
+  } else if (!local || s.context.environment !== 'disposable') stop();
+  const projectId = s.context.projectId;
+  if (!manifest.deploymentId.startsWith(`${projectId}_`)) stop();
+  return { target: { projectId, environment: s.context.environment as 'production' | 'disposable', url: url.origin },
     scope: structuredClone(s) as unknown as ClosureRecoveryScope };
 }
