@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import yaml from 'js-yaml';
 
 // Regression contract for the post-#1290 defect: the hosted Edge-function readback (verify-edge-functions)
@@ -185,6 +185,49 @@ describe('account-closure-only: reviewer-gated, exactly one function, post-129 l
     expect(run).toContain('if [ "$(jq -r .othersUnchanged account-closure-version-reconciliation.json)" != true ]; then');
     expect(run).toContain('if [ "$DEPLOY_OUTCOME" = success ] && [ "$(jq -r .publishedAdvanced account-closure-version-reconciliation.json)" != true ]; then');
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('accepts the real Management API shape: integer updated_at and extra fields (Codex P1 4667736061)', () => {
+    // The shape `supabase functions list -o json` returns (v1 list-all-functions): updated_at/created_at are integers.
+    const real = [
+      { id: 'f1', slug: 'account-closure', name: 'account-closure', status: 'ACTIVE', version: 9, created_at: 1795000000000,
+        updated_at: 1795400000000, verify_jwt: false, import_map: true, entrypoint_path: 'file:///x/index.ts', ezbr_sha256: 'e57c' },
+      { id: 'f2', slug: 'stripe-webhook', name: 'stripe-webhook', status: 'ACTIVE', version: 31, created_at: 1794000000000,
+        updated_at: 1795100000000, verify_jwt: false },
+    ];
+    expect(JSON.parse(jqFile('scripts/edge-roster.jq', [], JSON.stringify(real)))).toEqual([
+      { slug: 'account-closure', version: 9, status: 'ACTIVE', updated_at: 1795400000000 },
+      { slug: 'stripe-webhook', version: 31, status: 'ACTIVE', updated_at: 1795100000000 },
+    ]);
+    for (const updated of [null, '', true, [], {}]) {
+      expect(() => jqFile('scripts/edge-roster.jq', [], JSON.stringify([{ ...real[0], updated_at: updated }]))).toThrow();
+    }
+  });
+
+  it('the T2 CLI refuses account-closure-release on the pre-129 ledger and admits the post-129 ledger past that check (Codex P1 4667508806)', () => {
+    const fifteen = ['20261018090000', '20261018170000', '20261019010000', '20261019055102', '20261019202856', '20261020230653',
+      '20261024083000', '20261025021046', '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700',
+      '20261119120000', '20261119200000'];
+    const dir = mkdtempSync(join(process.cwd(), '.account-closure-cli-'));
+    try {
+      // Transport only: the real CLI and contract run; the fake psql returns the ledger and refuses non-read-only use.
+      writeFileSync(join(dir, 'psql'), `#!/usr/bin/env node\nimport('node:fs').then((fs) => {
+if(!String(process.env.PGOPTIONS||'').includes('default_transaction_read_only=on'))process.exit(9);
+console.log(fs.readFileSync(process.env.LEDGER_ROW,'utf8'));});\n`);
+      chmodSync(join(dir, 'psql'), 0o700);
+      const invoke = (ledger) => {
+        writeFileSync(join(dir, 'ledger.json'), JSON.stringify(ledger));
+        return spawnSync(process.execPath, ['scripts/t2-migration-postflight.mjs', 'verify', 'account-closure-release'], {
+          encoding: 'utf8', timeout: 20_000, env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, LEDGER_ROW: join(dir, 'ledger.json') } });
+      };
+      const pre = invoke(fifteen);
+      expect(pre.status).toBe(1);
+      expect(pre.stderr).toContain('T2 account-closure release requires the post-129 completion settlement ledger');
+      const post = invoke([...fifteen, '20261027192550'].sort());
+      expect(post.status).toBe(1); // the fake transport cannot supply a full snapshot, so it still fails closed later
+      expect(post.stderr).not.toContain('requires the post-129 completion settlement ledger');
+      expect(post.stderr).not.toContain('T2 release ledger unknown');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('the T2 CLI admits account-closure-release only on the post-129 completion-settlement ledger', () => {
