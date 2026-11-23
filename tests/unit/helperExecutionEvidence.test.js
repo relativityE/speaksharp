@@ -72,6 +72,21 @@ test('AHT-02 through AHT-15 helpers select exact offline callable consumers on h
   assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/rwtAdverseJourney.ts'),false,
     'source-reviewed journey must not acquire live execution credit');
 });
+test('J1.b coaching collector routes to its real unit consumer, never UNCOVERED',()=>{
+  // Run 45253840361 attempt 2: full-evidence reported this helper UNCOVERED because it had no registered consumer.
+  const helperFile='tests/live/helpers/rwtCoachingCollector.ts',testFile='tests/unit/rwtCoachingRetentionEvidence1593.test.ts';
+  const callables=['createCoachingTakeCapture','witnessShownTake'];
+  assert.deepEqual(HELPER_CONTRACTS.find(item=>item.helperFile===helperFile),{helperFile,testFile,callables});
+  const route=executionRoute(helperFile,root);
+  assert.equal(route.runner,'vitest-helper');
+  assert.equal(route.applicable,true);
+  const selected=selectExecutionContracts(root,[helperFile],{helpersOnly:true});
+  assert.equal(selected.length,1);
+  assert.equal(selected[0].testFile,testFile);
+  assert.deepEqual(selected[0].callables,callables);
+  const consumer=fs.readFileSync(path.join(root,testFile),'utf8');
+  for(const name of callables)assert.match(consumer,new RegExp(`\\b${name}\\(`),`${testFile} must call ${name}`);
+});
 test('AHT helper qualification refuses missing consumer and missing callable for every added edge',()=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'aht-helper-routes-'));
   try {
