@@ -44,36 +44,36 @@ Track quality improvements without changing the 24/24 functional target. A row e
 - **Evidence requested from owners:** Link the exact stage and receipt with a sanitized provider status, whether a useful suggestion ultimately rendered, and its saved-take binding. A recovered 503 with delivered coaching is quality degradation; if required coaching never arrives, also record the functional action failure or hold as the evidence warrants. Neither label implies PASS.
 - **Independent agreement:** Pending matching evidence. This entry tracks the quality concern without assigning it to a specific run prematurely.
 
-## 24-leg quality cross-reference
+## 24-row functional and quality cross-reference
 
-This index is not the acceptance tally. “None identified here” means no qualifying quality example has been inventoried in this document yet, not a clean result. “Not reached / unverified” means completion of the requested action has not been established for this quality review. Record a quality ID when an example is found; do not invent an item for each row.
+Target: **24/24 verified functional passes**. Current working board: **14/24**, including the existing scoped J3.a provider exception and historical disposable/test-mode receipts. This table does not replace or rewrite original test receipts. A row that did not complete, or has no qualifying evidence of completion, remains open even if it also has an output-quality finding. “None identified” is not proof that the output was flawless.
 
-| Leg | Quality finding or evidence status |
-| --- | --- |
-| J1.a | Q01 |
-| J1.b | None identified here; Q04 is not attributed to this leg |
-| J1.c | None identified here |
-| J1.d | None identified here; disposable evidence is not live acceptance |
-| J1.e | None identified here; disposable evidence is not live acceptance |
-| J1.f | Deletion completion not reached / unverified |
-| J2 | None identified here; test-mode evidence is not live acceptance |
-| J3.a | None identified here; Q04 is not attributed to this leg |
-| J3.b | Q02; Q03 conditional; after-Stop-only marker is a functional gap |
-| J4.a | None identified here |
-| J4.b | None identified here |
-| J5.a | None identified here |
-| J5.b | None identified here |
-| J5.c | None identified here |
-| J6 | None identified here |
-| J7.a | None identified here |
-| J7.b | None identified here |
-| J7.c | None identified here |
-| J7.d | Deletion completion not reached / unverified |
-| J8.a | None identified here |
-| J8.b | None identified here |
-| J8.c | None identified here |
-| J9.a | No quality finding identified; kept history, Progress, and billing portal not yet verified in Stripe test mode |
-| J9.b | No quality finding identified; Stripe test-mode charge and restored access not yet run |
+| Row | Functional disposition and evidence | Quality finding |
+| --- | --- | --- |
+| J1.a | PASS: signup, 30-day trial and first take saved once [receipt](https://github.com/relativityE/speaksharp/actions/runs/45142628330/job/137584107038) | Q01, confirmed |
+| J1.b | HOLD: saved coaching for the right interrupted take was not witnessed in the required window [receipt](https://github.com/relativityE/speaksharp/actions/runs/45142628330/job/137584107038), [proof fix #1961](https://github.com/relativityE/speaksharp/pull/1961) | None identified; Q04 is not attributed to this row |
+| J1.c | PASS: short Stop saved nothing [receipt](https://github.com/relativityE/speaksharp/actions/runs/45142628330/job/137584107038) | None identified |
+| J1.d | Historical disposable-stack PASS, not a new production pass | None identified |
+| J1.e | Historical disposable-stack PASS, not a new production pass | None identified |
+| J1.f | NOT RUN for completion proof: deleting from the trial wall is still unverified [proof PR #1953](https://github.com/relativityE/speaksharp/pull/1953) | None identified |
+| J2 | PASS on disposable stack in Stripe test mode [receipt](https://github.com/relativityE/speaksharp/actions/runs/45070822108) | None identified |
+| J3.a | Scoped PASS carried on the board under the prior provider exception; not proof that coaching delivery passed [diagnostic](https://github.com/relativityE/speaksharp/actions/runs/44939946343) | Q04 not attributed without an exact 503 |
+| J3.b | FAIL: only two of three expected markers appeared while recording; point 3 appeared only after Stop [receipt](https://github.com/relativityE/speaksharp/actions/runs/45144884602/job/137591599260) | Q02 confirmed for delivered coaching; Q03 pending live timing evidence. Neither excuses the missed live mark. |
+| J4.a | Historical PASS on the journey board | None identified |
+| J4.b | Historical PASS on the journey board | None identified |
+| J5.a | Historical live PASS on the journey board | None identified |
+| J5.b | Historical live PASS on the journey board | None identified |
+| J5.c | Historical live PASS on the journey board | None identified |
+| J6 | Historical live PASS on the journey board | None identified |
+| J7.a | Historical live PASS on the journey board | None identified |
+| J7.b | Historical live PASS on the journey board | None identified |
+| J7.c | NOT RUN: [runner setup timed out](https://github.com/relativityE/speaksharp/actions/runs/45190395937/job/137746917020) before the requested mid-download interruption | None identified |
+| J7.d | NOT RUN for completion proof: deleting from Account is still unverified [proof PR #1953](https://github.com/relativityE/speaksharp/pull/1953) | None identified |
+| J8.a | NOT RUN on the required route: feedback before any take; [PR CI](https://github.com/relativityE/speaksharp/actions/runs/45190550292) is not a journey result | None identified |
+| J8.b | NOT RUN on the required route: feedback on an older take and its coaching; [PR CI](https://github.com/relativityE/speaksharp/actions/runs/45190550292) is not a journey result | None identified |
+| J8.c | NOT RUN on the required route: choose No session with takes listed; [PR CI](https://github.com/relativityE/speaksharp/actions/runs/45190550292) is not a journey result | None identified |
+| J9.a | NOT RUN: kept history, Progress and billing portal not yet verified on the planned Stripe test-mode route [#1958](https://github.com/relativityE/speaksharp/pull/1958) | None identified |
+| J9.b | NOT RUN: one Stripe test-mode charge and restored access not yet verified [#1937](https://github.com/relativityE/speaksharp/pull/1937) | None identified |
 
 ## Contribution template
 
