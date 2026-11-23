@@ -94,6 +94,9 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, 
     receipt.forbid(owner.email, SERVICE_ROLE);
     const account = await signUpDisposableAccount(page, owner.email);
     owner.uid = account.uid;
+    // The account id reaches receipt evidence through the fence, feedback and readback helpers: the leak guard must know it, so an
+    // uploaded receipt that carries it is replaced by the redacted failure receipt. (The password never leaves the signup closure.)
+    receipt.forbid(owner.uid);
     const identity = await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);
     if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
     receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');

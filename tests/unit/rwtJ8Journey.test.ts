@@ -15,7 +15,7 @@ import {
     j8bFinalSentFeedbackVerdict, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
 } from '../live/helpers/rwtJ8Journey';
 import type { ReadbackActionBinding } from '../live/helpers/rwtAcceptance';
-import { RwtReceipt, telemetryClassRows } from '../live/helpers/rwtJourney';
+import { RwtReceipt, receiptContentLeaks, telemetryClassRows } from '../live/helpers/rwtJourney';
 import type { ReadbackPlan } from '../live/helpers/rwtOracles';
 
 const RELEASE = 'a'.repeat(40);
@@ -578,4 +578,25 @@ describe('the J8 nightly entry\'s admission is the one the spec accepts, for thi
         const held = entry.j8CaseResult(receipt, unqualified, entry.finalizerEvaluate(receipt, unqualified, { workDir: fresh() }));
         expect(held.assertions.some((a) => a.result === 'HOLD')).toBe(true);
     }, 60_000);
+});
+
+describe('J8 receipt leak guard: the run-owned account id is registered (upload-payload review, 23 Nov)', () => {
+    const spec = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../live/rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+    it('the spec registers owner.uid with the receipt immediately after it is known, beside the email and the service key', () => {
+        const assigned = spec.indexOf('owner.uid = account.uid;');
+        const forbidden = spec.indexOf('receipt.forbid(owner.uid);');
+        expect(assigned).toBeGreaterThan(-1);
+        expect(forbidden).toBeGreaterThan(assigned);
+        expect(spec.slice(assigned, forbidden).split('\n').filter((l) => !l.trim().startsWith('//')).length).toBeLessThanOrEqual(2);
+        expect(spec).toContain('receipt.forbid(owner.email, SERVICE_ROLE);');
+    });
+    it('a receipt carrying the registered account id is caught by the content check; one without it is clean', () => {
+        const uid = '7f3c9a1e-1111-4111-8111-222222222222';
+        const leaking = new RwtReceipt(J8_SUITE);
+        leaking.row('evidence carrying the id', 'PASS', 'detail', { userId: uid });
+        expect(receiptContentLeaks(leaking, [uid])).toEqual([uid]);
+        const clean = new RwtReceipt(J8_SUITE);
+        clean.row('evidence without the id', 'PASS', 'detail', { userIdSha256: 'a'.repeat(64) });
+        expect(receiptContentLeaks(clean, [uid])).toEqual([]);
+    });
 });
