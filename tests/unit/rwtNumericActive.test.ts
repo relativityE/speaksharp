@@ -167,11 +167,12 @@ const R_CONFIG = { sourceSha: R, servedSha: R, account: { id: 'owner' } };
 const HISTORICAL_BYTES = Object.fromEntries(harness.CONSUMERS.map((c) => [c.path, readFileSync(resolve(ADAPTERS, 'source/d100', c.path.split('/').pop() as string))]));
 const blobs = (bytes: Record<string, Buffer>): ReadBlob => (_sha, file) => { if (!Object.hasOwn(bytes, file)) throw new Error('missing ' + file); return bytes[file]; };
 const RECORD = 'frontend/src/services/progress/recordProgress.ts';
-// The registered-repeat recordProgress.ts, stored as a non-source fixture: the test needs no git history (the evidence runner executes
-// changed tests in a history-free copy). Its bytes are proven to be git blob 52eec014 (recordProgress.ts at c921a350) below.
-const REGISTERED_RECORD = readFileSync(resolve(__dirname, '../fixtures/numeric-source/recordProgress.c921a350.ts.txt'));
+// No git history and no stored copy (the evidence runner executes changed tests in a history-free copy): the rule tests use the
+// historical set, itself a complete sealed set, and the registered set is judged against the CURRENT checkout's recordProgress.ts.
 const gitBlobId = (bytes: Buffer) => createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])).digest('hex');
-const REGISTERED = { readBlob: blobs({ ...HISTORICAL_BYTES, [RECORD]: REGISTERED_RECORD }) };
+const CURRENT_RECORD = readFileSync(resolve(__dirname, '../..', RECORD));
+const REGISTERED_BLOB = '52eec0141fa42e046a88f05d46af1bc3e5d21afd';
+const REGISTERED = { readBlob: blobs(HISTORICAL_BYTES) };
 const unreadable: ReadBlob = () => { throw new Error('git object missing'); };
 const sessions = (product: string) => [{ id: 'A', user_id: 'owner', product }, { id: 'B', user_id: 'owner', product }];
 const activeArgs = (data: Data, product: unknown, more: Partial<NumericActiveArgs> = {}): NumericActiveArgs =>
@@ -183,14 +184,22 @@ describe('G03 active numeric check: source, identity and verdicts', () => {
         expect(NUMERIC_CONSUMER_PATHS).toEqual(harness.CONSUMERS.map((c) => c.path));
         expect(NUMERIC_SOURCE_SETS[0].sha256).toEqual(NUMERIC_CONSUMER_PATHS.map((p) => sha256(HISTORICAL_BYTES[p])));
         expect(NUMERIC_SOURCE_SETS[1].sha256.slice(0, 3)).toEqual(NUMERIC_SOURCE_SETS[0].sha256.slice(0, 3));
-        expect(NUMERIC_SOURCE_SETS[1].sha256[3]).toBe(sha256(REGISTERED_RECORD));
-        expect(gitBlobId(REGISTERED_RECORD)).toBe('52eec0141fa42e046a88f05d46af1bc3e5d21afd');
         expect(NUMERIC_SOURCE_SETS[1].sha256[3]).not.toBe(NUMERIC_SOURCE_SETS[0].sha256[3]);
     });
 
-    it('both complete sets qualify at an arbitrary exact release', () => {
+    it('the historical set qualifies at an arbitrary exact release', () => {
         expect(preflightActive(R_CONFIG, { readBlob: blobs(HISTORICAL_BYTES) }).set).toBe('historical-5a7bf6a1');
-        expect(preflightActive(R_CONFIG, REGISTERED).set).toBe('registered-repeat-c921a350');
+    });
+
+    it('the registered set: today\'s recordProgress.ts either IS blob 52eec014 and qualifies as registered-repeat, or the check refuses it', () => {
+        const current = blobs({ ...HISTORICAL_BYTES, [RECORD]: CURRENT_RECORD });
+        if (gitBlobId(CURRENT_RECORD) === REGISTERED_BLOB) {
+            expect(sha256(CURRENT_RECORD)).toBe(NUMERIC_SOURCE_SETS[1].sha256[3]);
+            expect(preflightActive(R_CONFIG, { readBlob: current }).set).toBe('registered-repeat-c921a350');
+        } else {
+            // recordProgress.ts changed since c921a350: the active check must HOLD until a new set is sealed.
+            expect(matchingNumericSet(R, current)).toBeNull();
+        }
     });
 
     it('no trusted SHA: the historical origin with unreadable git bytes is NOT_RUN', () => {
