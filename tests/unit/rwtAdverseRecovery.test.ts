@@ -4,13 +4,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL, MODEL_SETUP_FAILED_COPY, NOT_SUPPORTED_WORDING,
     RECOVERY_CONTROLS, type BetweenFilesSnapshot, type ModelBytesRead, type OfflineFaultIo, type OfflineFaultOutcome, type RecoveryAttempt,
     type ReopenObservation, type ShownFailure, attemptPhase, betweenFilesFailureVerdict, betweenFilesGate, coldTakeSettledVerdict,
     isRecoveryControl, offlineNotExercisedVerdict, runBetweenFilesFault, SETUP_RUNTIME_STATE, shownFailureVerdict, unprovenRestoreVerdict,
-    faultUnprovenRecoveryVerdict, worstVerdict, pollShownFailure, shownFailureSettled, recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
+    faultUnprovenRecoveryVerdict, worstVerdict, pollShownFailure, shownFailureSettled, shownToastTexts, recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from '../live/helpers/rwtAdverseRecovery';
 import { mapToRuntimeState } from '../../frontend/src/lib/forensicAnchors';
 import { createProgressAggregator } from '../../frontend/src/services/transcription/engines/progressAggregator';
@@ -333,57 +333,117 @@ describe('J7.c option B — what the person sees on the failed attempt (PO and S
         expect(shownFailureVerdict(shown({ cardText: null })).status).toBe('HOLD');
         expect(shownFailureVerdict(shown({ toastTexts: null })).status).toBe('HOLD');
     });
-    it('settled (Elon on 90cf2eba): a toast alone is not final; the card\'s setup-failed line with Retry and a toast is, and so is any "not supported"', () => {
-        expect(shownFailureSettled(shown())).toBe(true);
-        // The toast rendered before the card re-rendered: read again, never judged yet.
+    it('final early only when it can no longer pass (Sam, 2026-11-23): off the attempt, or "not supported" shown; never a correct card', () => {
+        // A correct card with Retry and a toast is NOT final: a "not supported" toast can still arrive on a later read.
+        expect(shownFailureSettled(shown())).toBe(false);
+        expect(shownFailureSettled(shown({ toastTexts: [] }))).toBe(false);
+        // The toast rendered before the card re-rendered (Elon on 90cf2eba): read on.
         expect(shownFailureSettled(shown({ cardText: 'Download Private model' }))).toBe(false);
         expect(shownFailureSettled(shown({ retryVisible: false, retryEnabled: false }))).toBe(false);
-        expect(shownFailureSettled(shown({ retryEnabled: null }))).toBe(false);
-        // No toast yet: read until the bound, so a late toast's wording is still judged.
-        expect(shownFailureSettled(shown({ toastTexts: [] }))).toBe(false);
-        // "Not supported" anywhere is FAIL whatever follows, so it is final at once.
+        // "Not supported" shown anywhere is FAIL whatever follows, so it ends the window at once.
         expect(shownFailureSettled(shown({ cardText: 'Download Private model', toastTexts: ['not supported'], retryVisible: false }))).toBe(true);
         expect(shownFailureSettled(shown({ cardText: 'Unsupported', toastTexts: [] }))).toBe(true);
-        // Unbound or unreadable reads are never final.
-        for (const over of [{ sameAttempt: false }, { sameAttempt: null }, { cardText: null }, { toastTexts: null }] as Partial<ShownFailure>[])
-            expect(shownFailureSettled(shown({ ...over, toastTexts: over.toastTexts === null ? null : ['not supported'] }))).toBe(false);
+        // Off the attempt: a pass needs the whole window on it, so it ends as HOLD.
+        for (const sameAttempt of [false, null]) {
+            expect(shownFailureSettled(shown({ sameAttempt }))).toBe(true);
+            expect(shownFailureVerdict(shown({ sameAttempt })).status).toBe('HOLD');
+        }
+        // Unreadable reads are read again.
+        expect(shownFailureSettled(shown({ cardText: null, toastTexts: ['not supported'] }))).toBe(false);
+        expect(shownFailureSettled(shown({ toastTexts: null }))).toBe(false);
     });
-    describe('pollShownFailure: reads until final or the bound', () => {
+    describe('pollShownFailure: reads the whole observation window unless a read can no longer pass', () => {
         const run = async (reads: ShownFailure[], budgetMs = 5_000) => {
             let t = 0; let n = 0; const slept: number[] = [];
             const last = await pollShownFailure(async () => reads[Math.min(n++, reads.length - 1)], {
                 budgetMs, now: () => t, sleep: async (ms) => { slept.push(ms); t += ms; } });
             return { last, reads: n, slept };
         };
-        it('CONTROL (Elon): the toast lands one poll before the card\'s setup-failed line, and the row is PASS', async () => {
-            const early = shown({ cardText: 'Retry Private setup\nDownloading Private model', retryVisible: false, retryEnabled: false });
-            const r = await run([early, shown()]);
+        const notSupported = shown({ toastTexts: ['file was not found locally at /models/x', 'Private mode is not supported in this browser'] });
+        it('CONTROL (Sam, blocking): a visible "not supported" toast that arrives after a pass-shaped read is FAIL', async () => {
+            const r = await run([shown(), notSupported, shown()], 1_000);
             expect(r.reads).toBe(2);
+            expect(r.last).toEqual(notSupported);
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
+            // The old stop at "correct card + Retry + any toast" judged the first read: a false PASS.
+            expect(shownFailureVerdict(shown()).status).toBe('PASS');
+        });
+        it('CONTROL (Elon): the late toast lands well after the first settled-looking read and is still caught', async () => {
+            const reads = [...Array(12).fill(shown()), notSupported];
+            const r = await run(reads, 5_000);
+            expect(r.reads).toBe(13); // read 13 is at 3000 ms, inside the 5 s window
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
+        });
+        it('CONTROL (Sam): the correct card with no toast, held for the whole window, is PASS', async () => {
+            const r = await run([shown({ toastTexts: [] })], 1_000);
+            expect(r.reads).toBe(5); // 0, 250, 500, 750, 1000 ms
+            expect(r.slept.every((ms) => ms === 250)).toBe(true);
+            expect(shownFailureVerdict(r.last).status).toBe('PASS');
+        });
+        it('a correct card with a benign toast is read for the whole window, then PASS', async () => {
+            const r = await run([shown()], 1_000);
+            expect(r.reads).toBe(5);
+            expect(shownFailureVerdict(r.last).status).toBe('PASS');
+        });
+        it('CONTROL (Elon on 90cf2eba): the toast lands one poll before the card\'s setup-failed line, and the row is PASS', async () => {
+            const early = shown({ cardText: 'Retry Private setup\nDownloading Private model', retryVisible: false, retryEnabled: false });
+            const r = await run([early, shown()], 1_000);
+            expect(r.reads).toBe(5);
             expect(r.last).toEqual(shown());
             expect(shownFailureVerdict(r.last).status).toBe('PASS');
-            // The old stop-at-first-toast read judged the early frame, a false FAIL.
             expect(shownFailureVerdict(early).status).toBe('FAIL');
         });
-        it('stops at once on a final read; "not supported" stops it as FAIL', async () => {
-            expect((await run([shown()])).reads).toBe(1);
-            const bad = shown({ toastTexts: ['This browser is unsupported'] });
-            const r = await run([bad, shown()]);
+        it('"not supported" on the first read ends it at once as FAIL', async () => {
+            const r = await run([shown({ toastTexts: ['This browser is unsupported'] }), shown()]);
             expect(r.reads).toBe(1);
             expect(shownFailureVerdict(r.last).status).toBe('FAIL');
         });
-        it('a read that never settles is judged at the bound: no toast is PASS on the card; a card that never states the failure is FAIL', async () => {
-            const noToast = await run([shown({ toastTexts: [] })], 1_000);
-            expect(noToast.reads).toBe(5); // 0, 250, 500, 750, 1000 ms
-            expect(noToast.slept.every((ms) => ms === 250)).toBe(true);
-            expect(shownFailureVerdict(noToast.last).status).toBe('PASS');
-            const neverStated = await run([shown({ cardText: 'Download Private model' })], 1_000);
-            expect(neverStated.reads).toBe(5);
-            expect(shownFailureVerdict(neverStated.last).status).toBe('FAIL');
+        it('a card that never states the failure is FAIL at the bound', async () => {
+            const r = await run([shown({ cardText: 'Download Private model' })], 1_000);
+            expect(r.reads).toBe(5);
+            expect(shownFailureVerdict(r.last).status).toBe('FAIL');
         });
-        it('a read that moves off the attempt at the bound is HOLD, never a pass', async () => {
-            const r = await run([shown({ toastTexts: [] }), shown({ sameAttempt: false })], 250);
+        it('a read that moves off the attempt mid-window ends it as HOLD, never a pass, even if later reads would look right', async () => {
+            const r = await run([shown(), shown({ sameAttempt: false }), shown()], 1_000);
             expect(r.reads).toBe(2);
             expect(shownFailureVerdict(r.last).status).toBe('HOLD');
+        });
+    });
+    describe('shownToastTexts: only text a person can see (Sam, 2026-11-23: never a queued toast at opacity 0)', () => {
+        type Style = { display: string; visibility: string; opacity: string };
+        type Node = { innerText: string; parentElement: Node | null; style: Style };
+        const SHOWN: Style = { display: 'flex', visibility: 'visible', opacity: '1' };
+        const node = (style: Partial<Style> = {}, parentElement: Node | null = null, innerText = ''): Node =>
+            ({ innerText, parentElement, style: { ...SHOWN, ...style } });
+        const texts = (toasts: Node[]) => {
+            vi.stubGlobal('getComputedStyle', (el: Node) => el.style);
+            try { return shownToastTexts(toasts as unknown as Element[]); } finally { vi.unstubAllGlobals(); }
+        };
+        const body = node(); const list = node({}, body);
+        it('CONTROL: hidden stale "not supported" text is not read; the shown toast is', () => {
+            const stale = 'Private mode is not supported in this browser';
+            const read = texts([
+                node({ opacity: '0' }, list, stale), // sonner's queued toast (data-visible=false)
+                node({}, node({ opacity: '0' }, list), stale), // inside a faded-out container
+                node({ visibility: 'hidden' }, list, stale),
+                node({ display: 'none' }, list, stale),
+                node({}, node({ display: 'none' }, body), stale),
+                node({ opacity: '0.4' }, list, 'file was not found locally at /models/x'), // mid-fade is shown
+            ]);
+            expect(read).toEqual(['file was not found locally at /models/x']);
+            expect(shownFailureVerdict(shown({ toastTexts: read })).status).toBe('PASS');
+        });
+        it('CONTROL: a shown "not supported" toast is read, and is FAIL', () => {
+            const read = texts([node({}, list, 'Private mode is not supported in this browser')]);
+            expect(read).toEqual(['Private mode is not supported in this browser']);
+            expect(shownFailureVerdict(shown({ toastTexts: read })).status).toBe('FAIL');
+        });
+        it('no toasts is an empty read, not an unreadable one', () => {
+            expect(texts([])).toEqual([]);
+        });
+        it('runs in the page on its own: it names nothing outside itself', () => {
+            const fn = shownToastTexts.toString();
+            expect(fn).not.toMatch(/NOT_SUPPORTED_WORDING|MODEL_SETUP_FAILED_COPY|shownFailure|import|require\(/);
         });
     });
     it('one row from both verdicts: FAIL over HOLD over PASS, the first of the worst speaking', () => {
@@ -408,14 +468,22 @@ describe('J7.c option B — what the person sees on the failed attempt (PO and S
         // Bound to the attempt before AND after the reads, so a log that moved on never binds them.
         expect(fn.match(/\(await attemptPhaseOf\(page, fromIndex\)\) === 'setup-failed'/g)?.length).toBe(2);
         expect(fn).toContain("page.getByTestId('mic-card').innerText(");
-        expect(fn).toContain("page.locator('[data-sonner-toast]').allInnerTexts()");
+        // Sam, 2026-11-23: only toasts actually shown, never queued text at opacity 0.
+        expect(fn).toContain("page.locator('[data-sonner-toast]').evaluateAll(shownToastTexts)");
+        expect(fn).not.toContain('allInnerTexts');
         expect(fn).toContain("page.getByTestId('mic-retry')");
         expect(fn).toContain('retry.isEnabled()');
         expect(fn).not.toMatch(/\.click\(|\.press\(|setOffline|unsupported|acquisition/i);
-        // Elon on 90cf2eba: read until final or the bound, never stopped by the first toast.
+        // Sam, 2026-11-23: read for the whole window; only a read that can no longer pass ends it early.
         expect(fn).toContain('return pollShownFailure(async () => {');
         expect(fn).toContain('{ budgetMs: SHOWN_FAILURE_MS, sleep: (ms) => page.waitForTimeout(ms) }');
         expect(fn).not.toMatch(/toastTexts\.length|toastTexts !== null/);
+    });
+    it('the isolated browser proof reads the same way: only shown toasts, through the same poll', () => {
+        const spec = readFileSync(path.resolve(here, '../e2e/j7c-real-worker-isolated.e2e.spec.ts'), 'utf8');
+        expect(spec).toContain("page.locator('[data-sonner-toast]').evaluateAll(shownToastTexts)");
+        expect(spec).not.toContain('allInnerTexts');
+        expect(spec).toContain('const shown = await pollShownFailure(async () => {');
     });
 });
 

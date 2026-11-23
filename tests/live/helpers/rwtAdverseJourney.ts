@@ -37,7 +37,7 @@ import {
     type ModelBytesRead, type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl,
     type AttemptPhase, type BetweenFilesSnapshot, type ShownFailure, attemptPhase, coldTakeSettledVerdict, betweenFilesFailureVerdict,
     betweenFilesGate, faultUnprovenRecoveryVerdict, offlineNotExercisedVerdict, runBetweenFilesFault, shownFailureVerdict, unprovenRestoreVerdict,
-    worstVerdict, NOT_SUPPORTED_WORDING, pollShownFailure,
+    worstVerdict, NOT_SUPPORTED_WORDING, pollShownFailure, shownToastTexts,
     recoverySavedVerdict, retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from './rwtAdverseRecovery';
 
@@ -134,16 +134,16 @@ const attemptPhaseOf = async (page: Page, fromIndex: number): Promise<AttemptPha
 
 /**
  * J7.c (Sam, 2026-11-22): what the person sees on the failed attempt, read on that attempt, offline, before anything is pressed.
- * Read again until the read is final (`shownFailureSettled`: Elon on 90cf2eba, a toast can render before the card's
- * setup-failed line) or SHOWN_FAILURE_MS has passed; each read takes the mic card's text, every toast's text and the Retry
- * control's state, and is bound to the attempt by its own log (still this attempt's setup failure, in this document).
- * `shownFailureVerdict` judges the last read; the telemetry code is never read here.
+ * Read for the whole SHOWN_FAILURE_MS window (Sam, 2026-11-23: a late "not supported" toast is still read; only a read off the
+ * attempt or showing "not supported" ends it early). Each read takes the mic card's text, the text of each toast actually shown
+ * (`shownToastTexts`, never one queued at opacity 0) and Retry's state, bound to the attempt by its own log (still this attempt's
+ * setup failure, in this document). `shownFailureVerdict` judges the read the poll returns; the telemetry code is never read.
  */
 async function readShownFailure(page: Page, fromIndex: number): Promise<ShownFailure> {
     return pollShownFailure(async () => {
         const sameAttempt = (await attemptPhaseOf(page, fromIndex)) === 'setup-failed';
         const cardText = await page.getByTestId('mic-card').innerText({ timeout: 2_000 }).catch(() => null);
-        const toastTexts = await page.locator('[data-sonner-toast]').allInnerTexts().catch(() => null);
+        const toastTexts = await page.locator('[data-sonner-toast]').evaluateAll(shownToastTexts).catch(() => null);
         const retry = page.getByTestId('mic-retry');
         const retryVisible = await retry.isVisible().catch(() => null);
         const retryEnabled = retryVisible ? await retry.isEnabled().catch(() => null) : false;

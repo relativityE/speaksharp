@@ -448,21 +448,43 @@ export function shownFailureVerdict(o: ShownFailure | null): Verdict {
 }
 
 /**
- * Elon on 90cf2eba (P2): whether a read of the failed attempt is final, so the poll can stop without a false FAIL from timing.
- * The error toast can render a moment before the mic card re-renders with the setup-failed line, so "a toast exists" is not
- * final. A read is final when it is bound to the attempt and readable, and either something visible already says "not
- * supported" (FAIL whatever follows), or the card states the failure with Retry enabled and a toast is shown (its wording is
- * then judged too). Anything else is read again until the bound; a page with no toast at all is read until the bound.
+ * Sam, 2026-11-23 (#1941, blocking): the text of the toasts a person can actually see, passed as is to `evaluateAll` on
+ * `[data-sonner-toast]` (it runs in the page, so it uses nothing outside itself). sonner keeps queued, entering and leaving toasts
+ * in the page at opacity 0 (this app shows one or two at a time), and that text was never shown to anyone. A toast counts only
+ * when neither it nor any ancestor is `display: none`, `visibility: hidden` or `collapse`, or opacity 0; its `innerText` then
+ * leaves out any hidden part of it.
  */
-export function shownFailureSettled(o: ShownFailure): boolean {
-    if (o.sameAttempt !== true || o.cardText === null || o.toastTexts === null) return false;
-    if ([o.cardText, ...o.toastTexts].some((text) => NOT_SUPPORTED_WORDING.test(text))) return true;
-    return o.cardText.includes(MODEL_SETUP_FAILED_COPY) && o.retryVisible === true && o.retryEnabled === true && o.toastTexts.length > 0;
+export function shownToastTexts(toasts: readonly Element[]): string[] {
+    const texts: string[] = [];
+    for (const toast of toasts) {
+        let shown = true;
+        for (let el: Element | null = toast; shown && el !== null; el = el.parentElement) {
+            const style = getComputedStyle(el);
+            shown = style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse' && Number(style.opacity || '1') !== 0;
+        }
+        if (shown) texts.push((toast as HTMLElement).innerText);
+    }
+    return texts;
 }
 
 /**
- * Reads the failed attempt until a read is final (`shownFailureSettled`) or `budgetMs` has passed, and returns the last read.
- * `read` takes one bound read of the page; the clock and the wait between reads are injected so the poll is tested offline.
+ * Whether a read of the failed attempt ends the observation window early. Only a read that can no longer pass does: one no
+ * longer bound to the failed attempt (HOLD; a pass needs the whole window on that attempt), or a bound, readable read in which
+ * something shown says "not supported" (FAIL whatever follows). Sam, 2026-11-23 (#1941, blocking): a correct card with Retry
+ * enabled and a toast is NOT final, because a "not supported" toast can still arrive on a later read; a pass is judged only on
+ * the last read of the whole window. (This replaces the early stop on a correct card plus any toast from Elon on 90cf2eba; his
+ * case, a toast that renders before the card's setup-failed line, is still read past, because nothing stops before the bound.)
+ */
+export function shownFailureSettled(o: ShownFailure): boolean {
+    if (o.sameAttempt !== true) return true;
+    if (o.cardText === null || o.toastTexts === null) return false;
+    return [o.cardText, ...o.toastTexts].some((text) => NOT_SUPPORTED_WORDING.test(text));
+}
+
+/**
+ * Reads the failed attempt for the whole observation window (`budgetMs`) and returns the last read, unless a read ends it early
+ * (`shownFailureSettled`: off the attempt, or "not supported" shown), in which case that read is returned. `read` takes one
+ * bound read of the page; the clock and the wait between reads are injected so the poll is tested offline.
  */
 export async function pollShownFailure(read: () => Promise<ShownFailure>, { budgetMs, intervalMs = 250, now = () => Date.now(),
     sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms); }) }: { budgetMs: number; intervalMs?: number; now?: () => number;

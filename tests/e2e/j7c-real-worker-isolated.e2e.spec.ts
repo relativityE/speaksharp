@@ -37,7 +37,7 @@ import { navigateToRoute } from './helpers';
 import { setupE2EMocks } from './mock-routes';
 import { BetweenFilesHold, MODEL_ASSETS, ModelTransferTracker, armRuntimeStateLog, readRuntimeStateLog } from '../live/helpers/rwtAdverse';
 import {
-    attemptPhase, betweenFilesGate, pollShownFailure, runBetweenFilesFault, shownFailureVerdict, type BetweenFilesSnapshot, type ModelBytesRead,
+    attemptPhase, betweenFilesGate, pollShownFailure, runBetweenFilesFault, shownFailureVerdict, shownToastTexts, type BetweenFilesSnapshot, type ModelBytesRead,
 } from '../live/helpers/rwtAdverseRecovery';
 
 const PINNED = JSON.parse(readFileSync(join(process.cwd(), 'frontend', 'src', 'services', 'transcription', 'selfHostedAssetPins.json'), 'utf8')) as
@@ -246,11 +246,12 @@ isolatedTest.describe('J7.c isolated: the network drops between model files', ()
             now: () => Date.now(),
         }, { holdBoundMs: 300_000, boundMs: 300_000, pollMs: 50 });
 
-        // What the person sees, on that same failed attempt, still offline and before anything is pressed.
+        // What the person sees, on that same failed attempt, still offline and before anything is pressed: read for the whole
+        // window (a correct card never ends it early), counting only toasts actually shown.
         const shown = await pollShownFailure(async () => {
             const sameAttempt = (await phaseOf(pressIndex)) === 'setup-failed';
             const cardText = await page.getByTestId('mic-card').innerText({ timeout: 2_000 }).catch(() => null);
-            const toastTexts = await page.locator('[data-sonner-toast]').allInnerTexts().catch(() => null);
+            const toastTexts = await page.locator('[data-sonner-toast]').evaluateAll(shownToastTexts).catch(() => null);
             const retry = page.getByTestId('mic-retry');
             const retryVisible = await retry.isVisible().catch(() => null);
             const retryEnabled = retryVisible ? await retry.isEnabled().catch(() => null) : false;
