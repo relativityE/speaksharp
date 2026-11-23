@@ -9,7 +9,7 @@
  *   2. after the trial ends: the member's own read of that take is empty while the row is kept (walled, not deleted),
  *   3. after one $10 test-mode Checkout: exactly one succeeded charge, and it is the already-verified first invoice's,
  *   4. the member's own read returns the same take with the same content-free facts (restored, unchanged),
- *   5. Manage billing shows the $10 monthly plan, price and cadence in the same current-plan element.
+ *   5. Manage billing shows the $10 monthly plan: price, cadence and current-plan label visible in the same plan block.
  *
  * Pure checks only: no network, no secrets, no transcript text kept (rows arrive as digests, `sessionFactsFromRows`). Every
  * failure is a closed code. The offline controls are `restoreAccess.test.ts`. This journey never replays a webhook event. A
@@ -125,8 +125,8 @@ const onlyTenDollars = (t: string): boolean => {
 
 /**
  * Manage billing (the Stripe portal) shows the plan: one element holds the $10.00 price and its monthly cadence together,
- * inside the current-plan block (Sam on #1937). The spec passes, for each element showing $10.00, the text of that element and
- * each of its ancestors, innermost first. The nearest one that adds the cadence must be short, and the nearest one at or
+ * inside the current-plan block (Sam on #1937). The spec passes, for each VISIBLE element showing $10.00, the visible text of
+ * that element and each of its ancestors, innermost first (`visiblePlanChains`). The nearest one that adds the cadence must be short, and the nearest one at or
  * above it that names the current plan must be short and name no amount but $10.00, so a price and a cadence from
  * unrelated parts of the page, which only the page as a whole joins, never pass. The text stays in memory; only this boolean leaves.
  */
@@ -140,4 +140,47 @@ export function portalShowsPlan(ancestries: unknown): boolean {
     const block = chain.slice(line).find((t: string) => PLAN_LABEL.test(t));
     return typeof block === 'string' && block.length <= PLAN_BLOCK_MAX && onlyTenDollars(block);
   });
+}
+
+/**
+ * Runs in the portal page (the spec's `evaluateAll`) and, in `restoreAccess.test.ts`, in a local DOM, so it is self-contained:
+ * it uses nothing from this module. Given the elements Playwright matched for $10.00 (hidden ones included), it keeps only the
+ * ones that are visible, with every ancestor visible, and returns for each (at most 10) the VISIBLE text of the element and of
+ * each ancestor, innermost first. Visible text skips any descendant that is not rendered, so a hidden $10.00 plan can neither
+ * supply the price nor hide a visible wrong plan's amount (Sam on #1937). An element counts as hidden when it has the `hidden`
+ * attribute, or its computed style is display none, visibility hidden or collapse, or opacity 0, or the browser's own
+ * `checkVisibility` says so. Visibility is judged per element, so a visible child inside a visibility-hidden parent also counts
+ * as hidden: that fails closed. The text stays in the page and in memory; only `portalShowsPlan`'s boolean leaves.
+ */
+export function visiblePlanChains(elements: Element[]): string[][] {
+  const rendered = (el: Element): boolean => {
+    const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
+    if (!style || (el as HTMLElement).hidden || style.display === 'none' || style.visibility === 'hidden'
+      || style.visibility === 'collapse' || style.opacity === '0') return false;
+    const check = (el as Element & { checkVisibility?: (options?: object) => boolean }).checkVisibility;
+    return typeof check !== 'function' || check.call(el, { opacityProperty: true, visibilityProperty: true });
+  };
+  const shown = (el: Element): boolean => {
+    for (let e: Element | null = el; e; e = e.parentElement) if (!rendered(e)) return false;
+    return true;
+  };
+  const visibleText = (el: Element): string => {
+    const parts: string[] = [];
+    const walk = (node: Node): void => {
+      for (const child of Array.from(node.childNodes)) {
+        if (child.nodeType === 3) parts.push(child.nodeValue ?? '');
+        else if (child.nodeType === 1 && !['SCRIPT', 'STYLE', 'TEMPLATE', 'NOSCRIPT'].includes((child as Element).tagName)
+          && rendered(child as Element)) walk(child);
+      }
+    };
+    walk(el);
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  };
+  const chains: string[][] = [];
+  for (const el of elements.filter(shown).slice(0, 10)) {
+    const chain: string[] = [];
+    for (let e: Element | null = el; e; e = e.parentElement) chain.push(visibleText(e));
+    chains.push(chain);
+  }
+  return chains;
 }

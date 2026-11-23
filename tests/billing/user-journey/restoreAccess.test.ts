@@ -5,8 +5,9 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { Window } from 'happy-dom';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
-  portalShowsPlan, PLAN_LINE_MAX, PLAN_BLOCK_MAX } from './restoreAccess';
+  portalShowsPlan, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX } from './restoreAccess';
 import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
 import { sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
@@ -207,6 +208,56 @@ describe('Manage billing shows the plan', () => {
   });
 });
 
+describe('Manage billing reads only what the portal shows (local DOM, no Stripe)', () => {
+  // The spec's read: every element whose text shows $10.00 (Playwright's getByText also matches hidden ones), passed through
+  // visiblePlanChains, then portalShowsPlan. Elements that directly hold a $10.00 text node stand in for getByText's matches.
+  const read = (html: string, css = ''): boolean => {
+    const window = new Window();
+    const doc = window.document as unknown as Document;
+    doc.body.innerHTML = `<style>${css}</style>${html}`;
+    const matched = Array.from(doc.querySelectorAll('body *')).filter((el) => Array.from(el.childNodes)
+      .some((n) => n.nodeType === 3 && /\$\s?10\.00/.test(n.nodeValue ?? '')));
+    const shown = portalShowsPlan(visiblePlanChains(matched));
+    void window.happyDOM.close();
+    return shown;
+  };
+  const plan = (price: string, attrs = '', cadence = 'per month', label = 'Current plan') =>
+    `<section ${attrs}><h2>${label}</h2><div>SpeakSharp Pro</div><div><span>${price}</span> <span>${cadence}</span></div></section>`;
+  const wrong = plan('US$25.00');
+  it('passes a visible correct plan', () => {
+    expect(read(plan('US$10.00'))).toBe(true);
+    expect(read(`<main>${plan('US$10.00')}<footer>Cancel plan</footer></main>`)).toBe(true);
+  });
+  it('fails a hidden $10 plan next to a visible wrong plan, however the $10 plan is hidden', () => {
+    for (const [attrs, css] of [['hidden', ''], ['style="display:none"', ''], ['class="off"', '.off { display: none; }'],
+      ['style="visibility:hidden"', ''], ['style="opacity:0"', '']]) {
+      expect({ attrs, shown: read(wrong + plan('US$10.00', attrs), css) }).toEqual({ attrs, shown: false });
+    }
+    // Hidden by an ancestor, or only the price element hidden.
+    expect(read(`<div hidden>${plan('US$10.00')}</div>${wrong}`)).toBe(false);
+    expect(read(`${wrong}<section><h2>Current plan</h2><div><span hidden>US$10.00</span> <span>per month</span></div></section>`)).toBe(false);
+  });
+  it('fails when the cadence or the current-plan label is there only in hidden text', () => {
+    expect(read(plan('US$10.00', '', '<span hidden>per month</span>'))).toBe(false);
+    expect(read(plan('US$10.00', '', '<span style="display:none">per month</span>'))).toBe(false);
+    expect(read(plan('US$10.00', '', 'per month', '<span style="visibility:hidden">Current plan</span>'))).toBe(false);
+  });
+  it('lets a hidden extra amount neither fail nor pass the visible plan', () => {
+    // A hidden $25.00 inside the visible block is not shown, so the shown block names only $10.00.
+    expect(read(plan('US$10.00', '', 'per month <span hidden>Upgrade to Team US$25.00 per month</span>'))).toBe(true);
+    // The same $25.00 shown is another price in the block, so it fails as before.
+    expect(read(plan('US$10.00', '', 'per month <span>Upgrade to Team US$25.00 per month</span>'))).toBe(false);
+  });
+  it('ignores script and style text and reads at most ten visible matches', () => {
+    expect(read(`<section><h2>Current plan</h2><script>var p = "$10.00 per month";</script><div>US$10.00</div></section>`)).toBe(false);
+    // Ten visible $10.00 receipts come first, so the plan is the eleventh match and is not read.
+    const receipts = (attrs: string) => Array.from({ length: 10 }, () => `<p ${attrs}>US$10.00 paid with Visa, receipt sent by email</p>`).join('');
+    expect(read(receipts('') + plan('US$10.00'))).toBe(false);
+    // Hidden receipts are dropped before the cap, so the visible plan is read.
+    expect(read(receipts('hidden') + plan('US$10.00'))).toBe(true);
+  });
+});
+
 describe('the spec runs the checks in the order that proves the story', () => {
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const setup = spec.slice(spec.indexOf('async setup(): Promise<void> {'), spec.indexOf('/** Fills Stripe\'s hosted card form'));
@@ -268,7 +319,10 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(portal).toMatch(/waitForURL\(url => url\.origin === 'https:\/\/billing\.stripe\.com'/);
     // The portal check reads per-element ancestries, never the whole page's text.
     expect(portal).toMatch(/portalShowsPlan\(await this\.planAncestries\(\)/);
-    expect(spec).toMatch(/locator\('xpath=ancestor-or-self::\*'\)\s*\.evaluateAll\(els => els\.map\(e => \(e as HTMLElement\)\.innerText \?\? ''\)\.reverse\(\)\)/);
+    // Only visible $10.00 elements, read as visible text (visiblePlanChains), never innerText (which includes hidden content).
+    expect(spec).toMatch(/return this\.page\.getByText\(\/\\\$\\s\?10\\\.00\/\)\.evaluateAll\(visiblePlanChains\);/);
+    const ancestries = spec.slice(spec.indexOf('  async planAncestries(): Promise<string[][]> {'));
+    expect(ancestries.slice(0, ancestries.indexOf('\n  }\n'))).not.toMatch(/innerText|textContent/);
     expect(spec).not.toMatch(/portalShowsPlan\(await this\.page\.locator\('body'\)/);
   });
   it('reads history as the member for the wall and the restore, and never posts to the webhook or writes a charge', () => {

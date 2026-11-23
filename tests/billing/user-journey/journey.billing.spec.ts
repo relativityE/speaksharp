@@ -18,7 +18,7 @@ import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
-  portalShowsPlan } from './restoreAccess';
+  portalShowsPlan, visiblePlanChains } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
 
@@ -212,14 +212,9 @@ class SandboxJourney {
     await this.poll(async () => portalShowsPlan(await this.planAncestries().catch(() => null)), Boolean, 'portal_plan_not_shown');
   }
 
+  /** Visible $10.00 elements only, each with its own and its ancestors' visible text, innermost first (`visiblePlanChains`). */
   async planAncestries(): Promise<string[][]> {
-    const prices = this.page.getByText(/\$\s?10\.00/);
-    const out: string[][] = [];
-    for (let i = 0; i < Math.min(await prices.count(), 10); i++) {
-      out.push(await prices.nth(i).locator('xpath=ancestor-or-self::*')
-        .evaluateAll(els => els.map(e => (e as HTMLElement).innerText ?? '').reverse()));
-    }
-    return out;
+    return this.page.getByText(/\$\s?10\.00/).evaluateAll(visiblePlanChains);
   }
 
   async account(label: RegExp): Promise<void> {
