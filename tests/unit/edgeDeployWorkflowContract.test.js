@@ -91,11 +91,12 @@ describe('deploy-supabase-migrations Edge deploy/readback job conditions', () =>
 });
 
 // ── Deletion rollout step 5 (plan #1952): the account-closure-only route ─────────────────────────────────────────────
-describe('account-closure-only: exactly one function, post-129 ledger, no invalidation, versions reconciled', () => {
+describe('account-closure-only: reviewer-gated, exactly one function, post-129 ledger, full-roster reconciliation', () => {
   const release = yaml.load(readFileSync(resolve(process.cwd(), '.github/workflows/production-release.yml'), 'utf8'));
   const job = jobs['deploy-account-closure-only'];
   const steps = job.steps;
   const at = (name) => steps.findIndex((step) => step.name === name);
+  const jqFile = (file, args, input) => execFileSync('jq', [...args, '-f', resolve(process.cwd(), file)], { encoding: 'utf8', input });
 
   it('is a separate, exactly confirmed production-release operation that never enables the ten-function path', () => {
     expect(release.on.workflow_dispatch.inputs.operation.options).toEqual(['frontend', 'edge-functions', 'account-closure-only']);
@@ -110,10 +111,20 @@ describe('account-closure-only: exactly one function, post-129 ledger, no invali
     expect(jobs['deploy-edge-functions'].if).toContain("needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true'");
   });
 
+  it('publication waits on a PROTECTED environment that must already have required reviewers', () => {
+    expect(job.environment).toBe('production-account-closure');
+    const gate = jobs['require-account-closure-reviewer-gate'];
+    expect(job.needs).toContain('require-account-closure-reviewer-gate');
+    expect(job.if).toContain("needs.require-account-closure-reviewer-gate.result == 'success'");
+    expect(gate.environment).toBeUndefined(); // read-only check; must never create the environment by naming it
+    const run = gate.steps[0].run;
+    expect(run).toContain('gh api "repos/$REPOSITORY/environments/production-account-closure"');
+    expect(run).toContain(`jq -e 'index("required_reviewers") != null'`);
+  });
+
   it('never runs authority invalidation or the database job for this operation', () => {
     expect(jobs['invalidate-account-closure-authority'].if).toContain("inputs.operation != 'account-closure-only'");
     expect(jobs['deploy-production-db'].if).toContain("inputs.operation != 'account-closure-only'");
-    expect(job.needs).toEqual(['validate-edge-configuration', 'verify-t2-database-prerequisites']);
     expect(JSON.stringify(job)).not.toContain('account-closure-invalidate');
     expect(job.if).toContain("needs.validate-edge-configuration.outputs.deploy_edge_functions == 'false'");
     expect(job.if).toContain("needs.verify-t2-database-prerequisites.result == 'success'");
@@ -133,33 +144,44 @@ describe('account-closure-only: exactly one function, post-129 ledger, no invali
     for (const index of [reconcile, after]) expect(steps[index].if).toContain('always()');
     expect(jobs['verify-t2-database-prerequisites'].steps.at(-1).run).toContain('verify account-closure-release');
     expect(job.env.PUBLISHED_FUNCTION).toBe('account-closure');
-    expect(job.env.WATCHED_FUNCTIONS.split(' ').sort()).toEqual(['account-closure', 'attest-session-engine', 'check-usage-limit',
-      'create-user', 'get-ai-suggestions', 'objective-register-source', 'observability-smoke', 'stripe-billing-portal',
-      'stripe-checkout', 'stripe-webhook']);
-    const keep = steps.find((step) => step.name === 'Keep the account-closure version reconciliation');
-    expect(keep.with['retention-days']).toBe(1);
+    expect(JSON.stringify(job)).not.toContain('WATCHED_FUNCTIONS'); // the full roster, never a named list
+    expect(steps[capture].run).toContain('jq -f scripts/edge-roster.jq');
+    expect(steps[capture].run).toContain("account-closure is not deployed before publication");
+    expect(steps[reconcile].run).toContain('-f scripts/account-closure-reconcile.jq');
+    expect(steps.find((step) => step.name === 'Keep the account-closure version reconciliation').with['retention-days']).toBe(1);
   });
 
-  it('the reconciliation fails when any other function changed, or when a reported success did not advance', () => {
-    const run = steps[at('Reconcile versions after account-closure publication')].run;
-    const program = /'(\{schemaVersion: 1, route[\s\S]*?)' \\\n\s*> account-closure-version-reconciliation\.json/.exec(run)?.[1] ?? '';
-    expect(program).toContain('.othersUnchanged');
+  it('the roster read refuses incomplete, non-array or duplicated metadata', () => {
+    const ok = [{ slug: 'b', version: 3, status: 'ACTIVE', updated_at: 't1', extra: 'dropped' }, { slug: 'a', version: 1, status: 'ACTIVE', updated_at: 't0' }];
+    expect(JSON.parse(jqFile('scripts/edge-roster.jq', [], JSON.stringify(ok))).map((f) => f.slug)).toEqual(['a', 'b']);
+    expect(JSON.parse(jqFile('scripts/edge-roster.jq', [], JSON.stringify(ok)))[1]).toEqual({ slug: 'b', version: 3, status: 'ACTIVE', updated_at: 't1' });
+    for (const bad of [{}, [{ slug: 'a', status: 'ACTIVE', updated_at: 't' }], [{ slug: 'a', version: '1', status: 'ACTIVE', updated_at: 't' }],
+      [{ version: 1, status: 'ACTIVE', updated_at: 't' }], [{ slug: 'a', version: 1, status: 'ACTIVE', updated_at: 't' }, { slug: 'a', version: 2, status: 'ACTIVE', updated_at: 't' }]]) {
+      expect(() => jqFile('scripts/edge-roster.jq', [], JSON.stringify(bad))).toThrow();
+    }
+  });
+
+  it('the reconciliation compares the FULL non-target roster and never counts a missing prior target as an advance', () => {
     const dir = mkdtempSync(join(tmpdir(), 'acr-'));
-    const names = job.env.WATCHED_FUNCTIONS.split(' ');
-    const fn = (slug, version, updated) => ({ slug, version, status: 'ACTIVE', updated_at: updated });
-    const before = names.map((slug, i) => fn(slug, slug === 'account-closure' ? 9 : 20 + i, `t${i}`));
-    const reconcile = (after, outcome) => {
-      writeFileSync(join(dir, 'b.json'), JSON.stringify(before)); writeFileSync(join(dir, 'a.json'), JSON.stringify(after));
-      return JSON.parse(execFileSync('jq', ['-n', '--arg', 'outcome', outcome, '--arg', 'published', 'account-closure',
-        '--slurpfile', 'before', join(dir, 'b.json'), '--slurpfile', 'after', join(dir, 'a.json'), program], { encoding: 'utf8' }));
+    const f = (slug, version, updated = 't', status = 'ACTIVE') => ({ slug, version, status, updated_at: updated });
+    const before = [f('account-closure', 9), f('get-ai-suggestions', 20), f('stripe-webhook', 30)];
+    const reconcile = (b, a, outcome = 'success') => {
+      writeFileSync(join(dir, 'b.json'), JSON.stringify(b)); writeFileSync(join(dir, 'a.json'), JSON.stringify(a));
+      return JSON.parse(jqFile('scripts/account-closure-reconcile.jq', ['-n', '--arg', 'outcome', outcome, '--arg', 'published', 'account-closure',
+        '--slurpfile', 'before', join(dir, 'b.json'), '--slurpfile', 'after', join(dir, 'a.json')], ''));
     };
-    const bumped = before.map((f) => f.slug === 'account-closure' ? { ...f, version: 10, updated_at: 'new' } : f);
-    expect(reconcile(bumped, 'success')).toMatchObject({ publishedAdvanced: true, othersUnchanged: true, changedOthers: [] });
-    expect(reconcile(before, 'success')).toMatchObject({ publishedAdvanced: false, othersUnchanged: true });
-    const otherMoved = bumped.map((f) => f.slug === 'stripe-webhook' ? { ...f, version: f.version + 1 } : f);
-    expect(reconcile(otherMoved, 'success')).toMatchObject({ othersUnchanged: false, changedOthers: ['stripe-webhook'] });
-    const touched = before.map((f) => f.slug === 'get-ai-suggestions' ? { ...f, updated_at: 'touched' } : f);
-    expect(reconcile(touched, 'failure')).toMatchObject({ othersUnchanged: false, changedOthers: ['get-ai-suggestions'] });
+    const bumped = [f('account-closure', 10, 'new'), ...before.slice(1)];
+    expect(reconcile(before, bumped)).toMatchObject({ publishedAdvanced: true, othersUnchanged: true, changedOthers: [] });
+    expect(reconcile(before, before)).toMatchObject({ publishedAdvanced: false, othersUnchanged: true });
+    expect(reconcile(before.slice(1), bumped)).toMatchObject({ publishedAdvanced: false, target: { before: null, after: 10 } });
+    expect(reconcile(before, [...bumped, f('new-fn', 1)])).toMatchObject({ othersUnchanged: false, added: ['new-fn'] });
+    expect(reconcile(before, bumped.filter((x) => x.slug !== 'stripe-webhook'))).toMatchObject({ othersUnchanged: false, removed: ['stripe-webhook'] });
+    expect(reconcile(before, bumped.map((x) => x.slug === 'stripe-webhook' ? { ...x, version: 31 } : x))).toMatchObject({ othersUnchanged: false, changed: ['stripe-webhook'] });
+    expect(reconcile(before, before.map((x) => x.slug === 'get-ai-suggestions' ? { ...x, updated_at: 'touched' } : x), 'failure'))
+      .toMatchObject({ othersUnchanged: false, changed: ['get-ai-suggestions'] });
+    expect(reconcile(before, before.map((x) => x.slug === 'get-ai-suggestions' ? { ...x, status: 'THROTTLED' } : x), 'failure'))
+      .toMatchObject({ othersUnchanged: false, changed: ['get-ai-suggestions'] });
+    const run = steps[at('Reconcile versions after account-closure publication')].run;
     expect(run).toContain('if [ "$(jq -r .othersUnchanged account-closure-version-reconciliation.json)" != true ]; then');
     expect(run).toContain('if [ "$DEPLOY_OUTCOME" = success ] && [ "$(jq -r .publishedAdvanced account-closure-version-reconciliation.json)" != true ]; then');
     rmSync(dir, { recursive: true, force: true });

@@ -305,16 +305,36 @@ jobs:
   # SHA, on the post-129 ledger with completion OFF and unbound, and prove that only account-closure advanced. No other
   # function, no migration, no secrets and no authority invalidation (that write is a separate decision). The
   # ten-function path above is unchanged.
+  # The exact SHA and confirm phrase are intent, not approval to publish. Publication waits on a PROTECTED environment
+  # with required reviewers. A job that names a missing environment would silently create an unprotected one, so this
+  # read-only job refuses unless the environment exists with a required_reviewers rule.
+  require-account-closure-reviewer-gate:
+    needs: [validate-edge-configuration]
+    if: ${{ inputs.deploy_production == true && inputs.operation == 'account-closure-only' && needs.validate-edge-configuration.outputs.account_closure_only == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the protected account-closure environment with required reviewers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rules="$(gh api "repos/$REPOSITORY/environments/production-account-closure" --jq '[.protection_rules[].type]' 2>/dev/null)" \
+            || { echo '::error::environment production-account-closure does not exist; it must be created with required reviewers first'; exit 1; }
+          jq -e 'index("required_reviewers") != null' <<< "$rules" >/dev/null \
+            || { echo "::error::production-account-closure has no required-reviewer rule ($rules)"; exit 1; }
+
   deploy-account-closure-only:
-    needs: [validate-edge-configuration, verify-t2-database-prerequisites]
-    if: ${{ inputs.deploy_production == true && inputs.operation == 'account-closure-only' && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.outputs.account_closure_only == 'true' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'false' && needs.verify-t2-database-prerequisites.result == 'success' }}
+    needs: [validate-edge-configuration, verify-t2-database-prerequisites, require-account-closure-reviewer-gate]
+    if: ${{ inputs.deploy_production == true && inputs.operation == 'account-closure-only' && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.outputs.account_closure_only == 'true' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'false' && needs.verify-t2-database-prerequisites.result == 'success' && needs.require-account-closure-reviewer-gate.result == 'success' }}
+    environment: production-account-closure
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
-      # Every function the reconciliation reads; only the first may advance.
+      # The only function this route may change. Every other deployed function (the FULL roster, not a named list)
+      # must be identical before and after, including no additions or removals.
       PUBLISHED_FUNCTION: account-closure
-      WATCHED_FUNCTIONS: account-closure stripe-webhook check-usage-limit create-user observability-smoke attest-session-engine objective-register-source get-ai-suggestions stripe-checkout stripe-billing-portal
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -350,10 +370,12 @@ jobs:
         run: |
           set -euo pipefail
           [ "$PUBLISHED_FUNCTION" = account-closure ] || { echo '::error::only account-closure may be published on this route'; exit 1; }
-          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json \
-            | jq --arg names "$WATCHED_FUNCTIONS" '[($names | split(" "))[] as $n | (map(select(.slug == $n)) | first // null) as $f
-                | {slug: $n, version: ($f.version // null), status: ($f.status // null), updated_at: ($f.updated_at // null)}]' \
-            > "$RUNNER_TEMP/account-closure-versions-before.json"
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json > "$RUNNER_TEMP/functions-before.raw.json"
+          jq -f scripts/edge-roster.jq "$RUNNER_TEMP/functions-before.raw.json" > "$RUNNER_TEMP/account-closure-versions-before.json"
+          # The target must already be deployed with a version: a missing prior target can never count as an advance.
+          jq -e --arg published "$PUBLISHED_FUNCTION" '[.[] | select(.slug == $published)] | length == 1' \
+            "$RUNNER_TEMP/account-closure-versions-before.json" >/dev/null \
+            || { echo '::error::account-closure is not deployed before publication; this route only updates it'; exit 1; }
           jq -c '.[]' "$RUNNER_TEMP/account-closure-versions-before.json"
 
       - name: Publish only account-closure
@@ -369,22 +391,12 @@ jobs:
           DEPLOY_OUTCOME: ${{ steps.deploy_account_closure.outcome }}
         run: |
           set -euo pipefail
-          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json \
-            | jq --arg names "$WATCHED_FUNCTIONS" '[($names | split(" "))[] as $n | (map(select(.slug == $n)) | first // null) as $f
-                | {slug: $n, version: ($f.version // null), status: ($f.status // null), updated_at: ($f.updated_at // null)}]' \
-            > "$RUNNER_TEMP/account-closure-versions-after.json"
+          supabase functions list --project-ref "$SUPABASE_PROJECT_ID" -o json > "$RUNNER_TEMP/functions-after.raw.json"
+          jq -f scripts/edge-roster.jq "$RUNNER_TEMP/functions-after.raw.json" > "$RUNNER_TEMP/account-closure-versions-after.json"
           jq -n --arg outcome "$DEPLOY_OUTCOME" --arg published "$PUBLISHED_FUNCTION" \
             --slurpfile before "$RUNNER_TEMP/account-closure-versions-before.json" \
             --slurpfile after "$RUNNER_TEMP/account-closure-versions-after.json" \
-            '{schemaVersion: 1, route: "account-closure-only", deployOutcome: $outcome, functions: [range(0; ($before[0] | length)) as $i
-              | ($before[0][$i]) as $b | ($after[0][$i]) as $a
-              | {slug: $b.slug, before: $b.version, after: $a.version, status: $a.status,
-                 advanced: (($a.version // 0) > ($b.version // 0)),
-                 unchanged: ($a.version == $b.version and $a.updated_at == $b.updated_at)}]}
-             | .publishedAdvanced = ([.functions[] | select(.slug == $published) | .advanced] | all and (length == 1))
-             | .othersUnchanged = ([.functions[] | select(.slug != $published) | .unchanged] | all)
-             | .changedOthers = [.functions[] | select(.slug != $published and (.unchanged | not)) | .slug]' \
-            > account-closure-version-reconciliation.json
+            -f scripts/account-closure-reconcile.jq > account-closure-version-reconciliation.json
           cat account-closure-version-reconciliation.json
           if [ "$(jq -r .othersUnchanged account-closure-version-reconciliation.json)" != true ]; then
             echo "::error::functions other than account-closure changed: $(jq -c .changedOthers account-closure-version-reconciliation.json)"
