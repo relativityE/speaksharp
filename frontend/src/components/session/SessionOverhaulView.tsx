@@ -247,6 +247,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const reviewingRecoveredSave = showAnalyticsPrompt && recoveredSaveSessionId !== null;
     const permissionError = sttStatus.type === 'error' && !reviewingRecoveredSave;
     const captureLiveForState = useSessionStore((st) => st.captureLive);
+    // J3.b: this take's live text may miss words; latched in the store for the take only.
+    const liveTextIncomplete = useSessionStore((st) => st.liveTextIncomplete);
     const sessionState = resolveSessionState({
         // #1258 C10 — ONE definition of "recording begins": the take is live only when capture is live on real microphone
         // frames (`captureLive`), not merely when the runtime entered RECORDING. Until then the page stays in its start
@@ -996,6 +998,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     hideFillers: isObjective,
                     footer: isObjective ? 'Highlighted spans are where a point landed.' : undefined,
                     coverageMode: isObjective ? 'during' : undefined,
+                    liveTextIncomplete,
                 }}
                 rail={objectiveDuringSlotC || objectiveDuringSlotD
                     ? <>{objectiveDuringSlotC}{objectiveDuringSlotD}</>

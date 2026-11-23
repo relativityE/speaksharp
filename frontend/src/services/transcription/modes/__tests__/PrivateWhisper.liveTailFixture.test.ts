@@ -140,5 +140,36 @@ describe('J3.b live tail (gate): the last spoken sentence before a long silence 
     expect(covered, `pre-Stop live windows ${JSON.stringify(windows.map(([a, b]) => [Number(a.toFixed(2)), Number(b.toFixed(2))]))}`)
       .toBeGreaterThanOrEqual(POINT3[1]);
   }, 60_000);
-});
 
+  it('Stop stays responsive while a slow catch-up decode is in flight, and the final decode still hears the whole take', async () => {
+    // 8 s per live decode: at Stop a catch-up decode is still running. Stop must not wait for it beyond the existing
+    // in-flight drain cap (STOP_INFLIGHT_DRAIN_CAP_MS = 5 s), and the whole-utterance final decode must still run.
+    const LATENCY_MS = 8000;
+    const finals: number[] = [];
+    mocks.transcribe.mockImplementation(async (audio: unknown, opts?: { final?: boolean }) => {
+      const samples = audio instanceof Float32Array ? audio.length : 0;
+      if (opts?.final === true) { finals.push(samples); return Result.ok('whole take'); }
+      calls.push({ atSec: (performance.now() - startMs) / 1000, samples });
+      await new Promise((r) => setTimeout(r, LATENCY_MS));
+      return Result.ok(`words ${calls.length}`);
+    });
+    const buf = readFileSync(resolveFixture());
+    const { samples, sampleRate } = decodeWavToFloat32(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    const fed = Math.round(14 * sampleRate); // stop mid-speech, during a catch-up decode
+    const frameMs = (FRAME / sampleRate) * 1000;
+    for (const frame of framesFromSamples(samples.subarray(0, fed), FRAME)) {
+      frameCb!(frame);
+      await vi.advanceTimersByTimeAsync(frameMs);
+    }
+    expect(calls.length, 'a live catch-up decode is in flight at Stop').toBeGreaterThan(0);
+    let stopped = false;
+    const pressedAt = performance.now();
+    const stopping = pw.stop().then(() => { stopped = true; });
+    let elapsed = 0;
+    while (!stopped && elapsed < 20_000) { await vi.advanceTimersByTimeAsync(250); elapsed += 250; }
+    await stopping;
+    expect(performance.now() - pressedAt, 'Stop finishes within the in-flight drain cap (+ margin)').toBeLessThanOrEqual(5_000 + 1_000);
+    expect(finals.length, 'the whole-utterance final decode ran').toBe(1);
+    expect(finals[0] / sampleRate, 'the final decode holds (nearly) the whole take').toBeGreaterThanOrEqual(13);
+  }, 60_000);
+});

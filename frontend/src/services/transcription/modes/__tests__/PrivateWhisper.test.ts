@@ -876,6 +876,52 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
+    it('J3.b: a live decode that drops audio marks the take live-incomplete; the next take starts clean', async () => {
+        vi.useFakeTimers();
+        mocks.transcribe.mockResolvedValue(Result.ok('private live words here'));
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+        const updates = () => (mockCallbacks.onTranscriptUpdate as ReturnType<typeof vi.fn>).mock.calls
+            .map((c) => (c[0] as { transcript: { partial?: string; final?: string; liveTextIncomplete?: boolean } }).transcript);
+
+        // Take 1: more audio piled up than the catch-up cap holds, so the live decode drops its oldest part.
+        await privateWhisper.start(mockMic);
+        (privateWhisper as unknown as { currentTranscript: string }).currentTranscript = 'existing committed words';
+        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.LIVE_DECODE_CATCHUP_MAX_SAMPLES + PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.5));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect((mocks.transcribe.mock.calls[0][0] as Float32Array).length).toBe(PRIV_STT_DERIVED.LIVE_DECODE_CATCHUP_MAX_SAMPLES);
+        // Every live update of this take (rolling finals and partials alike) carries the mark.
+        const takeOneLive = updates();
+        expect(takeOneLive.length).toBeGreaterThan(0);
+        expect(takeOneLive.every((t) => t.liveTextIncomplete === true)).toBe(true);
+        await privateWhisper.stop();
+        // The whole-utterance Stop decode covers the full recording: it carries no incomplete mark.
+        expect(updates()[updates().length - 1]).toEqual({ final: 'private live words here', replacesRollingTranscript: true });
+
+        // Take 2 (negative control): audio within the cap is never dropped, so no update carries the mark.
+        (mockCallbacks.onTranscriptUpdate as ReturnType<typeof vi.fn>).mockClear();
+        mocks.transcribe.mockClear();
+        await privateWhisper.start(mockMic);
+        (privateWhisper as unknown as { currentTranscript: string }).currentTranscript = 'existing committed words';
+        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES * 2).fill(0.5));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect(mocks.transcribe).toHaveBeenCalled();
+        expect(updates().length).toBeGreaterThan(0);
+        expect(updates().some((t) => 'liveTextIncomplete' in t)).toBe(false);
+        await privateWhisper.stop();
+        vi.useRealTimers();
+    });
+
     it('REGRESSION: emits filler-only opener and low-energy provisional tail as live text', async () => {
         vi.useFakeTimers();
         mocks.transcribe

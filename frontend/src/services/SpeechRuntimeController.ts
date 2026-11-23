@@ -3829,6 +3829,8 @@ export class SpeechRuntimeController {
         this.producerIntegrityTeardown = null;
         this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
+        // J3.b: the live-text-incomplete notice belongs to one take; a new recording starts without it.
+        store.setLiveTextIncomplete(false);
         /**
          * #1431 P1 — THE THIRD WRITER. A NEW RECORDING MAY NOT REAP A LIVE OWNER'S STATE.
          *
@@ -4003,6 +4005,12 @@ export class SpeechRuntimeController {
             hasFinal: Boolean(data.transcript.final),
             hasPartial: Boolean(data.transcript.partial),
         });
+
+        // J3.b: latch the live-text gap for the current take only. Updates outside RECORDING (a late update from a
+        // stopped take, or one arriving before the next take's reset) never set it; only the reset clears it.
+        if (data.transcript.liveTextIncomplete === true && this.state === 'RECORDING') {
+            store.setLiveTextIncomplete(true);
+        }
 
         if (data.transcript.final) {
             this.transcriptEmissionSequence += 1;

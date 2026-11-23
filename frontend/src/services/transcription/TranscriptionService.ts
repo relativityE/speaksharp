@@ -1954,14 +1954,18 @@ export default class TranscriptionService {
         : mergeFinalTranscriptUpdate(this.currentTranscript, transcript.final);
       this.partialTranscript = '';
       this.options.onTranscriptUpdate?.({
-        transcript: { final: this.currentTranscript, replacesRollingTranscript: transcript.replacesRollingTranscript }
+        transcript: {
+          final: this.currentTranscript,
+          replacesRollingTranscript: transcript.replacesRollingTranscript,
+          ...(transcript.liveTextIncomplete ? { liveTextIncomplete: true } : {}),
+        }
       });
     }
 
     if (transcript.partial) {
       this.partialTranscript = transcript.partial;
       this.options.onTranscriptUpdate?.({
-        transcript: { partial: this.partialTranscript }
+        transcript: { partial: this.partialTranscript, ...(transcript.liveTextIncomplete ? { liveTextIncomplete: true } : {}) }
       });
     }
 

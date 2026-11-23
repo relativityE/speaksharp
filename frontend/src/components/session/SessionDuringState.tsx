@@ -14,6 +14,9 @@ import { CoachingCard, type CoachingCardProps } from './CoachingCard';
  * Same slots, same positions as `before` — only the content and sizes change. The tip's 8-second hold is
  * owned upstream; this state only places what it is given.
  */
+/** J3.b copy: shown during a take whose live decoding dropped audio. The saved transcript comes from the full recording. */
+export const LIVE_TEXT_INCOMPLETE_NOTICE = 'Live text may be incomplete. The final transcript uses the full recording.';
+
 export interface SessionDuringStateProps {
     practiceTarget?: CoachingCardProps['practiceTarget'];
     recorder: RecorderBarProps;
@@ -39,6 +42,8 @@ export interface SessionDuringStateProps {
         /** A prompt auto-hid once words began — show the "Need a prompt?" chip to bring it back. */
         showReopenChip?: boolean;
         onReopenPin?: () => void;
+        /** J3.b: live decoding dropped audio this take, so the live text may miss words. */
+        liveTextIncomplete?: boolean;
     };
     /** Slot D content. */
     rail: React.ReactNode;
@@ -116,6 +121,11 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                         </button>
                     )}
                     <LiveTranscript tokens={transcript.tokens} coverageMode={transcript.coverageMode} />
+                    {transcript.liveTextIncomplete && (
+                        <p data-testid="live-text-incomplete" role="status" className="mt-3 text-[13px] font-semibold text-neutral-secondary">
+                            {LIVE_TEXT_INCOMPLETE_NOTICE}
+                        </p>
+                    )}
                 </TranscriptCard>
             }
             slotD={rail}

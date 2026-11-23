@@ -774,6 +774,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // window; it ends at the take's first commit or after PRIV_STT.COLD_START_MAX_DECODES live decodes.
   private coldStartBacklog: boolean = false;
   private coldStartDecodes: number = 0;
+  // J3.b: latched for the rest of the take once any live decode window drops audio (slow device catch-up or the
+  // cold-start backlog bound). The live text can then miss words; the Stop-time final decode still hears them all.
+  // Reset only in start(), so it never carries into the next take.
+  private liveTextIncomplete: boolean = false;
   private prerollAudioChunks: Float32Array[] = [];
   private prerollSampleCount: number = 0;
   private speechStartAudioChunks: Float32Array[] = [];
@@ -961,7 +965,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       emittedToUi: true,
     });
     this.lastTranscriptEmitAtMs = performance.now();
-    this.onTranscriptUpdate({ transcript: { partial: visiblePartial } });
+    this.onTranscriptUpdate({ transcript: { partial: visiblePartial, ...this.liveIncompleteMark() } });
     this.markFirstProvisional();
   }
 
@@ -1133,6 +1137,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.clearRetryAudioBuffer();
     this.coldStartBacklog = false;
     this.coldStartDecodes = 0;
+    this.liveTextIncomplete = false;
     this.clearSpeechStartState();
     this.noiseFloor = 0.002;
     this.currentThreshold = PRIV_STT.SPEECH_START_RMS_THRESHOLD;
@@ -2034,7 +2039,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
               textLength: textToEmit.length,
             }, '[PRIVATE_TRACE] transcript_callback_emit');
           }
-          this.onTranscriptUpdate({ transcript: { final: textToEmit } });
+          this.onTranscriptUpdate({ transcript: { final: textToEmit, ...this.liveIncompleteMark() } });
         }
       } else {
         pushPrivateTimeline('empty_transcript_retain', {
@@ -2278,6 +2283,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     return true;
   }
 
+  /** Spread into live updates: present (true) only after this take dropped live audio. */
+  private liveIncompleteMark(): { liveTextIncomplete?: true } {
+    return this.liveTextIncomplete ? { liveTextIncomplete: true } : {};
+  }
+
   private capLiveDecodeWindow(audio: Float32Array): Float32Array {
     const hasCommittedTranscript = this.currentTranscript.trim().length > 0;
     // Cold start: a take that began with a replayed backlog keeps the backlog from its start (the oldest
@@ -2290,6 +2300,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.coldStartDecodes += 1;
       if (audio.length <= COLD_START_DECODE_MAX_SAMPLES) return audio;
       const oldest = inheritPcmSlice(audio, audio.slice(0, COLD_START_DECODE_MAX_SAMPLES), 0, 'live-cap');
+      this.liveTextIncomplete = true;
       pushPrivateTimeline('live_decode_window_capped', {
         serviceId: this.serviceId,
         runId: this.instanceId,
@@ -2313,6 +2324,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     if (audio.length <= maxLiveSamples) return audio;
 
     const cappedAudio = inheritPcmSlice(audio, audio.slice(audio.length - maxLiveSamples), audio.length - maxLiveSamples, 'live-cap');
+    this.liveTextIncomplete = true;
     pushPrivateTimeline('live_decode_window_capped', {
       serviceId: this.serviceId,
       runId: this.instanceId,

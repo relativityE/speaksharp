@@ -84,6 +84,9 @@ export interface SessionState {
     isInitiating: boolean;
     isReady: boolean;
     transcript: TranscriptState;
+    /** J3.b: this take's live text may miss words (Private live decoding dropped audio). Latched for the take; the
+     *  next take, a session reset and a new objective set clear it. The final transcript is unaffected. */
+    liveTextIncomplete: boolean;
     fillerData: FillerCounts;
     elapsedTime: number;
     startTime: number | null;
@@ -218,6 +221,7 @@ interface SessionActions {
     stopSession: () => void;
     setReady: (ready: boolean) => void;
     updateTranscript: (transcript: string, partial?: string) => void;
+    setLiveTextIncomplete: (incomplete: boolean) => void;
     updateFillerData: (data: FillerCounts) => void;
     updateElapsedTime: (time: number) => void;
     setSTTStatus: (status: SttStatus) => void;
@@ -302,6 +306,7 @@ const initialState: SessionState = {
         transcript: '',
         partial: '',
     },
+    liveTextIncomplete: false,
     fillerData: {},
     elapsedTime: 0,
     startTime: null,
@@ -442,6 +447,8 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         set({ transcript: { transcript: committed, partial: provisional } });
     },
 
+    setLiveTextIncomplete: (incomplete) => set((state) => (state.liveTextIncomplete === incomplete ? state : { liveTextIncomplete: incomplete })),
+
     updateFillerData: (data) =>
         set({
             fillerData: data,
@@ -516,6 +523,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
                 sttMode: mode,
                 ...(resetVisibleSession ? {
                     transcript: { transcript: '', partial: '' },
+                    liveTextIncomplete: false,
                     chunks: [],
                     fillerData: {},
                     elapsedTime: 0,
@@ -585,6 +593,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         set({
             // The finished take and everything measured from it.
             transcript: { transcript: '', partial: '' },
+            liveTextIncomplete: false,
             chunks: [],
             fillerData: {},
             elapsedTime: 0,
