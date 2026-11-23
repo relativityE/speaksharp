@@ -366,7 +366,10 @@ jobs:
 
   unit-shard:
     name: unit-shard-${{ matrix.shard }}
-    needs: [scope, deps-prep]
+    # #8: no deps-prep. The canvas-sharp apt packages are build headers for canvas's node-gyp fallback only; canvas 3
+    # installs its prebuilt binary (bundled cairo/pango, libc-only links), as the build and quality jobs already show
+    # by installing the same lockfile with no apt step. Waiting on the bundle cost every PR run ~35 s plus the install.
+    needs: [scope]
     if: (always() && (needs.scope.outputs.full_required == 'true' || needs.scope.outputs.docs_lane == 'true')) && needs.scope.outputs.base_only_proof == ''
     # Pinned with rc-gates (#1839): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build and
     # apt-prefetch gets no install-deps list (main CI 43413866919). Remove with the Playwright upgrade (#1840).
@@ -393,10 +396,36 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
-          install-native-deps: 'true'
+          install-native-deps: 'false'
           install-playwright: 'false'
-          apt-bundle: 'true'
-          apt-bundle-manifest: 'canvas-sharp'
+
+      # #8: fail before any test if canvas is not the prebuilt binary. jsdom drops canvas silently when it can't load,
+      # so a passing suite alone would not show it. The prebuilt resolves cairo/pango from its own build/Release.
+      - name: Verify Canvas Prebuilt Binary Loads
+        run: |
+          node <<'JS'
+          const fs = require('fs');
+          const path = require('path');
+          const { execFileSync } = require('child_process');
+          const fail = (msg) => { console.log(`::error::${msg}`); process.exit(1); };
+          const c = require('canvas').createCanvas(8, 8);
+          c.getContext('2d').fillRect(0, 0, 8, 8);
+          if (!c.toBuffer('image/png').length) fail('canvas rendered an empty PNG');
+          // The addon Node actually loaded for `canvas`, canonicalized, not a guessed node_modules spelling.
+          const loaded = Object.keys(require.cache).filter((k) => k.endsWith(`${path.sep}canvas.node`));
+          if (loaded.length !== 1) fail(`expected one loaded canvas.node, found ${loaded.length}`);
+          const addon = fs.realpathSync(loaded[0]);
+          const release = path.dirname(addon);
+          const ldd = execFileSync('ldd', [addon], { encoding: 'utf8' });
+          console.log(`addon: ${addon}`);
+          for (const lib of ['libcairo.so.2', 'libpango-1.0.so.0']) {
+            const m = ldd.match(new RegExp(`^\\s*${lib.replace(/\./g, '\\.')} => (\\S+) \\(`, 'm'));
+            if (!m) fail(`${lib} is missing or unresolved in ldd of ${addon}`);
+            const target = fs.realpathSync(m[1]);
+            console.log(`${lib} -> ${target}`);
+            if (path.dirname(target) !== release) fail(`${lib} resolves to ${target}, not the prebuilt ${release}`);
+          }
+          JS
 
       - name: Run Unit Shard Execution
         env:
