@@ -1056,7 +1056,7 @@ describe('J8 live launcher (liveMain): the CLI the release-checks J8 job runs (S
     const HOST = `${'a'.repeat(20)}.supabase.co`;
     const KEY = 'service-role-fixture';
     const LIVE = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow,
-        SUPABASE_URL: `https://${HOST}`, SUPABASE_SERVICE_ROLE_KEY: KEY };
+        SUPABASE_URL: `https://${HOST}`, SUPABASE_SERVICE_ROLE_KEY: KEY, RWT_WRITES_ACK: 'RWT-DISPOSABLE-ACCOUNT-WRITES', RWT_CANARY_CLAIM_ACK: 'RWT-CANARY-CLAIM-RUN-OWNED' };
     const argvFor = (d) => ['--evidence-dir', d.evidenceDir, '--run-dir', d.runDir, '--run-id', RUN_ID, '--run-attempt', '1', '--release-sha', RELEASE, '--execute', 'true'];
     const dropArg = (argv, k) => argv.filter((_, i) => i !== argv.indexOf(k) && i !== argv.indexOf(k) + 1);
     /** A supabase-js-shaped admin client (nothing it holds is ever called here) and a recorder of every createClient call. */
@@ -1064,7 +1064,7 @@ describe('J8 live launcher (liveMain): the CLI the release-checks J8 job runs (S
     const recorder = () => { const calls = []; return { calls, createClient: (...a) => { calls.push(a); return adminShape(); } }; };
     const LIVE_DEPS = ['runSpec', 'qualify', 'coaching', 'evaluate', 'lookup', 'readAccount', 'scopedDelete', 'readResidue'];
 
-    it('refuses before anything is built, recorded or sent: arguments, domain, run binding, credentials, project', async () => {
+    it('refuses before anything is built, recorded or sent: arguments, domain, run binding, acknowledgements, credentials, project', async () => {
         const d = dirs();
         const argv = argvFor(d);
         const cases = [
@@ -1074,6 +1074,10 @@ describe('J8 live launcher (liveMain): the CLI the release-checks J8 job runs (S
             [argv, { ...LIVE, LIVE_TEST_EMAIL_DOMAIN: '' }, /LIVE_TEST_EMAIL_DOMAIN/],
             [argv, { ...LIVE, GITHUB_REPOSITORY: '' }, /no run binding/],
             [argv, { ...LIVE, GITHUB_WORKFLOW_REF: '' }, /no run binding/],
+            [argv, { ...LIVE, RWT_WRITES_ACK: '' }, /acknowledgements/],
+            [argv, { ...LIVE, RWT_WRITES_ACK: 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE' }, /acknowledgements/],
+            [argv, { ...LIVE, RWT_CANARY_CLAIM_ACK: '' }, /acknowledgements/],
+            [argv, { ...LIVE, RWT_CANARY_CLAIM_ACK: 'yes' }, /acknowledgements/],
             [argv, { ...LIVE, SUPABASE_SERVICE_ROLE_KEY: '' }, /SUPABASE_SERVICE_ROLE_KEY/],
             [argv, { ...LIVE, SUPABASE_URL: '' }, /SUPABASE_URL/],
         ];

@@ -679,12 +679,16 @@ jobs:
           J8_RUNNER: ${{ github.event.inputs.rwt_j8_runner }}
           DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
           DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+          RWT_WRITES_ACK: ${{ github.event.inputs.rwt_writes_ack }}
+          RWT_CANARY_CLAIM_ACK: ${{ github.event.inputs.rwt_canary_claim_ack }}
         run: |
           node -e '
             const a = require("./tools/cloud-test/nightly/j8-live-adapters.cjs");
             const e = process.env;
             if (e.J8_RUNNER !== "J8-PARENT-RUNNER") { console.error("::error::rwt_j8_runner is accepted only as J8-PARENT-RUNNER; nothing ran."); process.exit(1); }
             if (e.DIAGNOSTIC_SPEC !== a.SPEC || e.DIAGNOSTIC_GREP !== a.SPEC_GREP) { console.error("::error::the J8 runner needs the J8 spec and its exact test selector; nothing ran."); process.exit(1); }
+            const n = require("./tools/cloud-test/nightly/j8-nightly-entry.cjs");
+            if (e.RWT_WRITES_ACK !== n.J8_WRITES_ACK || e.RWT_CANARY_CLAIM_ACK !== n.J8_CANARY_ACK) { console.error("::error::J8 needs the exact disposable-account write and canary-claim acknowledgements; nothing ran."); process.exit(1); }
             console.log("J8 runner selected: one J8 run through its parent runner.");'
       # The served release is discovered here, never pinned by an input (Gate 3's release override stays confined to Gate 3).
       - name: Resolve the served release for J8
@@ -722,21 +726,12 @@ jobs:
           # Sam, 16 Nov (B): only the full Gate 3 step writes full-gate receipts; this run is scoped like every other single journey.
           RWT_RUN_SCOPE: diagnostic
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          # Only what the J8 spec, its readback, the finalizer and the parent's scoped delete read: no shared test-user, Stripe or
+          # agent credentials.
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
-          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
-          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
-          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
-          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
-          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           RWT_WRITES_ACK: ${{ github.event.inputs.rwt_writes_ack }}
           RWT_CANARY_CLAIM_ACK: ${{ github.event.inputs.rwt_canary_claim_ack }}
           RWT_HUMAN_REFLEX_MS: ${{ github.event.inputs.rwt_human_reflex_ms }}
@@ -748,7 +743,6 @@ jobs:
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
         run: |
           set -euo pipefail
-          node scripts/rc-dast-live-preflight.mjs
           # #1258: the restricted synthetic coaching artifact goes only to a fresh private directory outside the checkout.
           RWT_PRIVATE_EVIDENCE_DIR="$(mktemp -d "$RUNNER_TEMP/rwt-private.XXXXXX")"
           chmod 700 "$RWT_PRIVATE_EVIDENCE_DIR"
