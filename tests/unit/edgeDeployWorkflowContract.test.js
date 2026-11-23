@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import yaml from 'js-yaml';
 
 // Regression contract for the post-#1290 defect: the hosted Edge-function readback (verify-edge-functions)
@@ -85,5 +87,87 @@ describe('deploy-supabase-migrations Edge deploy/readback job conditions', () =>
     expect(steps[keep].uses).toBe('actions/upload-artifact@v6');
     expect(steps[keep].with['retention-days']).toBe(1);
     expect(steps[keep].with.path).toBe('edge-version-reconciliation.json');
+  });
+});
+
+// ── Deletion rollout step 5 (plan #1952): the account-closure-only route ─────────────────────────────────────────────
+describe('account-closure-only: exactly one function, post-129 ledger, no invalidation, versions reconciled', () => {
+  const release = yaml.load(readFileSync(resolve(process.cwd(), '.github/workflows/production-release.yml'), 'utf8'));
+  const job = jobs['deploy-account-closure-only'];
+  const steps = job.steps;
+  const at = (name) => steps.findIndex((step) => step.name === name);
+
+  it('is a separate, exactly confirmed production-release operation that never enables the ten-function path', () => {
+    expect(release.on.workflow_dispatch.inputs.operation.options).toEqual(['frontend', 'edge-functions', 'account-closure-only']);
+    const caller = release.jobs['release-account-closure'];
+    expect(caller.uses).toBe('./.github/workflows/deploy-supabase-migrations.yml');
+    expect(caller.with).toMatchObject({ operation: 'account-closure-only', deploy_edge_functions: false, deploy_production: true });
+    expect(caller.if).toContain("inputs.operation == 'account-closure-only'");
+    expect(release.jobs['release-edge'].with.operation).toBe('edge-functions');
+    const resolveRun = jobs['validate-edge-configuration'].steps.find((step) => step.id === 'resolve').run;
+    expect(resolveRun).toContain('migrations|secrets|account-closure-only) deploy_edge=false ;;');
+    expect(resolveRun).toContain("echo 'account_closure_only=true' >> \"$GITHUB_OUTPUT\"");
+    expect(jobs['deploy-edge-functions'].if).toContain("needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true'");
+  });
+
+  it('never runs authority invalidation or the database job for this operation', () => {
+    expect(jobs['invalidate-account-closure-authority'].if).toContain("inputs.operation != 'account-closure-only'");
+    expect(jobs['deploy-production-db'].if).toContain("inputs.operation != 'account-closure-only'");
+    expect(job.needs).toEqual(['validate-edge-configuration', 'verify-t2-database-prerequisites']);
+    expect(JSON.stringify(job)).not.toContain('account-closure-invalidate');
+    expect(job.if).toContain("needs.validate-edge-configuration.outputs.deploy_edge_functions == 'false'");
+    expect(job.if).toContain("needs.verify-t2-database-prerequisites.result == 'success'");
+  });
+
+  it('publishes ONLY account-closure, between a post-129 T2 check before and a completion-OFF check after', () => {
+    const deploys = steps.flatMap((step) => (step.run ?? '').split('\n')).filter((line) => /functions deploy /.test(line));
+    expect(deploys).toEqual(['supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api']);
+    const deploy = steps.findIndex((step) => step.id === 'deploy_account_closure');
+    const before = at('Recheck the post-129 ledger and completion OFF immediately before publication');
+    const capture = at("Capture every function's version before account-closure publication");
+    const reconcile = at('Reconcile versions after account-closure publication');
+    const after = at('Recheck completion OFF and unbound after publication');
+    expect([at('Recheck exact green main before account-closure publication') < before, before < capture, capture < deploy,
+      deploy < reconcile, reconcile < after]).toEqual([true, true, true, true, true]);
+    for (const index of [before, after]) expect(steps[index].run).toContain('node scripts/t2-migration-postflight.mjs verify account-closure-release');
+    for (const index of [reconcile, after]) expect(steps[index].if).toContain('always()');
+    expect(jobs['verify-t2-database-prerequisites'].steps.at(-1).run).toContain('verify account-closure-release');
+    expect(job.env.PUBLISHED_FUNCTION).toBe('account-closure');
+    expect(job.env.WATCHED_FUNCTIONS.split(' ').sort()).toEqual(['account-closure', 'attest-session-engine', 'check-usage-limit',
+      'create-user', 'get-ai-suggestions', 'objective-register-source', 'observability-smoke', 'stripe-billing-portal',
+      'stripe-checkout', 'stripe-webhook']);
+    const keep = steps.find((step) => step.name === 'Keep the account-closure version reconciliation');
+    expect(keep.with['retention-days']).toBe(1);
+  });
+
+  it('the reconciliation fails when any other function changed, or when a reported success did not advance', () => {
+    const run = steps[at('Reconcile versions after account-closure publication')].run;
+    const program = /'(\{schemaVersion: 1, route[\s\S]*?)' \\\n\s*> account-closure-version-reconciliation\.json/.exec(run)?.[1] ?? '';
+    expect(program).toContain('.othersUnchanged');
+    const dir = mkdtempSync(join(tmpdir(), 'acr-'));
+    const names = job.env.WATCHED_FUNCTIONS.split(' ');
+    const fn = (slug, version, updated) => ({ slug, version, status: 'ACTIVE', updated_at: updated });
+    const before = names.map((slug, i) => fn(slug, slug === 'account-closure' ? 9 : 20 + i, `t${i}`));
+    const reconcile = (after, outcome) => {
+      writeFileSync(join(dir, 'b.json'), JSON.stringify(before)); writeFileSync(join(dir, 'a.json'), JSON.stringify(after));
+      return JSON.parse(execFileSync('jq', ['-n', '--arg', 'outcome', outcome, '--arg', 'published', 'account-closure',
+        '--slurpfile', 'before', join(dir, 'b.json'), '--slurpfile', 'after', join(dir, 'a.json'), program], { encoding: 'utf8' }));
+    };
+    const bumped = before.map((f) => f.slug === 'account-closure' ? { ...f, version: 10, updated_at: 'new' } : f);
+    expect(reconcile(bumped, 'success')).toMatchObject({ publishedAdvanced: true, othersUnchanged: true, changedOthers: [] });
+    expect(reconcile(before, 'success')).toMatchObject({ publishedAdvanced: false, othersUnchanged: true });
+    const otherMoved = bumped.map((f) => f.slug === 'stripe-webhook' ? { ...f, version: f.version + 1 } : f);
+    expect(reconcile(otherMoved, 'success')).toMatchObject({ othersUnchanged: false, changedOthers: ['stripe-webhook'] });
+    const touched = before.map((f) => f.slug === 'get-ai-suggestions' ? { ...f, updated_at: 'touched' } : f);
+    expect(reconcile(touched, 'failure')).toMatchObject({ othersUnchanged: false, changedOthers: ['get-ai-suggestions'] });
+    expect(run).toContain('if [ "$(jq -r .othersUnchanged account-closure-version-reconciliation.json)" != true ]; then');
+    expect(run).toContain('if [ "$DEPLOY_OUTCOME" = success ] && [ "$(jq -r .publishedAdvanced account-closure-version-reconciliation.json)" != true ]; then');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('the T2 CLI admits account-closure-release only on the post-129 completion-settlement ledger', () => {
+    const cli = readFileSync(resolve(process.cwd(), 'scripts/t2-migration-postflight.mjs'), 'utf8');
+    expect(cli).toContain("['release', 'edge-release', 'account-closure-release'].includes(version)");
+    expect(cli).toContain("if (version === 'account-closure-release' && contract.profile !== 'post-129-completion-settlement') {");
   });
 });
