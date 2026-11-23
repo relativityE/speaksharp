@@ -11,6 +11,17 @@ export type AccountCompletionStatus =
 export type StatusCapabilityReply =
   | { outcome: 'status_capability'; requestId: string; token: string; expiresAt: number }
   | Extract<AccountCompletionStatus, { outcome: 'unavailable' }>;
+/**
+ * J1.f/J7.d step 6: the server's owner- and request-bound readiness DECISION for one completion effect. Distinct from
+ * the generic status reason: it re-authenticates the live owner, proves that owner holds this exact acknowledged
+ * capability, and reads `pending/ready` twice under the deployed scope. It never issues, rotates, extends or
+ * acknowledges a capability, never returns a token, and expires within READINESS_TTL_MS. The executor re-checks
+ * everything independently; this decision only lets the page offer the button.
+ */
+export type ExecutionReadiness =
+  | { outcome: 'execution_ready'; requestId: string; expiresAt: number }
+  | Extract<AccountCompletionStatus, { outcome: 'unavailable' }>;
+export const READINESS_TTL_MS = 60_000;
 export type StatusAcknowledgment =
   | { outcome: 'status_acknowledged'; requestId: string }
   | Extract<AccountCompletionStatus, { outcome: 'unavailable' }>;
@@ -106,6 +117,36 @@ export function createAccountCompletionStatus(input: CompletionBinding, ports: P
         }));
         return status(readback, body.requestId, now()).outcome !== 'unavailable'
           ? { outcome: 'status_acknowledged', requestId: body.requestId } : unavailable();
+      } catch { return unavailable(); }
+    },
+    async readiness(request: Request, input: unknown): Promise<ExecutionReadiness> {
+      try {
+        const body = structuredClone(input);
+        if (!closed(body, ['requestId', 'token']) || !uuid(body.requestId) || !secret(body.token) || !Number.isFinite(now())) return unavailable();
+        const requestId: string = body.requestId;
+        const userId = await owner(request);
+        if (!userId) return unavailable();
+        const tokenHash = await hash(body.token);
+        const readArgs = { p_request_id: requestId, p_token_hash: tokenHash, p_scope_digest: transport.scopeDigest };
+        const ready = (value: unknown) => {
+          const parsed = status(value, requestId, now());
+          return parsed.outcome === 'pending' && parsed.reason === 'ready';
+        };
+        // Read FIRST: the read RPC requires an already-acknowledged, unexpired capability, so the owner check below can
+        // never acknowledge a fresh token as a side effect.
+        if (!ready(structuredClone(await transport.rpc('read_account_completion_status_v1', readArgs)))) return unavailable();
+        // Owner binding: true only for THIS authenticated owner + request + scope + token. Idempotent on an acknowledged
+        // capability (coalesce keeps the original acknowledgment); it never inserts, rotates or extends.
+        const owned = await transport.rpc('acknowledge_account_completion_status_v1', {
+          p_user_id: userId, p_request_id: requestId, p_scope_digest: transport.scopeDigest, p_token_hash: tokenHash,
+        });
+        if (owned !== true) return unavailable();
+        const readback = structuredClone(await transport.rpc('read_account_completion_status_v1', readArgs));
+        if (!ready(readback)) return unavailable();
+        await transport.currentScopeDigest(); // the deployed scope must still be the one every read above used
+        const capabilityDeadline = (readback as Record<string, unknown>).expiresAt as number;
+        return { outcome: 'execution_ready', requestId,
+          expiresAt: Math.min(now() + READINESS_TTL_MS, capabilityDeadline) };
       } catch { return unavailable(); }
     },
     async read(input: unknown): Promise<AccountCompletionStatus> {

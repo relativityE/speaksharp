@@ -115,3 +115,82 @@ describe('inactive owner-safe account completion status wrapper',()=>{
     expect(await f.adapter.read({requestId,token})).toEqual(held);expect(f.rpc).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('J1.f/J7.d step 6: owner- and request-bound execution readiness decision', () => {
+  const ready = { outcome: 'pending', requestId, reason: 'ready', canRetry: false, expiresAt: 900_000 };
+  const names = (f: ReturnType<typeof fixture>) => f.rpc.mock.calls.map(([name]) => name);
+  it('the valid case: live owner, held acknowledged capability, pending/ready twice -> a short decision, no token', async () => {
+    const f = fixture(); f.setRow(ready);
+    const result = await f.adapter.readiness(request(), { requestId, token });
+    expect(result).toEqual({ outcome: 'execution_ready', requestId, expiresAt: 1000 + 60_000 });
+    expect(JSON.stringify(result)).not.toContain(token);
+    // Read first, owner binding second, read again: never issue, never anything else.
+    expect(names(f)).toEqual(['read_account_completion_status_v1', 'acknowledge_account_completion_status_v1',
+      'read_account_completion_status_v1']);
+    expect(f.rpc).toHaveBeenCalledWith('acknowledge_account_completion_status_v1', {
+      p_user_id: userId, p_request_id: requestId, p_scope_digest: binding.scopeDigest, p_token_hash: await digest(token) });
+    expect(JSON.stringify(f.rpc.mock.calls)).not.toContain(token);
+  });
+  it('never outlives the capability it was decided on', async () => {
+    const f = fixture(); f.setRow({ ...ready, expiresAt: 5000 });
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual({ outcome: 'execution_ready', requestId, expiresAt: 5000 });
+  });
+  it.each(['coverage_unverified', 'checkout_unsettled', 'save_unsettled', 'coaching_unsettled'])('pending/%s is not ready', async (reason) => {
+    const f = fixture(); f.setRow({ ...ready, reason });
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual(held);
+    expect(names(f)).toEqual(['read_account_completion_status_v1']); // decided before any owner-binding call
+  });
+  it('off or unbound (SQL answers NULL) is unavailable', async () => {
+    const f = fixture(); f.setRow(null);
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual(held);
+  });
+  it('an unacknowledged or expired capability (read answers NULL) is never acknowledged as a side effect', async () => {
+    const f = fixture(); f.setRow(null);
+    await f.adapter.readiness(request(), { requestId, token });
+    expect(names(f)).not.toContain('acknowledge_account_completion_status_v1');
+    expect(names(f)).not.toContain('issue_account_completion_status_v1');
+  });
+  it('wrong owner: the owner binding is refused for this token', async () => {
+    const f = fixture(); f.setRow(ready);
+    f.rpc.mockImplementation(async (name) => ({ data: name === 'acknowledge_account_completion_status_v1' ? false : structuredClone(ready), error: null }));
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual(held);
+  });
+  it('wrong request: a reply for another request is unavailable', async () => {
+    const f = fixture(); f.setRow({ ...ready, requestId: '33333333-3333-4333-8333-333333333333' });
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual(held);
+  });
+  it.each([
+    ['revoked (NULL)', null],
+    ['no longer ready (a valid, unexpired pending/save_unsettled reply)', { ...ready, reason: 'save_unsettled' }],
+    ['now processing (valid reply)', { outcome: 'processing', requestId, canRetry: false, expiresAt: 900_000 }],
+  ])('a change between the two reads is unavailable: %s', async (_label, second) => {
+    const f = fixture(); f.setRow(ready); let reads = 0;
+    f.rpc.mockImplementation(async (name) => ({ data: name === 'acknowledge_account_completion_status_v1' ? true
+      : (++reads === 1 ? structuredClone(ready) : structuredClone(second)), error: null }));
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual(held);
+  });
+  it('an expired deadline in the reply is unavailable', async () => {
+    const f = fixture(); f.setRow({ ...ready, expiresAt: 900 });
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual(held);
+  });
+  it('scope drift during the decision is unavailable', async () => {
+    const f = fixture(); f.setRow(ready); let reads = 0;
+    f.rpc.mockImplementation(async (name) => {
+      if (name === 'read_account_completion_status_v1' && ++reads === 2) f.setBinding({ ...binding, scopeDigest: 'd'.repeat(64) });
+      return { data: name === 'acknowledge_account_completion_status_v1' ? true : structuredClone(ready), error: null };
+    });
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual(held);
+  });
+  it.each([null, {}, { requestId }, { requestId, token: 'short' }, { requestId, token, userId }])('rejects malformed input %j without Auth or SQL', async (input) => {
+    const f = fixture();
+    expect(await f.adapter.readiness(request(), input)).toEqual(held);
+    expect(f.rpc).not.toHaveBeenCalled();
+  });
+  it('requires a live owner: missing authorization or a failed getUser calls no SQL', async () => {
+    const f = fixture(); f.setRow(ready);
+    expect(await f.adapter.readiness(new Request('https://app.example.test'), { requestId, token })).toEqual(held);
+    f.authenticate.mockResolvedValue({ data: { user: null }, error: null });
+    expect(await f.adapter.readiness(request(), { requestId, token })).toEqual(held);
+    expect(f.rpc).not.toHaveBeenCalled();
+  });
+});
