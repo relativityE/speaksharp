@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -15,6 +14,7 @@ import {
     prepareExactMigrationWorkspace,
     resolveExactMigrationConfig,
 } from '../../scripts/lib/exactMigrationGate.mjs';
+import { assertMigrationBytePin, assertStagedMigrationOrder, assertTargetOnlyDryRunCases } from '../helpers/exactMigrationWiringCases.ts';
 
 /**
  * #1258 — the durable session product marker is applied through the exact allowlisted path, AFTER #1471, never through the
@@ -56,15 +56,13 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
     });
 
     it('is allowlisted as staged, directly after #1471, before the held commercial-activation entry', () => {
-        expect(entry).toMatchObject({ file: FILE, classification: 'staged' });
-        const order = EXACT_MIGRATION_ALLOWLIST.map((e) => e.version);
-        expect(order.indexOf(VERSION)).toBe(order.indexOf(PREVIOUS) + 1);
-        expect(EXACT_MIGRATION_ALLOWLIST.indexOf(entry)).toBeLessThan(EXACT_MIGRATION_ALLOWLIST.indexOf(ACTIVATION));
+        expect.assertions(3);
+        assertStagedMigrationOrder(FILE, VERSION, PREVIOUS, ACTIVATION, EXACT_MIGRATION_ALLOWLIST);
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
-        const bytes = readFileSync(resolve(SUPABASE, 'migrations', FILE));
-        expect(entry.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+        expect.assertions(1);
+        assertMigrationBytePin(resolve(SUPABASE, 'migrations', FILE), entry.sha256);
     });
 
     it('is selectable as a dispatch target, and the phrase binds its filename, hash and the exact main SHA', () => {
@@ -75,8 +73,8 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
-        expect(assertExactDryRun(`Would push these migrations:\n • ${FILE}\nFinished supabase db push.`, config).files).toEqual([FILE]);
-        expect(() => assertExactDryRun(`Would push these migrations:\n • ${FILE}\n • ${ACTIVATION.file}\n`, config)).toThrow(/target-only/);
+        expect.assertions(2);
+        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, output => assertExactDryRun(output, config));
     });
 
     // The real Production ledger fixture (2026-09-23), advanced to the state after #1432, #1469 and #1476 were applied;

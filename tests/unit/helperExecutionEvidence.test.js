@@ -24,12 +24,16 @@ const AHT1811_HELPERS=[
   ['tests/live/helpers/feedbackNoSessionCleanup.ts','tests/unit/feedbackNoSessionCleanup.test.ts',["noSessionWriteUncertainty"]],
   ['tests/live/helpers/feedbackRecoveryInventory.ts','tests/unit/feedbackBoundedWrites.test.ts',["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"]],
   ['tests/live/helpers/feedbackReportCleanup.ts','tests/unit/feedbackBoundedWrites.test.ts',["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"]],
-  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
-    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"]],
-  // AHT-14 (#1868): the attempt's network transfer behind the offline gate.
+  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","betweenFilesFailureVerdict",
+    "bytesCounted","betweenFilesGate","attemptPhase","runBetweenFilesFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict",
+    "shownFailureVerdict","shownFailureSettled","pollShownFailure","worstVerdict"]],
+  // AHT-14 (#1868; J7.c option B): the attempt's model files and the held next file behind the offline gate.
   ['tests/live/helpers/rwtAdverse.ts','tests/unit/rwtAdverseRecovery.test.ts',["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
-    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
-    "ModelTransferTracker#snapshot"]],
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed","ModelTransferTracker#stateOf",
+    "ModelTransferTracker#snapshot","BetweenFilesHold#startAttempt","BetweenFilesHold#onRoute","BetweenFilesHold#held","BetweenFilesHold#release",
+    "BetweenFilesHold#releaseAll"]],
+  // J7.c option B (#1941): the isolated build refuses while a repo-root dotenv file exists.
+  ['tests/e2e/helpers/isolatedBuildDotenv.ts','tests/unit/j7cIsolatedBuildDotenv.test.ts',["rootDotenvFiles","assertNoRootDotenv"]],
   ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
   // #1882: the Focus switch take on the live clock and the rail settled on actual rows.
   ['tests/live/helpers/rwtLiveTimedTake.ts','tests/unit/rwtFocusSwitchLiveClock1882.test.ts',["readRailRowCount","railSettled"]],

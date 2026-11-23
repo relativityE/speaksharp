@@ -490,6 +490,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'coaching request bound to this take',
     // Ordinary saved/reopened persistence only; this row does not qualify the separate after-B causal case.
     'interrupted take coaching saved and shown in its saved review',
+    // J1.a (Sam on run 45014809858): the new account's own 30-day trial, read from its profile.
+    'new account starts a 30-day trial',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
     'Back from Progress restores the session', 'restored review', 'Back requests no coaching',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',

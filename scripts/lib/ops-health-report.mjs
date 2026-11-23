@@ -52,7 +52,40 @@ export function esc(value) {
   return String(value ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
 
-export function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary, checks }) {
+function runLink(run) {
+  return '[#' + run.id + (run.attempt ? ' (attempt ' + run.attempt + ')' : '') + '](' + run.runUrl + ')';
+}
+
+function renderCanaryActivity(lines, activity) {
+  lines.push('', '## Canary activity (' + activity.dateUtc + ' UTC)', '');
+  if (activity.coverage === 'unavailable') lines.push('Run history unavailable.');
+  if (activity.coverage === 'incomplete') lines.push('Run history incomplete; additional runs or attempts may exist.');
+  if (activity.noRuns) lines.push('🔴 No run today.');
+  const runText = (row) => {
+    if (!row) return 'none recorded';
+    const time = row.startedAt ? 'started ' + row.startedAt : 'run created ' + row.createdAt;
+    return runLink(row) + ': ' + row.trigger + ', ' + row.status + ' (' + time + ')';
+  };
+  if (!activity.latest) return;
+  lines.push('- Latest run: ' + runText(activity.latest), '- Latest pass: ' + runText(activity.latestGreen));
+  const failureLine = (label, { attempt, evidence }) => {
+    if (!evidence) return '- ' + label + ': ' + runLink(attempt) + '; failed-step time/details unavailable.';
+    const when = evidence.endedAt
+      ? evidence.endedAt + (evidence.timeBasis === 'job-completed' ? ' (job ended)' : '')
+      : 'time not recorded';
+    const where = evidence.step ? evidence.job + ': ' + evidence.step : evidence.job;
+    const reason = evidence.reasonCode ? ' (' + evidence.reasonCode.replace(/_/g, ' ') + ')' : '';
+    return '- ' + label + ': ' + when + ', [' + esc(where) + '](' + evidence.logUrl + ')' + reason + '.';
+  };
+  if (activity.firstFailure) lines.push(failureLine('First failure', activity.firstFailure));
+  for (const row of activity.distinct) lines.push(failureLine('Distinct later failure', row));
+  if (activity.unclassifiedFailures) {
+    lines.push('- ' + activity.unclassifiedFailures + ' later failed attempt(s); GitHub did not report enough detail to tell whether the errors differed.');
+  }
+  lines.push('', 'Based on runs created on this UTC date and their same-day attempts. Retries of earlier runs are not included.');
+}
+
+export function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary, checks, canaryActivity }) {
   const hardFailure = summary.fail > 0;
   const credentialLimited = runContext !== 'GitHub Actions' && checks.some((check) => /missing=|skip\(/.test(check.detail));
   const lines = [
@@ -89,6 +122,8 @@ export function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary
     );
   }
 
+  if (canaryActivity) renderCanaryActivity(lines, canaryActivity);
+
   lines.push(
     '',
     '## How To Read This',
@@ -103,13 +138,14 @@ export function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary
   return `${lines.join('\n')}\n`;
 }
 
-export function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, summary, checks }) {
+export function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, summary, checks, canaryActivity }) {
   return {
     generatedAt,
     baseUrl,
     repo,
     runContext,
     summary,
+    ...(canaryActivity ? { canaryActivity } : {}),
     verdict: summary.fail > 0 ? 'ACTION REQUIRED' : 'NO HARD FAILURES',
     checks: checks.map((check) => ({
       name: check.name,

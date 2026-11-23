@@ -52,7 +52,6 @@ const KNOWN_STALE = {
   'take-over-recording': 'account-wide-recording-mutex proof; selector not rendered. Post-MVP.',
   'account-lease-take-over': 'account-wide-recording-mutex proof; selector not rendered. Post-MVP.',
   'lease-take-over': 'account-wide-recording-mutex proof; selector not rendered. Post-MVP.',
-  'wpm-value': 'analytics-live-native-probe proof; selector not rendered. Post-MVP.',
 };
 
 function readAllTsx(dir, acc = []) {

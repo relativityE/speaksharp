@@ -20,6 +20,11 @@ function normalizeStripeObjectId(value: unknown): string | null {
   return null;
 }
 
+// A Stripe identifier or event type is printable in logs only in its plain form; anything else is replaced.
+function safeLogToken(value: unknown): string {
+  return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,128}$/.test(value) ? value : "unrecognized";
+}
+
 const PRO_PRICE_EXPECTED_UNIT_AMOUNT = 1000;
 
 // #1282 blocker 5/6: a GRANTING subscription must contain SpeakSharp's configured, validated $10 monthly
@@ -69,11 +74,18 @@ export async function handler(
 
   const signature = req.headers.get("Stripe-Signature")
   const body = await req.text()
+  // Log hygiene: no log line may carry the raw body, the signature header, or an exception object.
+  // A Stripe signature-verification error holds the full raw payload and the signature header, and other
+  // thrown errors can carry customer or request details. Failures log a fixed code plus this per-request
+  // id; the event id is added only once the signature has verified.
+  const requestId = crypto.randomUUID()
+  let verifiedEventId: string | null = null
 
   try {
     const event = await constructStripeEvent(stripe, body, signature, webhookSecret)
+    verifiedEventId = safeLogToken(event?.id)
 
-    console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
+    console.log(`[Stripe Webhook] Received event: ${safeLogToken(event?.type)} (${verifiedEventId}) request=${requestId}`)
 
     // #1282 blocker 5 (design lock): entitlement is decided by the CURRENT Stripe subscription state, never
     // by event action or arrival order (Stripe does not guarantee delivery order and recommends retrieving
@@ -132,7 +144,7 @@ export async function handler(
           getEnv("STRIPE_PRO_PRICE_ID"), event.created);
         if (refund.outcome === "unverified") {
           const recorded = await recordRefundFollowup(supabase, event, refund.code);
-          console.error(`[Stripe Webhook] refund follow-up uncertain for ${event.id}: ${refund.reason}; `
+          console.error(`[Stripe Webhook] refund follow-up uncertain for ${verifiedEventId}: ${refund.reason}; `
             + `operator signal ${recorded ? "recorded" : "NOT recorded"}`);
           // Always non-2xx, so Stripe redelivers and the failure stays visible on the endpoint as well.
           return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Refund follow-up unverified", responseHeaders);
@@ -141,10 +153,10 @@ export async function handler(
           // Refunds are full only; a partial one changes nothing here and needs an operator to look at it.
           // Acknowledged only once the signal is durable: a failed write is non-2xx, so Stripe redelivers.
           if (!(await recordRefundFollowup(supabase, event, "partial_refund"))) {
-            console.error(`[Stripe Webhook] partial refund left unscheduled for ${event.id}; operator signal NOT recorded`);
+            console.error(`[Stripe Webhook] partial refund left unscheduled for ${verifiedEventId}; operator signal NOT recorded`);
             return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Refund follow-up signal not recorded", responseHeaders);
           }
-          console.error(`[Stripe Webhook] partial refund left unscheduled for ${event.id}; operator signal recorded`);
+          console.error(`[Stripe Webhook] partial refund left unscheduled for ${verifiedEventId}; operator signal recorded`);
           return createSuccessResponse({ received: true, refund: refund.outcome, followup: "unresolved" }, responseHeaders);
         }
         if ((refund.outcome === "scheduled" || refund.outcome === "already_scheduled" || refund.outcome === "already_ended")
@@ -152,10 +164,10 @@ export async function handler(
           // Scheduled, but a later renewal was collected at or after the refund: the member was charged again.
           // Acknowledged only once the signal is durable, exactly as for a partial refund.
           if (!(await recordRefundFollowup(supabase, event, refund.followup))) {
-            console.error(`[Stripe Webhook] renewal collected after refund for ${event.id}; operator signal NOT recorded`);
+            console.error(`[Stripe Webhook] renewal collected after refund for ${verifiedEventId}; operator signal NOT recorded`);
             return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Refund follow-up signal not recorded", responseHeaders);
           }
-          console.error(`[Stripe Webhook] renewal collected after refund for ${event.id}; operator signal recorded`);
+          console.error(`[Stripe Webhook] renewal collected after refund for ${verifiedEventId}; operator signal recorded`);
           return createSuccessResponse({ received: true, refund: refund.outcome, followup: "unresolved" }, responseHeaders);
         }
         return createSuccessResponse({ received: true, refund: refund.outcome }, responseHeaders);
@@ -174,19 +186,20 @@ export async function handler(
     let subscription: any;
     try {
       subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    } catch (retrieveErr) {
-      console.error(`[Stripe Webhook] subscription retrieve failed for ${subscriptionId}:`, retrieveErr);
+    } catch {
+      console.error(`[Stripe Webhook] subscription retrieve failed (code=${ErrorCodes.STRIPE_API_ERROR}) `
+        + `event=${verifiedEventId} request=${requestId}`);
       return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Unable to retrieve subscription", responseHeaders);
     }
 
     const status = String(subscription?.status ?? "");
     const customerId = normalizeStripeObjectId(subscription?.customer);
     if (!status || !customerId) {
-      console.error(`[Stripe Webhook] hydrated subscription identity is incomplete for ${subscriptionId}`);
+      console.error(`[Stripe Webhook] hydrated subscription identity is incomplete for ${safeLogToken(subscriptionId)}`);
       return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Subscription identity is incomplete", responseHeaders);
     }
     if (checkoutCustomerId && checkoutCustomerId !== customerId) {
-      console.error(`[Stripe Webhook] checkout/subscription customer mismatch for ${subscriptionId}`);
+      console.error(`[Stripe Webhook] checkout/subscription customer mismatch for ${safeLogToken(subscriptionId)}`);
       return createErrorResponse(ErrorCodes.VALIDATION_MISSING_METADATA, "Checkout customer validation failed", responseHeaders);
     }
     const cancelAtPeriodEnd = subscription?.cancel_at_period_end === true;
@@ -201,7 +214,7 @@ export async function handler(
     if (grantingStatus) {
       const priceCheck = await validateSubscriptionPrice(stripe, subscription, getEnv);
       if (priceCheck.retryable) {
-        console.error(`[Stripe Webhook] price uncertain for ${subscriptionId}: ${priceCheck.reason}`);
+        console.error(`[Stripe Webhook] price uncertain for ${safeLogToken(subscriptionId)}: ${priceCheck.reason}`);
         return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Unable to verify subscription price", responseHeaders);
       }
       if (!priceCheck.ok) {
@@ -241,7 +254,8 @@ export async function handler(
     }
 
     if (error || (data && data.success === false)) {
-      console.error(`[Stripe Webhook] snapshot application failed for ${event.id}:`, error ?? data?.error);
+      console.error(`[Stripe Webhook] snapshot application failed (code=${ErrorCodes.DATABASE_ERROR}) `
+        + `event=${verifiedEventId} request=${requestId}`);
       return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Snapshot application failed", responseHeaders);
     }
 
@@ -266,16 +280,19 @@ export async function handler(
     }
 
     if (data?.skipped) {
-      console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed, skipping`);
+      console.log(`[Stripe Webhook] ⏭️ Event ${verifiedEventId} already processed, skipping`);
       return createSuccessResponse({ received: true, skipped: true }, responseHeaders);
     }
 
-    console.log(`[Stripe Webhook] ✅ Event ${event.id} applied snapshot (status=${status}, entitlement=${data?.entitlement})`);
+    console.log(`[Stripe Webhook] ✅ Event ${verifiedEventId} applied snapshot (status=${safeLogToken(status)}, entitlement=${safeLogToken(data?.entitlement)})`);
     return createSuccessResponse({ received: true, entitlement: data?.entitlement }, responseHeaders);
 
-  } catch (err) {
-    const error = err as Error
-    console.error(`[Stripe Webhook] Error:`, error)
+  } catch {
+    // Never log the caught value: before verification it is Stripe's signature error carrying the raw
+    // payload and signature header; after verification it can be any processing error.
+    console.error(verifiedEventId === null
+      ? `[Stripe Webhook] signature verification failed (code=${ErrorCodes.STRIPE_WEBHOOK_INVALID}) request=${requestId}`
+      : `[Stripe Webhook] processing failed (code=${ErrorCodes.STRIPE_WEBHOOK_INVALID}) event=${verifiedEventId} request=${requestId}`)
     return createErrorResponse(
       ErrorCodes.STRIPE_WEBHOOK_INVALID,
       "Webhook processing failed",
