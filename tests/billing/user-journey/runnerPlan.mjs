@@ -102,6 +102,12 @@ export const PHASES = [
     events: ['checkout.session.completed', 'charge.refunded', 'customer.subscription.updated', 'customer.subscription.deleted'],
     proves: 'full refund; the customer uses the balance of the month as Pro; then the membership ends with no second charge; access after the end pending policy',
   }),
+  // J9.b: trial end walls the app and the saved take; one test-mode payment restores both (Akin, 2026-11-21: test charge only).
+  browser('restore_access', ['full'], {
+    requires: ['payment_gate'],
+    events: ['checkout.session.completed'],
+    proves: 'a take saved in the trial is walled after it ends, then one $10 test-mode payment restores access and the same take; Manage billing shows the plan',
+  }),
   // Outcome 8 (#1822): its own spec, config and mode, but the same disposable local stack, receipt and combined
   // receipt as the branches above, so it is re-validated exactly like them (no separate outside contract).
   browser('paid_value_loop', ['paid_loop'], {
