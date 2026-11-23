@@ -1050,3 +1050,115 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
         expect({ cleanup: residue.cleanup.result, exit: residue.exitCode, journal: residue.createJournal }).toEqual({ cleanup: 'incomplete', exit: 78, journal: 'unresolved' });
     });
 });
+
+describe('J8 live launcher (liveMain): the CLI the release-checks J8 job runs (Sam, 23 Nov, #1953)', () => {
+    const { cleanupReserve } = require('../cleanup-plan.cjs');
+    const HOST = `${'a'.repeat(20)}.supabase.co`;
+    const KEY = 'service-role-fixture';
+    const LIVE = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow,
+        SUPABASE_URL: `https://${HOST}`, SUPABASE_SERVICE_ROLE_KEY: KEY };
+    const argvFor = (d) => ['--evidence-dir', d.evidenceDir, '--run-dir', d.runDir, '--run-id', RUN_ID, '--run-attempt', '1', '--release-sha', RELEASE, '--execute', 'true'];
+    const dropArg = (argv, k) => argv.filter((_, i) => i !== argv.indexOf(k) && i !== argv.indexOf(k) + 1);
+    /** A supabase-js-shaped admin client (nothing it holds is ever called here) and a recorder of every createClient call. */
+    const adminShape = () => ({ auth: { admin: { listUsers: async () => ({}), getUserById: async () => ({}) } }, from: () => ({}), rpc: async () => ({}) });
+    const recorder = () => { const calls = []; return { calls, createClient: (...a) => { calls.push(a); return adminShape(); } }; };
+    const LIVE_DEPS = ['runSpec', 'qualify', 'coaching', 'evaluate', 'lookup', 'readAccount', 'scopedDelete', 'readResidue'];
+
+    it('refuses before anything is built, recorded or sent: arguments, domain, run binding, credentials, project', async () => {
+        const d = dirs();
+        const argv = argvFor(d);
+        const cases = [
+            [dropArg(argv, '--release-sha'), LIVE, /--release-sha/],
+            [argv.map((v) => (v === 'true' ? 'false' : v)), LIVE, /--execute true/],
+            [[...argv, '--plan', 'x'], LIVE, /unknown or repeated argument/],
+            [argv, { ...LIVE, LIVE_TEST_EMAIL_DOMAIN: '' }, /LIVE_TEST_EMAIL_DOMAIN/],
+            [argv, { ...LIVE, GITHUB_REPOSITORY: '' }, /no run binding/],
+            [argv, { ...LIVE, GITHUB_WORKFLOW_REF: '' }, /no run binding/],
+            [argv, { ...LIVE, SUPABASE_SERVICE_ROLE_KEY: '' }, /SUPABASE_SERVICE_ROLE_KEY/],
+            [argv, { ...LIVE, SUPABASE_URL: '' }, /SUPABASE_URL/],
+        ];
+        for (const url of [`http://${HOST}`, `https://${'b'.repeat(20)}.supabase.co`, `https://${HOST}/rest/v1`, `https://u:p@${HOST}`, `https://${HOST}?x=1`, `https://${HOST}:8443`])
+            cases.push([argv, { ...LIVE, SUPABASE_URL: url }, /not the approved project/]);
+        for (const [args, env, why] of cases) {
+            const rec = recorder();
+            let ran = 0;
+            const out = await entry.liveMain(args, env, { createClient: rec.createClient, approvedHost: HOST, run: async () => { ran += 1; return { exitCode: 0 }; } });
+            expect({ exit: out.exitCode, why: why.test(out.reason), built: rec.calls.length, ran }).toEqual({ exit: 78, why: true, built: 0, ran: 0 });
+        }
+        // With no approved host injected, the reviewed save oracle's own readback host decides; any other project is refused.
+        const rec = recorder();
+        const other = await entry.liveMain(argv, { ...LIVE, SUPABASE_URL: `https://${'c'.repeat(20)}.supabase.co` }, { createClient: rec.createClient });
+        expect({ exit: other.exitCode, why: /not the approved project/.test(other.reason), built: rec.calls.length }).toEqual({ exit: 78, why: true, built: 0 });
+        expect(fs.readdirSync(d.evidenceDir)).toEqual([]);
+    });
+
+    it('builds the service-role client for the approved project only, over the bounded transport, and supplies every live part', async () => {
+        const d = dirs();
+        const rec = recorder();
+        let seen = null;
+        const out = await entry.liveMain(argvFor(d), LIVE, { createClient: rec.createClient, approvedHost: HOST,
+            run: async (argv, env, deps) => { seen = { argv, env, deps }; return { exitCode: 0 }; } });
+        expect(out.exitCode).toBe(0);
+        expect(rec.calls.length).toBe(1);
+        const [origin, key, opts] = rec.calls[0];
+        expect({ origin, key, persist: opts.auth.persistSession, refresh: opts.auth.autoRefreshToken, fetch: typeof opts.global.fetch })
+            .toEqual({ origin: `https://${HOST}`, key: KEY, persist: false, refresh: false, fetch: 'function' });
+        expect(seen.argv).toEqual(argvFor(d));
+        expect(seen.env).toBe(LIVE);
+        expect(LIVE_DEPS.filter((k) => typeof seen.deps[k] !== 'function')).toEqual([]);
+        // The reviewed adapters write under the repository root, so the job's --run-dir must be the checkout ($GITHUB_WORKSPACE).
+        expect(entry.sameDirectory(seen.deps.artifactRoot, path.join(__dirname, '..', '..', '..', '..'))).toBe(true);
+    });
+
+    it('with the live parts, main passes its gate and still keeps runJ8Nightly\'s guards: a run dir that is not the checkout is HOLD, nothing sent', async () => {
+        const d = dirs();
+        const rec = recorder();
+        const out = await entry.liveMain(argvFor(d), LIVE, { createClient: rec.createClient, approvedHost: HOST });
+        expect(out.exitCode).toBe(78);
+        expect(/live gate is closed/.test(out.reason)).toBe(false);
+        expect(/run directory is not where the spec writes its receipt/.test(out.reason)).toBe(true);
+        expect(fs.readdirSync(d.evidenceDir)).toEqual([]);
+    });
+
+    it('the evaluation runs the finalizer in a fresh private directory that is removed when the run ends', async () => {
+        const d = dirs();
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'j8-runner-temp-'));
+        let at = null;
+        const out = await entry.liveMain(argvFor(d), { ...LIVE, RUNNER_TEMP: temp }, { createClient: recorder().createClient, approvedHost: HOST,
+            finalize: (receipt, readback, { workDir }) => { at = { workDir, mode: fs.statSync(workDir).mode & 0o777, inTemp: path.dirname(workDir) === temp, receipt, readback }; return { rows: [] }; },
+            run: async (argv, env, deps) => ({ exitCode: 0, evaluated: await deps.evaluate({ r: 1 }, { b: 2 }) }) });
+        expect(out.evaluated).toEqual({ rows: [] });
+        expect({ mode: at.mode, inTemp: at.inTemp, receipt: at.receipt, readback: at.readback }).toEqual({ mode: 0o700, inTemp: true, receipt: { r: 1 }, readback: { b: 2 } });
+        expect(fs.existsSync(at.workDir)).toBe(false);
+        // A run that throws still removes it.
+        let thrownAt = null;
+        await expect(entry.liveMain(argvFor(d), { ...LIVE, RUNNER_TEMP: temp }, { createClient: recorder().createClient, approvedHost: HOST,
+            finalize: (r, b, { workDir }) => { thrownAt = workDir; return null; },
+            run: async (argv, env, deps) => { await deps.evaluate({}, {}); throw new Error('boom'); } })).rejects.toBeInstanceOf(Error);
+        expect(fs.existsSync(thrownAt)).toBe(false);
+    });
+
+    it('the summary line names each leg\'s result, cleanup and the create journal, and nothing else', async () => {
+        const d = dirs();
+        const ok = entry.j8RunSummary(await run(d, fixtures(d.runDir).deps));
+        expect(ok).toEqual({ exitCode: 0, legs: { 'J8.a': 'PASS', 'J8.b': 'PASS', 'J8.c': 'PASS' }, cleanup: 'complete', createJournal: 'resolved' });
+        const held = entry.j8RunSummary({ exitCode: 78, caseResult: entry.holdAll('x'), cleanup: { result: 'incomplete' }, createJournal: 'unresolved' });
+        expect(held).toEqual({ exitCode: 78, legs: { 'J8.a': 'HOLD', 'J8.b': 'HOLD', 'J8.c': 'HOLD' }, cleanup: 'incomplete', createJournal: 'unresolved' });
+        const failed = entry.holdAll('x');
+        failed.assertions = failed.assertions.map((a, i) => ({ ...a, result: a.leg === 'J8.b' && i % 2 ? 'FAIL' : 'PASS' }));
+        expect(entry.j8RunSummary({ exitCode: 1, caseResult: failed, cleanup: { result: 'complete' }, createJournal: 'resolved' }).legs['J8.b']).toBe('FAIL');
+        expect(entry.j8RunSummary({ exitCode: 78, reason: 'BLOCKED_SETUP: anything' })).toEqual({ exitCode: 78, refused: true });
+    });
+
+    it('the admin transport is teardown-only, sized to two full lookups, the account read and J8\'s cleanup reserve', async () => {
+        const fetched = [];
+        const t = entry.j8AdminTransport(async (url) => { fetched.push(url); return { ok: true }; });
+        const allowance = 2 * entry.J8_LOOKUP_PAGES + 1 + cleanupReserve('J8').requests;
+        expect({ bind: t.remaining('bind'), teardown: t.remaining('teardown') }).toEqual({ bind: 0, teardown: allowance });
+        for (let i = 0; i < allowance; i++) await t.fetch(`u${i}`);
+        let refused = null;
+        try { await t.fetch('one-more'); } catch (e) { refused = e.code; }
+        expect(refused).toBe('ADMIN_ALLOWANCE');
+        expect(fetched.length).toBe(allowance);
+    });
+});

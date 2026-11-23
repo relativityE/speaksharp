@@ -26,8 +26,9 @@
 //       legs is refused (HOLD);
 //   (4) the spec, readback, coaching, evaluation and lookup calls each have a deadline, and teardown gets the real cleanup
 //       budget (its lookup is cut off at it and the evidence records it as exhausted).
-// The sealed packet and the live gate are unchanged: the plan keeps J8 behind `no-j8-harness-adapter` (limits.cjs NEVER_SATISFIED),
-// and `main` refuses unless offline fixtures supply the spec, readback, evaluation and lookup. It never reads a credential.
+// The sealed packet is unchanged: the plan keeps J8 behind `no-j8-harness-adapter` (limits.cjs NEVER_SATISFIED), and `main` refuses
+// unless its caller supplies the spec, readback, evaluation and recovery. Its one live caller is `liveMain` (Sam, 23 Nov, #1953), the
+// CLI the release-checks J8 job runs: it reads the service-role key only to build the approved project's bounded admin client.
 // Every reason is content-free (no email, id or row).
 const fs = require('node:fs');
 const path = require('node:path');
@@ -430,10 +431,10 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
 }
 
 /**
- * CLI. Explicit key/value arguments only; LIVE_TEST_EMAIL_DOMAIN from the parent. The live gate is unchanged: without offline
- * fixtures for the spec, readback, evaluation and lookup it refuses (78) before admission, so nothing is recorded or sent.
+ * The CLI's own checks, before anything is built, recorded or sent: explicit key/value arguments only, LIVE_TEST_EMAIL_DOMAIN and the
+ * run binding from the parent. -> { args } or a refusal { exitCode: 78, reason }.
  */
-async function main(argv, env = process.env, deps = {}) {
+function cliArgs(argv, env) {
     const ALLOWED = ['--evidence-dir', '--run-dir', '--run-id', '--run-attempt', '--release-sha', '--execute'];
     const a = {};
     if (argv.length % 2) return { exitCode: 78, reason: 'BLOCKED_SETUP: explicit key/value arguments required' };
@@ -445,14 +446,89 @@ async function main(argv, env = process.env, deps = {}) {
         return { exitCode: 78, reason: 'BLOCKED_SETUP: --evidence-dir, --run-dir, --run-id, --run-attempt, --release-sha and --execute true are required' };
     if (!env.LIVE_TEST_EMAIL_DOMAIN) return { exitCode: 78, reason: 'BLOCKED_SETUP: LIVE_TEST_EMAIL_DOMAIN is not set in the parent' };
     if (!env.GITHUB_REPOSITORY || !env.GITHUB_WORKFLOW_REF) return { exitCode: 78, reason: 'BLOCKED_SETUP: the parent has no run binding (GITHUB_REPOSITORY, GITHUB_WORKFLOW_REF)' };
+    return { args: a };
+}
+
+/**
+ * CLI. Explicit key/value arguments only; LIVE_TEST_EMAIL_DOMAIN from the parent. Without the spec, readback, evaluation and recovery
+ * it refuses (78) before admission, so nothing is recorded or sent. `liveMain` is the only caller that supplies the live ones.
+ */
+async function main(argv, env = process.env, deps = {}) {
+    const cli = cliArgs(argv, env);
+    if (!cli.args) return cli;
+    const a = cli.args;
     if (['runSpec', 'qualify', 'evaluate', ...RECOVERY_DEPS].some((k) => typeof deps[k] !== 'function'))
         return { exitCode: 78, reason: 'HOLD: no offline spec, readback, evaluation and recovery fixtures; the J8 live gate is closed (no-j8-harness-adapter)' };
     return runJ8Nightly({ evidenceDir: a['--evidence-dir'], runDir: a['--run-dir'], runId: a['--run-id'], runAttempt: a['--run-attempt'],
         configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN, expectedRelease: a['--release-sha'], runBinding: { repository: env.GITHUB_REPOSITORY, workflow: env.GITHUB_WORKFLOW_REF }, deps });
 }
 
-if (require.main === module) main(process.argv.slice(2)).then((r) => { if (r.reason) console.error(r.reason); process.exitCode = r.exitCode; });
+/** Account-lookup enumerateUsers' page cap: each of the parent recovery's two lookups (before and after the delete) may page this far. */
+const J8_LOOKUP_PAGES = 50;
+/**
+ * The parent admin client's bounded transport (admin-transport.cjs, as J4.a's): every request has the enforced per-request deadline the
+ * cleanup reserve assumes, and only sends counted inside the allowance go out. The parent uses its admin client only in teardown (the
+ * recovery's lookup before and after the delete, the account read and the residue reads; the delete itself is its own process with its
+ * own client), so the phase is `teardown`, sized to those calls plus J8's whole cleanup reserve. `bind` stays zero.
+ */
+function j8AdminTransport(fetchImpl = globalThis.fetch) {
+    const { CLEANUP_REQUEST_DEADLINE_S, cleanupReserve } = require('./cleanup-plan.cjs');
+    const { boundedAdminTransport } = require('./admin-transport.cjs');
+    const transport = boundedAdminTransport({ fetchImpl, deadlineMs: CLEANUP_REQUEST_DEADLINE_S * 1000,
+        allowances: { bind: 0, teardown: 2 * J8_LOOKUP_PAGES + 1 + cleanupReserve('J8').requests } });
+    transport.setPhase('teardown');
+    return transport;
+}
+
+/**
+ * The live parent (Sam, 23 Nov: the J8 runner fix, #1953). The workflow's J8 job runs this file; nothing else supplies live parts.
+ * The CLI's own checks run first, then the service-role client is built only for the approved project (J4.a's approvedAdminOrigin:
+ * the reviewed save oracle's readback host, exact https origin) over the bounded transport, and the reviewed live adapters
+ * (j8-live-adapters.cjs) plus the finalizer's automated half are handed to `main`, which still refuses without any of them and keeps
+ * every guard in runJ8Nightly. Every refusal is 78 with nothing built, recorded or sent, and content-free. The evaluation's two files go
+ * to a fresh private directory (outside the checkout and every upload path), removed when the run ends.
+ * `inject` is for offline proofs only: createClient, fetchImpl, approvedHost, liveAdapters, finalize and run (default `main`).
+ */
+async function liveMain(argv, env = process.env, inject = {}) {
+    const cli = cliArgs(argv, env);
+    if (!cli.args) return cli;
+    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY)
+        return { exitCode: 78, reason: 'BLOCKED_SETUP: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in the parent' };
+    let origin;
+    try { origin = require('./j4a-nightly-entry.cjs').approvedAdminOrigin(env.SUPABASE_URL, inject.approvedHost); }
+    catch (e) { return { exitCode: 78, reason: e.message }; }
+    const createClient = inject.createClient ?? require('@supabase/supabase-js').createClient;
+    const transport = j8AdminTransport(inject.fetchImpl);
+    const admin = createClient(origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: transport.fetch } });
+    const adapters = (inject.liveAdapters ?? require('./j8-live-adapters.cjs').j8LiveAdapters)({ admin, baseEnv: env });
+    const finalize = inject.finalize ?? finalizerEvaluate;
+    const workDir = fs.mkdtempSync(path.join(env.RUNNER_TEMP || require('node:os').tmpdir(), 'j8-evaluation-'));
+    try {
+        fs.chmodSync(workDir, 0o700);
+        return await (inject.run ?? main)(argv, env, { ...adapters, evaluate: (receipt, readback) => finalize(receipt, readback, { workDir }) });
+    } finally { fs.rmSync(workDir, { recursive: true, force: true }); }
+}
+
+/**
+ * The run's content-free summary line (the job log and its upload): each J8 leg's result (FAIL if any row FAILed, PASS only if every row
+ * PASSed, else HOLD), the cleanup result, the create journal and the exit code. A refusal names no leg. No email, id, row or reason.
+ */
+function j8RunSummary(r) {
+    if (!r?.caseResult) return { exitCode: r?.exitCode ?? 78, refused: true };
+    const legs = {};
+    for (const leg of Object.keys(J8_RECEIPT_MAP)) {
+        const rows = r.caseResult.assertions.filter((a) => a.leg === leg).map((a) => a.result);
+        legs[leg] = rows.includes('FAIL') ? 'FAIL' : rows.length > 0 && rows.every((x) => x === 'PASS') ? 'PASS' : 'HOLD';
+    }
+    return { exitCode: r.exitCode, legs, cleanup: r.cleanup?.result ?? null, createJournal: r.createJournal ?? null };
+}
+
+if (require.main === module) liveMain(process.argv.slice(2)).then((r) => {
+    if (r.reason) console.error(r.reason);
+    console.log(`J8_RUNNER_RESULT ${JSON.stringify(j8RunSummary(r))}`);
+    process.exitCode = r.exitCode;
+});
 module.exports = {
     DEADLINES, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
-    main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
+    J8_LOOKUP_PAGES, cliArgs, j8AdminTransport, j8RunSummary, liveMain, main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
 };

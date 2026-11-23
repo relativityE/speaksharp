@@ -59,6 +59,10 @@ on:
         description: "RWT ONLY — the exact value J1D-ON-J1A, accepted only with diagnostic_dast_spec tests/live/rwt-open-mic-first-session.live.spec.ts: also runs J1.d (sign out, deep link, sign back in, history preserved) in J1.a's worker on the account J1.a creates in THIS run, with its own J1D receipt. J1.d never signs up. Empty = J1.d stays NOT RUN; any other value fails before the spec."
         required: false
         default: ''
+      rwt_j8_runner:
+        description: "RWT ONLY — the exact value J8-PARENT-RUNNER, accepted only with gate gate-3-dast, diagnostic_dast_spec tests/live/rwt-feedback-association-boundaries.live.spec.ts and diagnostic_dast_grep set to the J8 test's exact selector: runs J8 through its own parent runner (tools/cloud-test/nightly/j8-nightly-entry.cjs) in the J8 job instead of Gate 3, on one run-owned account the runner deletes. Empty = Gate 3 as before; any other value fails before anything runs."
+        required: false
+        default: ''
       rwt_canary_claim_ack:
         description: "RWT ONLY — the exact acknowledgement RWT-CANARY-CLAIM-RUN-OWNED, a SEPARATE authorization: sets the server-issued app_metadata.canary claim on each suite's own disposable account so its post-claim journey telemetry is canary traffic. Empty = no claim; journey readback rows HOLD."
         required: false
@@ -142,7 +146,8 @@ jobs:
   gate-3-dast:
     environment: trusted-main-credentials
     name: Gate 3 - DAST / Running App
-    if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast' }}
+    # The J8 runner selection runs in the J8 job instead, so J8 never runs standalone here.
+    if: ${{ (github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast') && github.event.inputs.rwt_j8_runner == '' }}
     # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
     # and setup fails before any gate runs. Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -649,6 +654,128 @@ jobs:
   # the requested release and the release Production serves, and the repository owner dispatched and triggered the
   # run; it then mints one nonce bound to this run attempt, with no wall-clock expiry. The attempt-named artifact is
   # content-free. Every other gate is skipped, which the observer and the terminal validator require.
+  # J8 through its own parent runner (Sam, 21 Nov: "a dedicated nightly entry, not an rc-gates step"; 23 Nov: the runner fix, #1953).
+  # The entry owns the one run-owned account end to end: it records the create attempt before the signup, runs exactly the J8 test once,
+  # reads each journey back from PostHog, settles the receipt with the reviewed finalizer, and always deletes the account on the scoped
+  # path and reads every store at zero. Exit 0 only when every row PASSes and cleanup is complete; 1 a row FAILed; 78 HOLD or refused.
+  j8-runner:
+    environment: trusted-main-credentials
+    name: J8 - Parent runner (one run-owned account)
+    if: ${{ github.event.inputs.gate == 'gate-3-dast' && github.event.inputs.rwt_j8_runner != '' }}
+    # Same runner image as Gate 3 (pinned Playwright 1.57; #1840).
+    runs-on: ubuntu-24.04
+    # No longer than Gate 3 (rwtInterruptedRunRecovery GATE3_JOB_TIMEOUT_MS), so interrupted-run recovery's minimum account age stays
+    # clear of a live J8 account. The runner step's limit covers the entry's spec, readbacks, evaluation and cleanup deadlines on the
+    # normal path; if the step is cut off, the account is left for interrupted-run recovery.
+    timeout-minutes: 105
+    steps:
+      - uses: actions/checkout@v6
+        timeout-minutes: 3
+        with:
+          fetch-depth: 0
+      - name: Validate the J8 runner selection
+        timeout-minutes: 2
+        env:
+          J8_RUNNER: ${{ github.event.inputs.rwt_j8_runner }}
+          DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
+          DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+        run: |
+          node -e '
+            const a = require("./tools/cloud-test/nightly/j8-live-adapters.cjs");
+            const e = process.env;
+            if (e.J8_RUNNER !== "J8-PARENT-RUNNER") { console.error("::error::rwt_j8_runner is accepted only as J8-PARENT-RUNNER; nothing ran."); process.exit(1); }
+            if (e.DIAGNOSTIC_SPEC !== a.SPEC || e.DIAGNOSTIC_GREP !== a.SPEC_GREP) { console.error("::error::the J8 runner needs the J8 spec and its exact test selector; nothing ran."); process.exit(1); }
+            console.log("J8 runner selected: one J8 run through its parent runner.");'
+      # The served release is discovered here, never pinned by an input (Gate 3's release override stays confined to Gate 3).
+      - name: Resolve the served release for J8
+        id: rwt_release
+        timeout-minutes: 2
+        env:
+          RWT_RELEASE_BINDING_FILE: ${{ runner.temp }}/rwt-release-${{ github.run_id }}-${{ github.run_attempt }}.json
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          GH_TOKEN: ${{ github.token }}
+          DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
+          DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+          SELECTED_GATE: ${{ github.event.inputs.gate }}
+          COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
+          PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
+        run: node tools/cloud-test/scripts/resolve_rwt_served_release.mjs resolve
+      - uses: ./.github/actions/setup-environment
+        timeout-minutes: 8
+        with:
+          install-playwright: 'true'
+      - name: Run J8 through its parent runner
+        timeout-minutes: 88
+        env:
+          RWT_RELEASE_BINDING_FILE: ${{ runner.temp }}/rwt-release-${{ github.run_id }}-${{ github.run_attempt }}.json
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          RELEASE_SHA: ${{ steps.rwt_release.outputs.release_sha }}
+          EXPECTED_RELEASE_SHA: ${{ steps.rwt_release.outputs.release_sha }}
+          DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
+          DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+          DIAGNOSTIC_DAST_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
+          DIAGNOSTIC_DAST_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+          SELECTED_GATE: ${{ github.event.inputs.gate }}
+          COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
+          PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
+          EVIDENCE_SCOPE: diagnostic
+          # Sam, 16 Nov (B): only the full Gate 3 step writes full-gate receipts; this run is scoped like every other single journey.
+          RWT_RUN_SCOPE: diagnostic
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          RWT_WRITES_ACK: ${{ github.event.inputs.rwt_writes_ack }}
+          RWT_CANARY_CLAIM_ACK: ${{ github.event.inputs.rwt_canary_claim_ack }}
+          RWT_HUMAN_REFLEX_MS: ${{ github.event.inputs.rwt_human_reflex_ms }}
+          RWT_PRACTICE_CONSENT: ${{ github.event.inputs.rwt_practice_consent }}
+          LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
+          # The parent's own PostHog readback (j8-live-adapters qualify and coaching), as the Gate 3 readback step reads it.
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/rc-dast-live-preflight.mjs
+          # #1258: the restricted synthetic coaching artifact goes only to a fresh private directory outside the checkout.
+          RWT_PRIVATE_EVIDENCE_DIR="$(mktemp -d "$RUNNER_TEMP/rwt-private.XXXXXX")"
+          chmod 700 "$RWT_PRIVATE_EVIDENCE_DIR"
+          export RWT_PRIVATE_EVIDENCE_DIR
+          # The runner's create journal and cleanup evidence: private, outside the checkout and every upload path.
+          J8_EVIDENCE_DIR="$(mktemp -d "$RUNNER_TEMP/j8-evidence.XXXXXX")"
+          chmod 700 "$J8_EVIDENCE_DIR"
+          # Same frozen run/attempt/spec/source; deployment drift is HOLD, never a rebind.
+          node tools/cloud-test/scripts/resolve_rwt_served_release.mjs verify
+          mkdir -p test-results/rwt
+          # The spec writes its receipt under the checkout (the adapters' artifact root), so --run-dir is the checkout.
+          node tools/cloud-test/nightly/j8-nightly-entry.cjs --evidence-dir "$J8_EVIDENCE_DIR" --run-dir "$GITHUB_WORKSPACE" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --release-sha "$RELEASE_SHA" --execute true \
+            | tee test-results/rwt/j8-runner.result.log
+      # Content-free: the spec's receipt and the runner's summary line. Absence is not PASS.
+      - name: Upload J8 runner receipts (content-free)
+        timeout-minutes: 3
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rwt-j8-runner-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/rwt/*.receipt.json
+            test-results/rwt/j8-runner.result.log
+          retention-days: 14
+          if-no-files-found: error
+
   comparison-authorization:
     name: Model Comparison Authorization
     if: ${{ github.event.inputs.gate == 'comparison-authorization' }}
