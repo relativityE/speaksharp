@@ -93,15 +93,17 @@ async function probeGeneration(key, modelId, fetchImpl, deadlineMs) {
   });
 }
 
-function fixed(status, detail) { return { status, detail, drilldownUrl: DRILLDOWN }; }
+function fixed(status, detail, providerModelVersion = null) {
+  return { status, detail, drilldownUrl: DRILLDOWN, ...(typeof providerModelVersion === 'string' && CATALOG_MODEL.test(providerModelVersion) ? { providerModelVersion } : {}) };
+}
 function keyPresent(key) { return typeof key === 'string' && Boolean(key.trim()); }
 
 export async function evaluateGeminiGeneration(key, { fetchImpl = globalThis.fetch, timeoutMs = 10_000 } = {}) {
   if (!keyPresent(key)) return fixed('skip', 'missing=GEMINI_API_KEY');
   if (typeof model !== 'string' || !SAFE_VERSION.test(model)) return fixed('fail', 'generation=invalid_model_contract');
   const deadlineMs = Number.isFinite(timeoutMs) ? Math.min(10_000, Math.max(1, timeoutMs)) : 10_000;
-  const { reason } = await probeGeneration(key, model, fetchImpl, deadlineMs);
-  return fixed(reason === 'generated' ? 'pass' : 'fail', `generation=${reason}`);
+  const { reason, modelVersion } = await probeGeneration(key, model, fetchImpl, deadlineMs);
+  return fixed(reason === 'generated' ? 'pass' : 'fail', `generation=${reason}`, modelVersion);
 }
 
 function rankedModels(entries) {
@@ -164,5 +166,9 @@ export async function evaluateHighestWorkingGemini(key, { fetchImpl = globalThis
   const detail = `${label}pinned=${pinned}; highest_working=${working?.modelId ?? 'unverified'}; `
     + `provider_model_version=${working?.modelVersion ?? 'unreported'}; tested=${tests}; `
     + `sweep=${untested.length ? 'incomplete_probe_cap' : 'complete'}; untested_count=${untested.length}; untested_sample=${untested.slice(0, MAX_PROBES).join(',') || 'none'}`;
-  return fixed(working ? 'pass' : 'fail', detail);
+  // Keep the legacy success/evidence unchanged. Only the highest successful probe that reported
+  // an allowlisted version may supply the typed field for display.
+  const verified = results.find((result) => result.reason === 'generated' && typeof result.modelVersion === 'string'
+    && CATALOG_MODEL.test(result.modelVersion));
+  return fixed(working ? 'pass' : 'fail', detail, verified?.modelVersion);
 }

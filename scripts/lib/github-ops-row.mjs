@@ -60,49 +60,89 @@ export function createGithubProbe(token, deps = {}, options = {}) {
   };
 }
 
+const repoUrl = (repo) => /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(repo) ? 'https://github.com/' + repo : null;
+const runInfo = (repo, workflowFile, run) => {
+  const base = repoUrl(repo);
+  const time = [run?.updated_at, run?.created_at].find((value) => typeof value === 'string' && Number.isFinite(Date.parse(value)));
+  return {
+    url: base && Number.isSafeInteger(run?.id) && run.id > 0 ? base + '/actions/runs/' + run.id
+      : base ? base + '/actions/workflows/' + workflowFile : null,
+    runAt: time ? new Date(time).toISOString() : null,
+    branch: run?.head_branch === 'main' ? 'main' : run?.head_branch ? 'other' : null,
+  };
+};
+
 async function latestWorkflow(probe, repo, workflowFile, label) {
-  const body = await probe.getJson(`/repos/${repo}/actions/workflows/${workflowFile}/runs?per_page=1`, `${label} workflow query`);
+  const body = await probe.getJson('/repos/' + repo + '/actions/workflows/' + workflowFile + '/runs?per_page=1', label + ' workflow query');
   const run = body?.workflow_runs?.[0];
-  if (!run) return { ok: false, detail: `${label}=missing` };
+  const meta = { ...runInfo(repo, workflowFile, run), apiReadable: Array.isArray(body?.workflow_runs) };
+  if (!run) return { ok: false, detail: label + '=missing', outcome: 'missing', ...meta };
   if (run.status !== 'completed') {
-    return { status: 'warn', detail: `${label}=${run.status}` };
+    return { status: 'warn', detail: label + '=' + run.status, outcome: 'pending', ...meta };
   }
-  return { ok: run.conclusion === 'success', detail: `${label}=${run.conclusion ?? 'unknown'}` };
+  return { ok: run.conclusion === 'success', detail: label + '=' + (run.conclusion ?? 'unknown'),
+    outcome: run.conclusion === 'success' ? 'passed' : 'failed', ...meta };
 }
 
 async function authoritativeRcStatus(probe, repo) {
-  const body = await probe.getJson(`/repos/${repo}/actions/workflows/rc-gates.yml/runs?branch=main&per_page=20`, 'authoritative RC status');
+  const workflowFile = 'rc-gates.yml';
+  const body = await probe.getJson('/repos/' + repo + '/actions/workflows/' + workflowFile + '/runs?branch=main&per_page=20', 'authoritative RC status');
+  if (body?.workflow_runs != null && !Array.isArray(body.workflow_runs)) {
+    return { ok: false, detail: 'rc=invalid-run-list', outcome: 'unavailable', apiReadable: false, ...runInfo(repo, workflowFile, null) };
+  }
   const runs = body?.workflow_runs ?? [];
   const getJobs = async (runId) => {
-    const jobsBody = await probe.getJson(`/repos/${repo}/actions/runs/${runId}/jobs?per_page=50`, 'authoritative RC status');
+    const jobsBody = await probe.getJson('/repos/' + repo + '/actions/runs/' + runId + '/jobs?per_page=50', 'authoritative RC status');
     return jobsBody?.jobs ?? [];
   };
   const result = await selectAuthoritativeRcRun(runs, getJobs);
-  return result.status ? { status: result.status, detail: result.detail } : { ok: result.ok, detail: result.detail };
+  const meta = { ...runInfo(repo, workflowFile, runs.find((run) => run.id === result.runId)),
+    apiReadable: Array.isArray(body?.workflow_runs) };
+  return result.status ? { status: result.status, detail: result.detail, outcome: 'missing', ...meta }
+    : { ok: result.ok, detail: result.detail, outcome: result.ok ? 'passed' : 'failed', ...meta };
 }
 
-/**
- * Evaluate the whole GitHub API row. Always returns a row result `{ status, detail, drilldownUrl }`:
- *   - 'pass'  → all sub-checks green on the first try;
- *   - 'warn'  → all sub-checks ultimately passed but one recovered after retries, or a workflow is in-progress;
- *   - 'fail'  → a terminal GitHub failure (RED / RATE_LIMITED / BUDGET_EXHAUSTED); detail names the sub-check.
- * Never throws for GitHub failures (they become a labeled fail row).
- */
+/** Maintain the legacy aggregate's exact gating semantics while keeping platform response separate from workflow outcomes. */
 export async function evaluateGithubRow(repo, token, deps = {}, options = {}) {
-  const drilldownUrl = `https://github.com/${repo}/actions`;
+  const base = repoUrl(repo);
+  const drilldownUrl = base ? base + '/actions' : null;
   const probe = createGithubProbe(token, deps, options);
+  const definitions = [
+    ['ci', 'ci.yml', () => latestWorkflow(probe, repo, 'ci.yml', 'ci')],
+    ['canary', 'canary.yml', () => latestWorkflow(probe, repo, 'canary.yml', 'canary')],
+    ['release', 'rc-gates.yml', () => authoritativeRcStatus(probe, repo)],
+  ];
+  const report = (repository, actions, workflows) => ({
+    repository, actions, repositoryUrl: base, actionsUrl: drilldownUrl, workflows,
+  });
   try {
-    const body = await probe.getJson(`/repos/${repo}`, 'repository metadata');
-    const checks = await Promise.all([
-      { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },
-      authoritativeRcStatus(probe, repo),
-      latestWorkflow(probe, repo, 'ci.yml', 'ci'),
-      latestWorkflow(probe, repo, 'canary.yml', 'canary'),
-    ]);
-    return combinedGithub(checks, probe, drilldownUrl);
+    const body = await probe.getJson('/repos/' + repo, 'repository metadata');
+    const repositoryOk = body?.full_name === repo;
+    const [ci, canary, release] = await Promise.all(definitions.map(async ([, file, check]) => {
+      try { return await check(); }
+      catch (error) {
+        if (!(error instanceof GithubOpsError)) throw error;
+        return { ok: false, detail: error.message, outcome: 'unavailable', apiReadable: false, ...runInfo(repo, file, null) };
+      }
+    }));
+    // Preserve the existing aggregate ordering and failure handling for old readers and workflow exit code.
+    const aggregate = combinedGithub([
+      { ok: repositoryOk, detail: 'repo=' + (repositoryOk ? repo : 'unknown') + '; private=' + (body?.private === true) },
+      release, ci, canary,
+    ], probe, drilldownUrl);
+    const results = [ci, canary, release];
+    const readable = results.filter((item) => item.apiReadable).length;
+    const actions = readable === 3 ? 'pass' : readable ? 'warn' : 'fail';
+    const workflows = results.map(({ outcome, url, runAt, branch }, index) => ({
+      kind: definitions[index][0], outcome, url, runAt, branch,
+    }));
+    return { ...aggregate, github: report(repositoryOk ? 'pass' : 'fail', actions, workflows) };
   } catch (error) {
     if (error instanceof GithubOpsError) {
-      return { status: 'fail', detail: error.message, drilldownUrl };
+      const workflows = definitions.map(([kind, file]) => ({
+        kind, outcome: 'unavailable', ...runInfo(repo, file, null),
+      }));
+      return { status: 'fail', detail: error.message, drilldownUrl, github: report('fail', 'skip', workflows) };
     }
     throw error; // unexpected non-GitHub error — let the caller's row() wrapper handle it
   }

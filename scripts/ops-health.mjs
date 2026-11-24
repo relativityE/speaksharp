@@ -130,6 +130,8 @@ async function row(name, question, fn) {
       latencyMs: result.latencyMs ?? Math.round(performance.now() - started),
       drilldownUrl: result.drilldownUrl ?? null,
       checkedAt: new Date().toISOString(),
+      ...(result.github ? { github: result.github } : {}),
+      ...(result.providerModelVersion ? { providerModelVersion: result.providerModelVersion } : {}),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

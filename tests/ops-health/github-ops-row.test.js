@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { evaluateGithubRow } from '../../scripts/lib/github-ops-row.mjs';
-import { exitCodeForRows, renderMarkdown, summarize } from '../../scripts/lib/ops-health-report.mjs';
+import { exitCodeForRows, renderMarkdown, renderPublicSummary, summarize } from '../../scripts/lib/ops-health-report.mjs';
 
 const REPO = 'relativityE/speaksharp';
 
@@ -111,4 +111,47 @@ describe('evaluateGithubRow — no token leak into JSON or Markdown output surfa
     expect(json).not.toContain('Authorization');
     expect(markdown).not.toContain('Authorization');
   });
+});
+
+
+it('records GitHub and Actions access even when a real CI failure still gates release', async () => {
+  const runAt = '2026-11-24T13:00:00.000Z';
+  const f = async (url) => {
+    if (url.endsWith('/repos/' + REPO)) return res(200, { full_name: REPO });
+    if (url.includes('/ci.yml/runs')) return res(200, { workflow_runs: [
+      { id: 381, head_branch: 'main', status: 'completed', conclusion: 'failure', updated_at: runAt,
+        html_url: 'https://elsewhere.invalid/untrusted?secret=value' },
+    ] });
+    if (url.includes('/rc-gates.yml/runs')) return res(200, { workflow_runs: [] });
+    return healthySubchecks(url) ?? res(404);
+  };
+  const row = { name: 'GitHub API', ...await evaluateGithubRow(REPO, 'fake-token', deps(f), options) };
+  expect(row.status).toBe('fail');
+  expect(exitCodeForRows([row])).toBe(1);
+  const { checks } = renderPublicSummary({ summary: summarize([row]), checks: [row] });
+  expect(checks[0].github.repository).toBe('pass');
+  expect(checks[0].github.actions).toBe('pass');
+  expect(checks[0].github.workflows.find(({ kind }) => kind === 'ci')).toEqual({
+    kind: 'ci', outcome: 'failed', branch: 'main', runAt, url: 'https://github.com/' + REPO + '/actions/runs/381',
+  });
+  expect(checks[0].github.workflows.find(({ kind }) => kind === 'release').outcome).toBe('missing');
+  expect(JSON.stringify(checks[0].github)).not.toContain('secret=value');
+  const markdown = renderMarkdown({ summary: summarize([row]), checks: [row] });
+  expect(markdown).toContain('GitHub access | 🟢 OK');
+  expect(markdown).toContain('Latest CI (main): failed');
+  expect(markdown).toContain('Verdict: ACTION REQUIRED');
+});
+
+
+it('does not conflate authentication success with fully verified Actions access', async () => {
+  const f = async (url) => {
+    if (url.endsWith('/repos/' + REPO)) return res(200, { full_name: REPO });
+    if (url.includes('/ci.yml/runs')) return res(403, { message: 'Access denied' });
+    return healthySubchecks(url) ?? res(404);
+  };
+  const row = await evaluateGithubRow(REPO, 'fake-token', deps(f), options);
+  expect(row.github.repository).toBe('pass');
+  expect(row.github.actions).toBe('warn');
+  expect(row.github.workflows.find(({ kind }) => kind === 'ci').outcome).toBe('unavailable');
+  expect(exitCodeForRows([row])).toBe(1);
 });
