@@ -5,6 +5,7 @@ import { corsGuard, corsHeaders } from '../_shared/cors.ts';
 import { handleClosureRequest, type ClosureRequestDependencies } from '../_shared/accountClosureRequest.ts';
 import type { ClosureDependencies, ClosureProof } from '../_shared/accountClosure.ts';
 import { readAccountClosureRuntimeBinding } from '../_shared/accountClosureRuntimeBinding.ts';
+import { isLocalDisposableTarget } from '../_shared/accountClosureLocalTarget.ts';
 import { createAccountClosureRecoveryAdapter } from '../_shared/accountClosureRecoveryAdapter.ts';
 import { recoverAccountClosure } from '../_shared/accountClosureRecovery.ts';
 import { accountClosureConfigProbe, readAccountClosureEffectiveConfig, stripeKeyMode } from '../_shared/accountClosureConfigProbe.ts';
@@ -103,6 +104,8 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
   };
   return {
     siteUrl: env('SITE_URL') ?? '', randomToken, hashToken,
+    // Only a verified local disposable target admits a loopback http app origin (accountClosureRequest.ts); hosted needs https.
+    localDisposableStack: initialBinding.target.environment === 'disposable' && isLocalDisposableTarget(new URL(initialBinding.target.url)),
     authenticate: async () => {
       currentBinding();
       const { data, error } = await auth.auth.getUser();

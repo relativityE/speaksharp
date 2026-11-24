@@ -57,6 +57,17 @@ describe('independent inactive completion runtime binding', () => {
     const f = fixture(); f.manifest.context.environment = 'disposable'; f.resign();
     await expect(readAccountClosureCompletionRuntimeBinding(f.env)).rejects.toThrow();
   });
+  it('a declared disposable target on the CLI stack (exactly http://kong:8000) is admitted, scope-bound to that origin', async () => {
+    const f = fixture(); f.manifest.context.environment = 'disposable'; f.values.SUPABASE_URL = 'http://kong:8000'; f.resign();
+    expect(await readAccountClosureCompletionRuntimeBinding(f.env)).toMatchObject({ environment: 'disposable', url: 'http://kong:8000' });
+    for (const url of ['http://kong', 'http://kong:8001', 'https://kong:8000', 'http://kong.example.test:8000', 'http://10.0.0.5:8000']) {
+      f.values.SUPABASE_URL = url; f.resign(); await expect(readAccountClosureCompletionRuntimeBinding(f.env)).rejects.toThrow();
+    }
+  });
+  it('a production manifest is refused on the CLI stack', async () => {
+    const f = fixture(); f.values.SUPABASE_URL = 'http://kong:8000'; f.resign();
+    await expect(readAccountClosureCompletionRuntimeBinding(f.env)).rejects.toThrow('account_completion_runtime_unavailable');
+  });
   it('a declared disposable target is loopback-only and still scope/worker-bound', async () => {
     const f = fixture(); f.manifest.context.environment = 'disposable'; f.values.SUPABASE_URL = 'http://127.0.0.1:54321'; f.resign();
     expect(await readAccountClosureCompletionRuntimeBinding(f.env)).toMatchObject({ environment: 'disposable', url: f.values.SUPABASE_URL });

@@ -1,4 +1,5 @@
 import type { CompletionGrant, CompletionPorts, CompletionRequest } from './accountClosureCompletion.ts';
+import { isLocalDisposableTarget } from './accountClosureLocalTarget.ts';
 
 export interface CompletionBinding {
   projectId: string;
@@ -41,8 +42,8 @@ export function createAccountCompletionRpc(input: CompletionBinding, ports: Comp
   try { url = new URL(binding.url); } catch { return stop(); }
   const production = binding.environment === 'production' && url.protocol === 'https:'
     && url.hostname === `${binding.projectId}.supabase.co` && !url.port;
-  const disposable = binding.environment === 'disposable' && url.protocol === 'http:'
-    && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  // The shared local rule (accountClosureLocalTarget.ts), for a disposable binding only; the production rule is unchanged.
+  const disposable = binding.environment === 'disposable' && isLocalDisposableTarget(url);
   if ((!production && !disposable) || url.username || url.password || url.search || url.hash || url.pathname !== '/') stop();
   const client = ports.createAdminClient(url.origin);
   if (typeof client?.rpc !== 'function') stop();

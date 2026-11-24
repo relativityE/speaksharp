@@ -149,6 +149,20 @@ describe('inactive exact-target pending completion adapter', () => {
     });
     expect(factory).toHaveBeenCalledWith('http://127.0.0.1:54321');
   });
+  it('permits the disposable CLI stack target (exactly http://kong:8000) and refuses production there and look-alikes', () => {
+    const factory = vi.fn(() => ({ rpc: vi.fn() }));
+    createAccountCompletionPorts({ ...binding, environment: 'disposable', url: 'http://kong:8000' }, {
+      createAdminClient: factory, currentBinding: async () => binding, policy: () => { throw new Error('not used'); },
+    });
+    expect(factory).toHaveBeenCalledWith('http://kong:8000');
+    for (const value of [{ ...binding, url: 'http://kong:8000' }, ...['http://kong', 'http://kong:8001', 'https://kong:8000', 'http://kong.example.test:8000']
+      .map((url) => ({ ...binding, environment: 'disposable', url }))]) {
+      const refused = vi.fn();
+      expect(() => createAccountCompletionPorts(value, { createAdminClient: refused, currentBinding: async () => binding,
+        policy: () => { throw new Error('not used'); } })).toThrow('account_completion_unavailable');
+      expect(refused).not.toHaveBeenCalled();
+    }
+  });
   it('a disposable label never permits a production target or constructs its client',()=>{
     const factory=vi.fn();
     expect(()=>createAccountCompletionRpc({...binding,environment:'disposable'},{createAdminClient:factory,currentBinding:async()=>binding}))

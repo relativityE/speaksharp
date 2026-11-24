@@ -62,6 +62,18 @@ describe('trusted recovery adapter → current-drain SQL RPCs', () => {
     expect(ports.createAdminClient).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:54321');
   });
 
+  it('permits the disposable CLI stack target (exactly http://kong:8000), never a production target there or a look-alike', () => {
+    const { ports } = fixture(); ports.createAdminClient.mockClear();
+    createAccountClosureRecoveryAdapter({ ...target, environment: 'disposable', url: 'http://kong:8000' }, ports);
+    expect(ports.createAdminClient).toHaveBeenCalledExactlyOnceWith('http://kong:8000');
+    for (const t of [{ ...target, url: 'http://kong:8000' }, ...['http://kong', 'http://kong:8001', 'https://kong:8000', 'http://kong.example.test:8000']
+      .map((url) => ({ ...target, environment: 'disposable' as const, url }))]) {
+      ports.createAdminClient.mockClear();
+      expect(() => createAccountClosureRecoveryAdapter(t, ports)).toThrow('closure_recovery_unavailable');
+      expect(ports.createAdminClient).not.toHaveBeenCalled();
+    }
+  });
+
   it('cannot change recipient or share an adapter between requests', async () => {
     const { adapter, deps, getUserById, rpc } = fixture();
     expect(() => adapter.forRequest({ userId: other, requestId })).toThrow();
@@ -97,10 +109,11 @@ describe('trusted recovery adapter → current-drain SQL RPCs', () => {
     expect(rpc.mock.calls[0][1].p_generation).toBe('9007199254740993');
   });
 
+  // One distinct name per case: execution evidence refuses a collection with duplicate test names.
   it.each([
-    { data: null, error: null }, { data: true, error: null },
-    { data: null, error: { message: 'private provider secret' } },
-  ])('unreadable or rejected storage response remains a sanitized hold', async (response) => {
+    ['no data and no error', { data: null, error: null }], ['a non-object result', { data: true, error: null }],
+    ['a provider error', { data: null, error: { message: 'private provider secret' } }],
+  ] as const)('unreadable or rejected storage response (%s) remains a sanitized hold', async (_case, response) => {
     const { deps, rpc } = fixture(); rpc.mockResolvedValue(response);
     const result = await recoverAccountClosure({ userId, requestId }, deps);
     expect(result.outcome).toBe('hold');
