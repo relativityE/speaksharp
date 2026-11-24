@@ -13,12 +13,12 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
-  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, keptHistoryVerdict } from './contract';
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, keptHistoryVerdict, historySeedFailure } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
-  portalShowsPlan, visiblePlanChains } from './restoreAccess';
+  portalPlanMiss, visiblePlanChains, type PortalPlanMiss } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
 
@@ -217,14 +217,23 @@ class SandboxJourney {
     await manage.click();
     await this.page.waitForURL(url => url.origin === 'https://billing.stripe.com', { timeout: 60_000 })
       .catch(() => { throw new Error('BILLING_JOURNEY:portal_not_opened'); });
-    // For each element showing $10.00, its own text and its ancestors' (innermost first), in memory only: only whether one
-    // element holds the price with its cadence inside the current-plan block leaves.
-    await this.poll(async () => portalShowsPlan(await this.planAncestries().catch(() => null)), Boolean, 'portal_plan_not_shown');
+    await this.awaitPortalPlan(this.page);
+  }
+
+  /**
+   * J9.a and J9.b: the open portal shows the $10.00 monthly plan in its current-plan block, within the poll bound. For each element
+   * showing $10.00, its own text and its ancestors' (innermost first), in memory only. Run 45361320828 timed out here with only
+   * `portal_plan_not_shown`; a timeout now names the furthest condition reached (`portalPlanMiss`, one fixed word, no page text).
+   */
+  async awaitPortalPlan(page: Page): Promise<void> {
+    let miss: PortalPlanMiss | null = 'unreadable';
+    await this.poll(async () => (miss = portalPlanMiss(await this.planAncestries(page).catch(() => null))), (m) => m === null,
+      'portal_plan_not_shown').catch(() => { throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? 'unreadable'}`); });
   }
 
   /** Visible $10.00 elements only, each with its own and its ancestors' visible text, innermost first (`visiblePlanChains`). */
-  async planAncestries(): Promise<string[][]> {
-    return this.page.getByText(/\$\s?10\.00/).evaluateAll(visiblePlanChains);
+  async planAncestries(page: Page): Promise<string[][]> {
+    return page.getByText(/\$\s?10\.00/).evaluateAll(visiblePlanChains);
   }
 
   async account(label: RegExp): Promise<void> {
@@ -768,9 +777,11 @@ class SandboxJourney {
   }
 
   /**
-   * J9.a: two completed, run-marked earlier sessions, seeded by service role during the live trial (no takes). The
-   * account first records its own choice through its own API, as the Practice prompt does: transcripts saved and coaching
-   * ON, so "no new coaching" later is a real check, not a consequence of coaching being off.
+   * J9.a: two completed, run-marked earlier sessions, seeded during the live trial (no takes). The account first records
+   * its own choice through its own API, as the Practice prompt does: transcripts saved and coaching ON, so "no new
+   * coaching" later is a real check, not a consequence of coaching being off. The sessions are written by the MEMBER, under
+   * its own insert policy: the #1835 transcript-consent trigger reads the owner's choice FOR SHARE as the writing role, and
+   * service_role holds only SELECT on that table, so a service-role write of a transcript is refused (run 45370792241).
    */
   async seedHistory(): Promise<void> {
     this.stage = 'history_seeded';
@@ -779,12 +790,12 @@ class SandboxJourney {
     requireFact(!choice.error, 'history_privacy_choice_failed');
     for (const [index, earlier] of EARLIER_SESSIONS.entries()) {
       const words = earlier.phrase.split(' ').length;
-      const { data, error } = await this.admin.from('sessions').insert({
+      const { data, error } = await this.member.from('sessions').insert({
         user_id: this.uid, title: `${this.marker} earlier session ${index + 1}`, status: 'completed',
         transcript: earlier.phrase, duration: 60, total_words: words, wpm: words,
         created_at: new Date(Date.now() - earlier.daysAgo * 86_400_000).toISOString(),
       }).select('id').single();
-      requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), 'history_seed_failed');
+      requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), historySeedFailure(error));
       this.earlier.push(data.id);
     }
     const rows = await this.earlierRows();
@@ -862,15 +873,10 @@ class SandboxJourney {
       const manage = other.getByRole('button', { name: 'Manage billing', exact: true });
       await expect(manage).toBeVisible({ timeout: 30_000 }).catch(() => { throw new Error('BILLING_JOURNEY:manage_billing_unavailable'); });
       await manage.click();
-      await other.waitForURL(url => url.origin === 'https://billing.stripe.com', { timeout: 60_000 });
-      // One compact block names the current plan with its price and cadence; the whole page matching is not enough.
-      await this.poll(() => other.evaluate(() => {
-        const wanted = [/current plan/i, /\$10\.00/, /per month|\/\s?month|monthly/i];
-        return Array.from(document.querySelectorAll('body *')).some((node) => {
-          const text = (node as HTMLElement).innerText ?? '';
-          return text.length > 0 && text.length <= 600 && wanted.every((pattern) => pattern.test(text));
-        });
-      }), Boolean, 'portal_plan_not_shown');
+      await other.waitForURL(url => url.origin === 'https://billing.stripe.com', { timeout: 60_000 })
+        .catch(() => { throw new Error('BILLING_JOURNEY:portal_not_opened'); });
+      // The same visible-text check as J9.b: one compact block names the current plan with its price and cadence.
+      await this.awaitPortalPlan(other);
       this.steps.add('portal_plan_shown');
     } finally { await fresh.close(); }
   }
