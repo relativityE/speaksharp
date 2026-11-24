@@ -1,0 +1,321 @@
+# J1.f and J7.d: account deletion, end to end, on a DISPOSABLE LOCAL Supabase stack, Stripe TEST MODE only.
+#
+# Dispatch-only, main-only and approval-gated (the protected billing-local-stack environment). One run starts its own local
+# Supabase (database migrated from this commit, local Auth with its Mailpit inbox, Edge functions), enables deletion on THAT
+# stack only with this run's disposable grant (tests/billing/user-journey/accountDeletionLocalStack.mjs), serves this commit's
+# app on http://localhost:5173, and runs both deletion journeys, each on its own fresh account:
+#   J1.f from the expired trial's payment wall, J7.d from the Account page.
+# Each journey records, read-only and before any fallback cleanup, the closure phase, the Auth user and the shipped residue
+# check. The run is then torn down, proven destroyed, and scored per leg (deletionReceipt.mjs): stack destruction is never
+# evidence that an account was deleted.
+#
+# It creates NO live object, no hosted Supabase project, changes no secret or setting, deploys nothing, never touches
+# production, and makes no Stripe write. Completion reads the test account's checkout sessions (it has no customer-null
+# shortcut), so the Stripe test key is served to the local functions; a headroom count runs first.
+# A PASS here is "sandbox-qualified" deletion for J1.f and J7.d, not production acceptance.
+name: Account deletion on a local stack (TEST MODE)
+
+on:
+  workflow_dispatch:
+    inputs:
+      acknowledge_test_mode:
+        description: 'Type ISOLATED-TEST-MODE-ONLY to confirm a disposable local stack and Stripe test mode'
+        required: true
+        type: string
+      commit_sha:
+        description: 'Exact 40-character commit to test (must equal the dispatched ref head)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # The same group as the billing journeys and the commercial lifecycle: one Stripe test account, never two runs at once,
+  # never cancel a run mid-cleanup.
+  group: stripe-commercial-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  deletion:
+    name: account deletion J1.f + J7.d (local stack, test mode)
+    runs-on: ubuntu-24.04
+    # Protected environment: main only, and a required reviewer approves each run before any secret is exposed.
+    environment: billing-local-stack
+    timeout-minutes: 45
+    env:
+      SUPABASE_WORKDIR: backend
+      # The same run-unique naming as the billing journeys, so localStackResources.mjs and the scorer accept it.
+      LOCAL_STACK_PROJECT: billing-local-stack-${{ github.run_id }}-${{ github.run_attempt }}
+      LOCAL_API_URL: http://127.0.0.1:54321
+      LOCAL_APP_URL: http://localhost:5173
+      LOCAL_MAIL_URL: http://127.0.0.1:54324
+      STRIPE_LIST_COUNT: 'if type == "object" and .object == "list" and (.data | type) == "array" then (.data | length) else error("not a Stripe list") end'
+    steps:
+      - name: Refuse an unacknowledged or inexact dispatch
+        id: dispatch_check
+        env:
+          ACK: ${{ inputs.acknowledge_test_mode }}
+          REQUESTED_SHA: ${{ inputs.commit_sha }}
+          DISPATCHED_SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [ "$REF" = 'refs/heads/main' ] || { echo '::error::Account deletion runs from main only.'; exit 1; }
+          [ "$ACK" = 'ISOLATED-TEST-MODE-ONLY' ] || { echo '::error::Dispatch must acknowledge ISOLATED-TEST-MODE-ONLY.'; exit 1; }
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::commit_sha must be a full 40-character SHA.'; exit 1; }
+          [ "$REQUESTED_SHA" = "$DISPATCHED_SHA" ] || { echo '::error::commit_sha does not match the dispatched ref head.'; exit 1; }
+
+      - name: Stripe account check and checkout-session headroom (before anything is created)
+        id: stripe_account
+        env:
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          EXPECTED_ACCOUNT_ID: ${{ vars.STRIPE_TEST_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          case "${STRIPE_TEST_SECRET_KEY:-}" in
+            sk_test_*) : ;;
+            *) echo '::error::A Stripe TEST secret key (sk_test_...) is required; any other key is refused.'; exit 1 ;;
+          esac
+          [[ "${EXPECTED_ACCOUNT_ID:-}" =~ ^acct_[A-Za-z0-9]+$ ]] || { echo '::error::vars.STRIPE_TEST_ACCOUNT_ID is not configured; refusing to guess the account.'; exit 1; }
+          stripe_get() { curl -fsS --max-time 30 -u "${STRIPE_TEST_SECRET_KEY}:" "https://api.stripe.com/v1/$1"; }
+          # GET only. The key must belong to the one approved test account, answering in test mode.
+          [ "$(stripe_get account | jq -r '.id // empty')" = "$EXPECTED_ACCOUNT_ID" ] || { echo '::error::The Stripe key does not belong to the approved test account. Stopping.'; exit 1; }
+          [ "$(stripe_get balance | jq -r '.livemode')" = 'false' ] || { echo '::error::Stripe did not answer in test mode. Stopping.'; exit 1; }
+          # Completion (account-closure verifyCheckouts) reads at most 20 pages of 100 checkout sessions and refuses past them.
+          # Count the account's sessions the same way, stopping at that cap; report only whether there is headroom.
+          cursor=''; total=0; more=true
+          for page in $(seq 1 20); do
+            body="$(stripe_get "checkout/sessions?limit=100${cursor:+&starting_after=$cursor}")" \
+              || { echo '::error::BLOCKED PREREQUISITE: could not read checkout sessions. Nothing was created.'; exit 1; }
+            n="$(jq -e "$STRIPE_LIST_COUNT" <<<"$body")" || { echo '::error::BLOCKED PREREQUISITE: checkout sessions were not a Stripe list.'; exit 1; }
+            total=$((total + n)); more="$(jq -r '.has_more' <<<"$body")"
+            [ "$more" = 'true' ] || break
+            cursor="$(jq -r '.data[-1].id // empty' <<<"$body")"; [ -n "$cursor" ] || break
+          done
+          if [ "$more" = 'true' ] || [ "$total" -ge 1900 ]; then
+            echo 'headroom=false' >> "$GITHUB_OUTPUT"
+            echo '::error::BLOCKED PREREQUISITE, not a deletion failure: the test account is at or near the 2,000 checkout-session cap completion reads, so completion would refuse. Nothing was created.'
+            exit 1
+          fi
+          echo 'headroom=true' >> "$GITHUB_OUTPUT"
+          echo 'Stripe account check passed: approved test account, test mode, checkout-session headroom available.'
+          # The end-of-run residue check is account-wide; refuse to start on an account that already holds fixtures.
+          dirty=0
+          for state in active trialing past_due unpaid incomplete; do
+            count="$(jq -e "$STRIPE_LIST_COUNT" <<<"$(stripe_get "subscriptions?status=${state}&limit=1")")" || { echo '::error::BLOCKED PREREQUISITE: subscriptions unreadable.'; exit 1; }
+            [ "$count" = '0' ] || dirty=1
+          done
+          [ "$dirty" = '0' ] || { echo '::error::BLOCKED PREREQUISITE: the test account already holds live subscriptions from another run. This run refuses and deletes nothing.'; exit 1; }
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Start the disposable local Supabase stack (migrations from this commit)
+        id: stack_start
+        run: |
+          set -euo pipefail
+          config="$SUPABASE_WORKDIR/supabase/config.toml"
+          sed -i "s/^project_id = .*/project_id = \"$LOCAL_STACK_PROJECT\"/" "$config"
+          grep -qx "project_id = \"$LOCAL_STACK_PROJECT\"" "$config" || { echo '::error::Could not give the stack its run-unique project id.'; exit 1; }
+          # This stack only: no stale seed; the local app is the only Auth redirect target (the deletion verification link
+          # returns to /account/delete); the local Mailpit inbox receives that link.
+          cat >> "$config" <<TOML
+
+          [db.seed]
+          enabled = false
+
+          [auth]
+          site_url = "$LOCAL_APP_URL"
+          additional_redirect_urls = ["$LOCAL_APP_URL", "$LOCAL_APP_URL/**"]
+
+          [inbucket]
+          enabled = true
+          port = 54324
+          TOML
+          supabase --version
+          supabase start --workdir "$SUPABASE_WORKDIR" -x studio,imgproxy,vector,logflare
+          status="$(supabase status --workdir "$SUPABASE_WORKDIR" -o json)"
+          [ "$(jq -r '.API_URL' <<<"$status")" = "$LOCAL_API_URL" ] || { echo '::error::Unexpected local API URL.'; exit 1; }
+          anon="$(jq -r '.ANON_KEY' <<<"$status")"; service="$(jq -r '.SERVICE_ROLE_KEY' <<<"$status")"; db="$(jq -r '.DB_URL' <<<"$status")"
+          echo "::add-mask::$anon"; echo "::add-mask::$service"; echo "::add-mask::$db"
+          { echo "LOCAL_ANON_KEY=$anon"; echo "LOCAL_SERVICE_ROLE_KEY=$service"; echo "LOCAL_DB_URL=$db"; } >> "$GITHUB_ENV"
+          curl -fsS -o /dev/null "$LOCAL_MAIL_URL/api/v1/messages" || { echo '::error::The local Mailpit inbox did not answer.'; exit 1; }
+
+      - name: Record this run's stack identity
+        id: stack_identity
+        run: |
+          set -euo pipefail
+          node tests/billing/user-journey/localStackResources.mjs capture "$LOCAL_STACK_PROJECT" > billing-local-stack-identity.json
+          jq -c '{project, containers: (.containers | length), volumes: (.volumes | length), networks: (.networks | length)}' billing-local-stack-identity.json
+
+      - name: Build and serve this commit's app on the local origin
+        env:
+          VITE_SUPABASE_URL: ${{ env.LOCAL_API_URL }}
+          VITE_AUTH_MODE: real
+        run: |
+          set -euo pipefail
+          VITE_SUPABASE_ANON_KEY="$LOCAL_ANON_KEY" pnpm --dir frontend exec vite build --mode production
+          nohup pnpm --dir frontend exec vite preview --host localhost --port 5173 --strictPort > "$RUNNER_TEMP/app.log" 2>&1 &
+          for _ in $(seq 1 30); do curl -fsS -o /dev/null "$LOCAL_APP_URL/" && break; sleep 2; done
+          curl -fsS -o /dev/null "$LOCAL_APP_URL/" || { echo '::error::Local app did not come up.'; exit 1; }
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Last before the functions and the journeys: the grant's attestation is valid for 14 minutes.
+      - name: Enable deletion on THIS stack only (the run's disposable grant)
+        id: grant
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          ( umask 077; : > "$RUNNER_TEMP/deletion-grant.env" )
+          node tests/billing/user-journey/accountDeletionLocalStack.mjs prepare --project "$LOCAL_STACK_PROJECT" --commit "$COMMIT_SHA" \
+            --env-out "$RUNNER_TEMP/deletion-grant.env" --sql-out "$RUNNER_TEMP/deletion-seed.sql"
+          psql "$LOCAL_DB_URL" -X -q -f "$RUNNER_TEMP/deletion-seed.sql"
+          rm -f "$RUNNER_TEMP/deletion-seed.sql"
+
+      - name: Serve this commit's Edge functions locally
+        env:
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          STRIPE_TEST_PRO_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
+        run: |
+          set -euo pipefail
+          env_file="$RUNNER_TEMP/functions.env"
+          ( umask 077
+            {
+              echo "STRIPE_SECRET_KEY=$STRIPE_TEST_SECRET_KEY"
+              echo "STRIPE_PRO_PRICE_ID=$STRIPE_TEST_PRO_PRICE_ID"
+              echo "PAYMENTS_ENABLED=true"
+              echo "SITE_URL=$LOCAL_APP_URL"
+              cat "$RUNNER_TEMP/deletion-grant.env"
+            } > "$env_file" )
+          rm -f "$RUNNER_TEMP/deletion-grant.env"
+          nohup supabase functions serve --workdir "$SUPABASE_WORKDIR" --no-verify-jwt --env-file "$env_file" > "$RUNNER_TEMP/functions.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/functions.pid"
+          for _ in $(seq 1 60); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS -H "Origin: $LOCAL_APP_URL" "$LOCAL_API_URL/functions/v1/account-closure" || true)"
+            [ "$code" = '204' ] || [ "$code" = '200' ] && break
+            sleep 2
+          done
+          [ "$code" = '204' ] || [ "$code" = '200' ] || { echo '::error::Local Edge functions did not come up.'; exit 1; }
+
+      - name: Run both deletion journeys (J1.f, J7.d) against the local stack
+        id: journeys
+        env:
+          BILLING_SANDBOX_TARGET: local-disposable-stack
+          BILLING_JOURNEY_APPROVAL: ISOLATED-TEST-MODE-ONLY
+          BILLING_SANDBOX_APP_URL: ${{ env.LOCAL_APP_URL }}
+          BILLING_SANDBOX_SUPABASE_URL: ${{ env.LOCAL_API_URL }}
+          BILLING_SANDBOX_MAIL_URL: ${{ env.LOCAL_MAIL_URL }}
+          BILLING_SANDBOX_RELEASE_SHA: ${{ inputs.commit_sha }}
+          ACCOUNT_DELETION_RECEIPT_DIR: test-results/account-deletion
+        run: |
+          set -euo pipefail
+          BILLING_SANDBOX_ANON_KEY="$LOCAL_ANON_KEY" BILLING_SANDBOX_SERVICE_ROLE_KEY="$LOCAL_SERVICE_ROLE_KEY" \
+            pnpm exec playwright test -c playwright.account-deletion.config.ts --reporter=list
+
+      - name: Verify no Stripe test fixture remains
+        id: stripe_residue
+        if: always() && steps.stripe_account.outcome == 'success'
+        env:
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          stripe_get() { curl -fsS --max-time 30 -u "${STRIPE_TEST_SECRET_KEY}:" "https://api.stripe.com/v1/$1"; }
+          dirty=0
+          for state in active trialing past_due unpaid incomplete; do
+            count="$(jq -e "$STRIPE_LIST_COUNT" <<<"$(stripe_get "subscriptions?status=${state}&limit=1")")" || { echo '::error::Stripe residue unreadable.'; exit 1; }
+            echo "Remaining subscriptions in ${state}: $count"
+            [ "$count" = '0' ] || dirty=1
+          done
+          [ "$dirty" = '0' ] || { echo '::error::Stripe test fixtures remain after the run.'; exit 1; }
+
+      - name: Tear down the local stack
+        id: stack_stop
+        if: always() && steps.stack_start.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/functions.pid" ] && kill "$(cat "$RUNNER_TEMP/functions.pid")" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/functions.env" "$RUNNER_TEMP/deletion-grant.env" "$RUNNER_TEMP/deletion-seed.sql"
+          supabase stop --workdir "$SUPABASE_WORKDIR" --no-backup
+
+      - name: Prove the disposable stack was destroyed
+        id: stack_destroyed
+        if: always() && steps.stack_start.outcome != 'skipped' && steps.stack_stop.outcome == 'success'
+        run: |
+          set -euo pipefail
+          node tests/billing/user-journey/localStackResources.mjs verify "$LOCAL_STACK_PROJECT" \
+            billing-local-stack-identity.json > billing-local-stack-destroyed.json \
+            || { echo '::error::The disposable stack was not proven destroyed, so this run cannot pass.'; exit 1; }
+
+      # Each leg is scored from its own pre-teardown facts; stack destruction never counts as deleting an account.
+      - name: Score J1.f and J7.d
+        id: combined
+        if: always() && steps.stack_start.outcome != 'skipped'
+        env:
+          RELEASE: ${{ inputs.commit_sha }}
+          # The browser journeys' own outcome: a failed Playwright assertion can never score as a deletion pass.
+          JOURNEYS: ${{ steps.journeys.outcome }}
+          STACK_STOPPED: ${{ steps.stack_stop.outcome }}
+          STACK_DESTROYED: ${{ steps.stack_destroyed.outcome }}
+          STRIPE_CLEAN: ${{ steps.stripe_residue.outcome }}
+        run: |
+          set -euo pipefail
+          receipt=test-results/account-deletion/account-deletion-receipt.json
+          [ -f "$receipt" ] || { mkdir -p test-results/account-deletion; echo 'null' > "$receipt"; }
+          node tests/billing/user-journey/deletionReceipt.mjs --receipt "$receipt" \
+            --destruction billing-local-stack-destroyed.json --identity billing-local-stack-identity.json \
+            --release "$RELEASE" --run "$LOCAL_STACK_PROJECT" --journeys "$JOURNEYS" \
+            --stack-stopped "$STACK_STOPPED" --stack-destroyed "$STACK_DESTROYED" --stripe-clean "$STRIPE_CLEAN" \
+            > account-deletion-combined.json && status=0 || status=$?
+          cat account-deletion-combined.json
+          sha256sum account-deletion-combined.json | tee account-deletion-combined.sha256
+          [ "$status" = '0' ] || { echo '::error::NOT_PROVEN: a leg did not reach terminal deletion with zero residue, or teardown, destruction or the Stripe check did not pass.'; exit 1; }
+
+      - name: Summarize
+        if: always()
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEADROOM: ${{ steps.stripe_account.outputs.headroom }}
+        run: |
+          {
+            echo '## Account deletion on a local stack (TEST MODE, sandbox-qualified only)'
+            printf -- '- Commit: `%s`\n- Run: %s\n- Stripe checkout-session headroom: %s\n' "$COMMIT_SHA" "$RUN_URL" "${HEADROOM:-not checked}"
+            if [ -f account-deletion-combined.json ]; then
+              echo "- J1.f: $(jq -r '.legs["J1.f"]' account-deletion-combined.json); J7.d: $(jq -r '.legs["J7.d"]' account-deletion-combined.json); result: $(jq -r '.result' account-deletion-combined.json)"
+            else
+              echo '- Combined result: not produced'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: account-deletion-local-stack-${{ github.run_id }}
+          path: |
+            test-results/account-deletion/*.json
+            billing-local-stack-identity.json
+            billing-local-stack-destroyed.json
+            account-deletion-combined.json
+            account-deletion-combined.sha256
+          if-no-files-found: warn
+          retention-days: 14

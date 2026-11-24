@@ -30,6 +30,16 @@ describe('explicit account-completion effect transport', () => {
     expect(await f.execute(f.action)).toEqual(unavailable);
     expect(f.fetchImpl).not.toHaveBeenCalled();
   });
+  it.each(['http://127.0.0.1:54321', 'http://localhost:54321'])('a loopback local stack API is an accepted target: %s', async origin => {
+    const f = fixture({ ready: true, origin });
+    await f.execute(f.action);
+    expect(f.fetchImpl).toHaveBeenCalledWith(`${new URL(origin).origin}/functions/v1/account-closure/completion-execute`, expect.anything());
+  });
+  it.each(['http://localhost.example.test', 'http://10.0.0.5:54321', 'http://kong:8000'])('refuses a non-loopback http target %s', async origin => {
+    const f = fixture({ ready: true, origin });
+    expect(await f.execute(f.action)).toEqual(unavailable);
+    expect(f.fetchImpl).not.toHaveBeenCalled();
+  });
   it.each(['http://project.supabase.co', 'https://a:b@project.supabase.co', 'https://project.supabase.co/path',
     'https://project.supabase.co/?x=1', 'https://project.supabase.co/#x', 'invalid'])('refuses unsafe target %s', async origin => {
     const f = fixture({ ready: true, origin });

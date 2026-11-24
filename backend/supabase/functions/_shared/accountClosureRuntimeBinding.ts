@@ -1,4 +1,5 @@
 import type { ClosureRecoveryScope, ClosureRecoveryTarget } from './accountClosureRecoveryAdapter.ts';
+import { isLocalDisposableTarget } from './accountClosureLocalTarget.ts';
 
 type Env = (key: string) => string | undefined;
 // Contract test binds this runtime literal to the ordered117/118/119 source hashes.
@@ -36,9 +37,7 @@ export function verifyAccountClosureRuntimeBinding(raw: string | undefined, targ
   if (!closed(manifest, ['version', 'deploymentId', 'scope']) || manifest.version !== 1
     || typeof manifest.deploymentId !== 'string' || !manifest.deploymentId
     || manifest.deploymentId !== actualDeploymentId
-    || url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash || url.pathname !== '/') stop();
-  const match = /^([a-z0-9-]{1,63})\.supabase\.co$/.exec(url.hostname);
-  if (!match || !manifest.deploymentId.startsWith(`${match[1]}_`)) stop();
+    || url.username || url.password || url.search || url.hash || url.pathname !== '/') stop();
   const s = manifest.scope;
   if (!closed(s, ['attestationId', 'generation', 'bindingDigest', 'context'])
     || !uuid(s.attestationId) || typeof s.generation !== 'string'
@@ -46,7 +45,20 @@ export function verifyAccountClosureRuntimeBinding(raw: string | undefined, targ
     || !sha(s.bindingDigest) || !closed(s.context, ['candidateSha', 'configDigest', 'migrationDigest', 'projectId', 'environment'])
     || !sha(s.context.candidateSha, 40) || !sha(s.context.configDigest)
     || s.context.migrationDigest !== ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256
-    || s.context.projectId !== match[1] || !['production', 'disposable'].includes(String(s.context.environment))) stop();
-  return { target: { projectId: match[1], environment: s.context.environment as 'production' | 'disposable', url: url.origin },
+    || typeof s.context.projectId !== 'string' || !/^[a-z0-9-]{1,63}$/.test(s.context.projectId)
+    || !['production', 'disposable'].includes(String(s.context.environment))) stop();
+  // The TARGET decides the mode, never the manifest. A hosted target (https, no port, <project>.supabase.co — the URL
+  // the platform supplies to a deployed function) keeps its existing rule. The only other target admitted is a local
+  // disposable test stack (accountClosureLocalTarget.ts, shared with the completion binding), and then ONLY for a
+  // manifest that declares `disposable`. A hosted deployment cannot reach the local mode by claiming `disposable`,
+  // because its own target is never local; a `production` manifest is refused there.
+  const hosted = url.protocol === 'https:' && !url.port ? /^([a-z0-9-]{1,63})\.supabase\.co$/.exec(url.hostname) : null;
+  const local = isLocalDisposableTarget(url);
+  if (hosted) {
+    if (s.context.projectId !== hosted[1]) stop();
+  } else if (!local || s.context.environment !== 'disposable') stop();
+  const projectId = s.context.projectId;
+  if (!manifest.deploymentId.startsWith(`${projectId}_`)) stop();
+  return { target: { projectId, environment: s.context.environment as 'production' | 'disposable', url: url.origin },
     scope: structuredClone(s) as unknown as ClosureRecoveryScope };
 }
