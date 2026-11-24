@@ -109,10 +109,11 @@ describe('trusted recovery adapter → current-drain SQL RPCs', () => {
     expect(rpc.mock.calls[0][1].p_generation).toBe('9007199254740993');
   });
 
+  // One distinct name per case: execution evidence refuses a collection with duplicate test names.
   it.each([
-    { data: null, error: null }, { data: true, error: null },
-    { data: null, error: { message: 'private provider secret' } },
-  ])('unreadable or rejected storage response remains a sanitized hold', async (response) => {
+    ['no data and no error', { data: null, error: null }], ['a non-object result', { data: true, error: null }],
+    ['a provider error', { data: null, error: { message: 'private provider secret' } }],
+  ] as const)('unreadable or rejected storage response (%s) remains a sanitized hold', async (_case, response) => {
     const { deps, rpc } = fixture(); rpc.mockResolvedValue(response);
     const result = await recoverAccountClosure({ userId, requestId }, deps);
     expect(result.outcome).toBe('hold');

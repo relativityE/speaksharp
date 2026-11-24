@@ -100,7 +100,9 @@ describe('account-closure authenticated request/confirmation contract', () => {
     expect((await handleClosureRequest(new Request('https://example.test', { method: 'POST', body: '{' }), deps)).status).toBe(400);
     expect(deps.issue).not.toHaveBeenCalled();
   });
-  it.each([{}, { action: 'confirm', token: secret }, { action: 'confirm', token: 'bad', confirmIrreversible: true }])('requires explicit confirmation and a valid token', async (body) => {
+  // One distinct name per case: execution evidence refuses a collection with duplicate test names.
+  it.each([['no action', {}], ['no irreversible confirmation', { action: 'confirm', token: secret }],
+    ['a malformed token', { action: 'confirm', token: 'bad', confirmIrreversible: true }]] as const)('requires explicit confirmation and a valid token (%s)', async (_case, body) => {
     const { deps, request, adapters } = fixture();
     expect((await handleClosureRequest(request(body), deps)).status).toBe(400);
     expect(adapters.consumeProof).not.toHaveBeenCalled();
