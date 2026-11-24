@@ -83,7 +83,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/billing/user-journey/contract.ts',testFile:'tests/billing/user-journey/contract.test.ts',
   callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice',
-    'isCorrelatedDelivery','assertSandboxConfiguration','keptHistoryVerdict'],
+    'isCorrelatedDelivery','assertSandboxConfiguration','keptHistoryVerdict','historySeedFailure'],
 }, {
   // Run 44203911253: the hosted-Checkout email step the conversion journey calls (browser counterpart: tests/e2e spec).
   helperFile:'tests/billing/user-journey/hostedEmail.ts',testFile:'tests/billing/user-journey/hostedEmail.test.ts',
@@ -91,7 +91,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   // J9.b restore_access: the walled-then-restored history, the single $10 test-mode charge and the portal plan checks (visible text only).
   helperFile:'tests/billing/user-journey/restoreAccess.ts',testFile:'tests/billing/user-journey/restoreAccess.test.ts',
-  callables:['assertTakeReadable','assertHistoryWalled','assertHistoryRestored','assertSingleCharge','portalShowsPlan','visiblePlanChains'],
+  callables:['assertTakeReadable','assertHistoryWalled','assertHistoryRestored','assertSingleCharge','portalShowsPlan','portalPlanMiss','visiblePlanChains'],
 }, {helperFile:"tests/billing/user-journey/paidValueLoop.ts",testFile:"tests/billing/user-journey/paidValueLoop.test.ts",callables:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]}, {helperFile:"tests/billing/user-journey/localStackResources.mjs",testFile:"tests/billing/user-journey/localStackResources.test.ts",callables:["captureStackIdentity", "assertIdentityShape", "stackIdentitySha256", "verifyStackDestroyed"]}, {helperFile:"tests/billing/user-journey/localStackReceipt.mjs",testFile:"tests/billing/user-journey/contract.test.ts",callables:["journeyReceiptDefects", "destructionDefects", "finaliseLocalStackReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPlan.mjs",testFile:"tests/billing/user-journey/fullMode.test.ts",callables:["workflowDispatch", "planRun", "finaliseModeReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPreflight.mjs",testFile:"tests/billing/user-journey/runnerPreflight.test.ts",callables:["fingerprint", "assertTestKeys", "assertKeysMatchStack", "assertLocalSupabaseKeys", "probeLocalBackend", "runnerPreflight"]}, {
   // J1.f / J7.d on the disposable billing stack: the deletion link, the page's final message, the loop step and the leg receipts.
   helperFile:'tests/billing/user-journey/accountDeletionJourney.ts',testFile:'tests/unit/accountDeletionJourney.test.ts',

@@ -807,6 +807,17 @@ export function assertSandboxConfiguration(env: Record<string, string | undefine
 }
 
 /**
+ * J9.a: a refused history seed as a content-free receipt code. It names the database's error class only (a 5-character
+ * SQLSTATE such as 42501, or a PostgREST PGRST code), never its message, so the next failing run says why without
+ * any row text leaving the runner. No error and no row is `no_row`; an error without a recognised code is `other`.
+ */
+export function historySeedFailure(error: unknown): string {
+  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
+  if (typeof code === 'string' && /^(?:[0-9A-Z]{5}|PGRST[0-9]{3})$/.test(code)) return `history_seed_failed_${code.toLowerCase()}`;
+  return error ? 'history_seed_failed_other' : 'history_seed_failed_no_row';
+}
+
+/**
  * J9.a: each seeded earlier session was opened by its OWN id and showed its OWN transcript, and no other seeded session's.
  * Opening one session twice, a missing or foreign id, another session's text, an unread view, or seeds that are not two
  * or more distinct ids with distinct phrases all fail, so a count of opens can never stand in for the sessions themselves.

@@ -6,7 +6,7 @@ import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertT
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
   APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, takeOutcome, optInThroughPrompt,
-  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded, keptHistoryVerdict } from './contract';
+  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded, keptHistoryVerdict, historySeedFailure } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -991,6 +991,33 @@ test('decline scan trusts only the hosted Checkout page and Stripe frames; an un
   // Not on the hosted Checkout page (the app, a redirect, a look-alike host): no frame counts, Stripe's included.
   for (const page of ['http://127.0.0.1:5173/practice', 'https://checkout.stripe.com.evil.example/c/pay', 'about:blank']) {
     assert.equal(trustedCheckoutFrame(page, 'https://js.stripe.com/v3/x.html'), false, page);
+  }
+});
+
+test('J9.a history seed: written by the member, and a refusal names its error class only', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const seed = spec.slice(spec.indexOf('async seedHistory()'), spec.indexOf("this.steps.add('history_seeded');"));
+  assert.ok(seed.length > 0 && seed.length < 2000, 'seedHistory found');
+  // Run 45370792241: service_role holds only SELECT on practice_privacy_choices, so the #1835 consent trigger's FOR SHARE
+  // read refuses a service-role transcript write (42501). The member's own insert policy is the supported path.
+  assert.match(seed, /this\.member\.from\('sessions'\)\.insert\(/);
+  assert.doesNotMatch(seed, /this\.admin\.from\('sessions'\)\.insert\(/);
+  assert.match(seed, /requireFact\([^;]*historySeedFailure\(error\)\)/);
+  assert.doesNotMatch(seed, /'history_seed_failed'/, 'a bare code says nothing about why');
+  // The class, never the message; and every outcome is a valid receipt failure code.
+  const cases: [unknown, string][] = [
+    [{ code: '42501', message: 'permission denied for table practice_privacy_choices' }, 'history_seed_failed_42501'],
+    [{ code: '42501', message: 'transcript_consent_required' }, 'history_seed_failed_42501'],
+    [{ code: 'P0001', message: 'x' }, 'history_seed_failed_p0001'],
+    [{ code: 'PGRST116', message: 'no rows' }, 'history_seed_failed_pgrst116'],
+    [{ code: '42501; DROP', message: 'x' }, 'history_seed_failed_other'],
+    [{ code: 'secret-row-text', message: 'x' }, 'history_seed_failed_other'],
+    [{ message: 'no code' }, 'history_seed_failed_other'],
+    [null, 'history_seed_failed_no_row'],
+  ];
+  for (const [error, expected] of cases) {
+    assert.equal(historySeedFailure(error), expected);
+    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${expected}`)), expected, `${expected} survives the receipt`);
   }
 });
 

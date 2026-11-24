@@ -113,6 +113,11 @@ export function firstInvoiceCharge(invoice: InvoiceRow | null, f: { firstInvoice
 
 const PLAN_PRICE = /\$\s?10\.00(?!\d)/;
 const PLAN_CADENCE = /(\bper month|\/\s?month|\bmonthly|\bevery month)\b/i;
+/**
+ * The heading of the block that names the plan, unchanged: "Current plan". Run 45361320828 opened the portal and never passed
+ * in 120 s, and which condition failed is unread (no page text leaves). A timeout now names it (`portalPlanMiss`); a
+ * different heading reads as `no_plan_block`. The check is widened only after a run shows why (Sam, 2026-11-24).
+ */
 const PLAN_LABEL = /\bcurrent plan\b/i;
 const MONEY = /\$\s?\d[\d,]*(?:\.\d+)?/g;
 /** Longest text of the element that carries the price and its cadence, and of the current-plan block around it. */
@@ -124,22 +129,42 @@ const onlyTenDollars = (t: string): boolean => {
 };
 
 /**
+ * Why no chain passes, as one fixed content-free word (null: one passes). The furthest any visible $10.00 got decides it,
+ * so a failed run names the condition that stopped it (no page text ever leaves): `unreadable` (the read failed or was not
+ * text chains), `no_visible_price`, `no_cadence` (no ancestor adds a monthly cadence), `line_too_long`, `no_plan_block` (no
+ * short enough ancestor names the current plan), `other_amount` (that block names an amount other than $10.00).
+ */
+export type PortalPlanMiss = 'unreadable' | 'no_visible_price' | 'no_cadence' | 'line_too_long' | 'no_plan_block' | 'other_amount';
+const MISS_ORDER: readonly PortalPlanMiss[] = ['unreadable', 'no_visible_price', 'no_cadence', 'line_too_long', 'no_plan_block', 'other_amount'];
+
+export function portalPlanMiss(ancestries: unknown): PortalPlanMiss | null {
+  if (!Array.isArray(ancestries)) return 'unreadable';
+  let furthest: PortalPlanMiss = ancestries.length === 0 ? 'no_visible_price' : 'unreadable';
+  const reach = (m: PortalPlanMiss): void => { if (MISS_ORDER.indexOf(m) > MISS_ORDER.indexOf(furthest)) furthest = m; };
+  for (const chain of ancestries) {
+    if (!Array.isArray(chain) || chain.length === 0 || !chain.every((t) => typeof t === 'string')) continue;
+    if (!PLAN_PRICE.test(chain[0])) { reach('no_visible_price'); continue; }
+    const line = chain.findIndex((t: string) => PLAN_CADENCE.test(t));
+    if (line < 0) { reach('no_cadence'); continue; }
+    if (chain[line].length > PLAN_LINE_MAX) { reach('line_too_long'); continue; }
+    // The block holds the line (it is the line or an ancestor), so its amount check covers the line's too.
+    const block = chain.slice(line).find((t: string) => PLAN_LABEL.test(t));
+    if (typeof block !== 'string' || block.length > PLAN_BLOCK_MAX) { reach('no_plan_block'); continue; }
+    if (!onlyTenDollars(block)) { reach('other_amount'); continue; }
+    return null;
+  }
+  return furthest;
+}
+
+/**
  * Manage billing (the Stripe portal) shows the plan: one element holds the $10.00 price and its monthly cadence together,
  * inside the current-plan block (Sam on #1937). The spec passes, for each VISIBLE element showing $10.00, the visible text of
  * that element and each of its ancestors, innermost first (`visiblePlanChains`). The nearest one that adds the cadence must be short, and the nearest one at or
  * above it that names the current plan must be short and name no amount but $10.00, so a price and a cadence from
- * unrelated parts of the page, which only the page as a whole joins, never pass. The text stays in memory; only this boolean leaves.
+ * unrelated parts of the page, which only the page as a whole joins, never pass. The text stays in memory; only this boolean (and `portalPlanMiss`'s fixed word) leaves.
  */
 export function portalShowsPlan(ancestries: unknown): boolean {
-  if (!Array.isArray(ancestries)) return false;
-  return ancestries.some((chain) => {
-    if (!Array.isArray(chain) || chain.length === 0 || !chain.every((t) => typeof t === 'string') || !PLAN_PRICE.test(chain[0])) return false;
-    const line = chain.findIndex((t: string) => PLAN_CADENCE.test(t));
-    if (line < 0 || chain[line].length > PLAN_LINE_MAX) return false;
-    // The block holds the line (it is the line or an ancestor), so its amount check covers the line's too.
-    const block = chain.slice(line).find((t: string) => PLAN_LABEL.test(t));
-    return typeof block === 'string' && block.length <= PLAN_BLOCK_MAX && onlyTenDollars(block);
-  });
+  return portalPlanMiss(ancestries) === null;
 }
 
 /**
