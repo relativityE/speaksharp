@@ -66,7 +66,7 @@ describe('J1.f/J7.d disposable stack: the target decides the mode, never the man
     manifest.scope.context.environment = environment; values.SUPABASE_URL = url;
     return { manifest, env };
   };
-  it('the local CLI stack (exactly http://kong:8000) is admitted only for a manifest that declares disposable', () => {
+  it('the CLI stack (exactly http://kong:8000) is admitted only for a manifest that declares disposable', () => {
     const { manifest, env } = local();
     expect(readAccountClosureRuntimeBinding(env)).toEqual({
       target: { projectId: 'fixture-project', environment: 'disposable', url: KONG }, scope: manifest.scope });
@@ -81,9 +81,16 @@ describe('J1.f/J7.d disposable stack: the target decides the mode, never the man
     expect(() => readAccountClosureRuntimeBinding(local('https://other.supabase.co').env)).toThrow();
     expect(() => readAccountClosureRuntimeBinding(local('https://fixture-project.supabase.co:8443').env)).toThrow();
   });
-  it.each(['http://127.0.0.1:54321', 'http://localhost:54321', 'http://[::1]:54321', 'http://kong', 'http://kong:8001', 'https://kong:8000',
-    'http://kong.example.test:8000', 'http://kong:8000.example.test', 'http://10.0.0.5:8000', 'http://fixture-project.supabase.co', 'https://example.test'])(
-    'a disposable manifest is refused on any target but exactly http://kong:8000: %s', (url) => {
+  it('a loopback stack is also admitted for a disposable manifest (the shared local rule)', () => {
+    for (const url of ['http://127.0.0.1:54321', 'http://localhost:54321', 'http://[::1]:54321']) {
+      expect(readAccountClosureRuntimeBinding(local(url).env).target.url).toBe(url);
+      expect(() => readAccountClosureRuntimeBinding(local(url, 'production').env)).toThrow('closure_runtime_binding_unavailable');
+    }
+  });
+  it.each(['http://kong', 'http://kong:8001', 'https://kong:8000', 'https://127.0.0.1:54321',
+    'http://kong.example.test:8000', 'http://kong:8000.example.test', 'http://10.0.0.5:8000', 'http://fixture-project.supabase.co', 'https://example.test',
+    'http://127.0.0.1.nip.io:54321', 'http://localhost.example.test'])(
+    'a disposable manifest is refused on any non-local target: %s', (url) => {
       expect(() => readAccountClosureRuntimeBinding(local(url).env)).toThrow('closure_runtime_binding_unavailable');
     });
   it.each(['http://user:secret@kong:8000', 'http://kong:8000/rest', 'http://kong:8000?x=1', 'http://kong:8000#x'])(
