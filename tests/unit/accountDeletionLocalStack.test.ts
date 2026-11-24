@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { CLOSURE_SCHEMA_SHA256, COMPLETION_SCHEMA_SHA256, GRANT_WINDOW_MS, LOCAL_TARGET, buildDeletionGrant, envFileLines }
+import { CLOSURE_SCHEMA_SHA256, COMPLETION_SCHEMA_SHA256, GRANT_WINDOW_MS, LOCAL_TARGET, buildDeletionGrant, coverageSql, envFileLines, localDbUrl }
     from '../billing/user-journey/accountDeletionLocalStack.mjs';
 import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256, verifyAccountClosureRuntimeBinding }
     from '../../backend/supabase/functions/_shared/accountClosureRuntimeBinding';
@@ -81,5 +81,13 @@ describe('disposable deletion grant for the billing local stack', () => {
     it('refuses a malformed project or commit', () => {
         expect(() => buildDeletionGrant({ projectId: 'Prod_Project', candidateSha: COMMIT })).toThrow();
         expect(() => buildDeletionGrant({ projectId: PROJECT, candidateSha: 'abc' })).toThrow();
+    });
+    it('the coverage seed binds one uuid user\'s pending attempt, pending fence and enabled scope, over a loopback database only', () => {
+        const sql = coverageSql('d0110000-0000-4000-8000-000000000001');
+        for (const bound of ["a.user_id='d0110000-0000-4000-8000-000000000001'::uuid", "a.phase='pending'", "f.phase='pending'", 'f.request_id=a.request_id', 'cfg.enabled'])
+            expect(sql).toContain(bound);
+        expect(() => coverageSql("x' OR true --")).toThrow('uuid');
+        expect(localDbUrl('postgresql://postgres:postgres@127.0.0.1:54322/postgres')).toContain('127.0.0.1:54322');
+        expect(() => localDbUrl('postgresql://postgres:postgres@db.example.supabase.co:5432/postgres')).toThrow('loopback');
     });
 });

@@ -505,6 +505,9 @@ assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).ru
 assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).applicable,true);
 assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).runner,'vitest-helper');
 assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).applicable,true);
+for(const helper of ["tests/billing/user-journey/accountDeletionJourney.ts","tests/billing/user-journey/accountDeletionLocalStack.mjs","tests/billing/user-journey/deletionReceipt.mjs"]){
+  assert.equal(executionRoute(helper,root).runner,'vitest-helper');assert.equal(executionRoute(helper,root).applicable,true);}
+{const file="tests/billing/user-journey/account-deletion.billing.spec.ts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
 {const file="tests/billing/user-journey/paid-value-loop.billing.spec.ts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
 {const file="tests/billing/user-journey/journeySteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
 {const file="tests/billing/user-journey/paidLoopSteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
