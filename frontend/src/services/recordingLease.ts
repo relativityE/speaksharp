@@ -49,7 +49,9 @@ export function currentTakeLeaseId(): string | null {
 /** Acquire the account's lease for a NEW take. Never throws; an unanswerable authority is `action: 'error'`. */
 export async function acquireTakeLease(opts: { force?: boolean; rpc?: LeaseRpc; holderLabel?: string } = {}): Promise<LeaseDecision> {
     const rpc = opts.rpc ?? defaultRpc;
-    await retryUnreachedAbandons();
+    // J7.c (Elon's review, P2): ONE total wait for every remembered lease together, never one wait per lease. Entries still
+    // unanswered when it runs out stay remembered (uncertain) and keep settling in the background.
+    await withinDeadline(retryUnreachedAbandons());
     if (heldLeaseId !== null) await releaseTakeLease({ rpc });
     revoked = false;
 
@@ -161,13 +163,16 @@ export async function confirmTakeLease(opts: { rpc?: LeaseRpc } = {}): Promise<T
  */
 export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: string } = {}): Promise<void> {
     const rpc = opts.rpc ?? defaultRpc;
-    await retryUnreachedAbandons();
+    // J7.c (Elon's review, P1 and P2): the lease this call is about is captured and cleared HERE, synchronously, before any
+    // await, so a late release can never reach a lease a newer take acquires while it waits. Old remembered abandons are
+    // only kicked, never awaited: Stop does not wait on an older take's retries.
     if (opts.startFailed !== undefined) {
         const leaseId = opts.startFailed;
         if (heldLeaseId === leaseId) {
             stopHeartbeat();
             heldLeaseId = null;
         }
+        void retryUnreachedAbandons();
         const outcome = await abandonStart(rpc, leaseId);
         if (outcome === 'abandoned') return;
         if (outcome === 'unreached') rememberUnreachedAbandon(leaseId, rpc);
@@ -177,14 +182,15 @@ export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: str
     stopHeartbeat();
     const leaseId = heldLeaseId;
     heldLeaseId = null;
+    void retryUnreachedAbandons();
     if (leaseId === null) return;
     await releaseLease(rpc, leaseId);
 }
 
 /**
  * J7.c (Sam's review 1795522438, finding 2): every settle call — the abandon and the release that follows a refusal or an
- * unreached abandon — waits at most this long. Acquire and release await the shared retry pass, so one hung call must
- * never hold a Start or a Stop. A call that runs out of time is treated as unreached: the exact lease stays remembered
+ * unreached abandon — waits at most this long, and so does a Start's ONE wait on the whole retry pass (Elon's P2: the
+ * pass settles its leases in parallel, so N hung leases cost a Start one budget, not N). Stop never waits on the pass. A call that runs out of time is treated as unreached: the exact lease stays remembered
  * for the next retry (its answer is uncertain, never assumed), and the server still expires an unreleased lease after
  * 15 s without heartbeats. The call itself is not cancelled; only the wait for it ends.
  */
@@ -230,15 +236,24 @@ async function abandonStart(rpc: LeaseRpc, leaseId: string): Promise<AbandonOutc
 /**
  * Failed Starts whose abandon never reached the server, by exact lease, with the rpc that should settle them and the
  * retries left. Bounded, so a server that never answers (an old one without the function) costs a few calls, not one per
- * release forever; the obligation then stays for the existing cleanup, exactly as before this retry existed.
+ * release forever; the obligation then stays for the existing cleanup, exactly as before this retry existed. The map is
+ * capped too (oldest dropped first, to the same cleanup), so background work stays bounded however many Starts fail.
  */
 const ABANDON_RETRIES = 5;
+export const MAX_UNREACHED_ABANDONS = 8;
 const unreachedAbandons = new Map<string, { rpc: LeaseRpc; left: number }>();
 let retrying: Promise<void> | null = null;
 let onlineListening = false;
 
 function rememberUnreachedAbandon(leaseId: string, rpc: LeaseRpc): void {
-    unreachedAbandons.set(leaseId, { rpc, left: ABANDON_RETRIES });
+    const known = unreachedAbandons.get(leaseId);
+    if (known) {
+        known.rpc = rpc;
+        known.left = ABANDON_RETRIES;
+    } else {
+        while (unreachedAbandons.size >= MAX_UNREACHED_ABANDONS) unreachedAbandons.delete(unreachedAbandons.keys().next().value as string);
+        unreachedAbandons.set(leaseId, { rpc, left: ABANDON_RETRIES });
+    }
     if (!onlineListening && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('online', onOnline);
         onlineListening = true;
@@ -249,22 +264,25 @@ function onOnline(): void {
     void retryUnreachedAbandons();
 }
 
-/** Retry each unreached abandon once; keep only those still unreached. Never throws; one retry pass at a time. */
+/**
+ * Retry each unreached abandon once, all in parallel (each call bounded); keep only those still unreached. Never throws;
+ * one retry pass at a time.
+ */
 export function retryUnreachedAbandons(): Promise<void> {
     if (unreachedAbandons.size === 0) return Promise.resolve();
     retrying ??= (async () => {
         try {
-            for (const [leaseId, entry] of [...unreachedAbandons]) {
-                const { rpc } = entry;
-                const outcome = await abandonStart(rpc, leaseId);
+            await Promise.allSettled([...unreachedAbandons].map(async ([leaseId, entry]) => {
+                const outcome = await abandonStart(entry.rpc, leaseId);
+                if (unreachedAbandons.get(leaseId) !== entry) return; // dropped by the cap meanwhile: left to cleanup
                 if (outcome === 'unreached') {
                     entry.left -= 1;
                     if (entry.left <= 0) unreachedAbandons.delete(leaseId);
-                    continue;
+                    return;
                 }
                 unreachedAbandons.delete(leaseId);
-                if (outcome === 'refused') await releaseLease(rpc, leaseId);
-            }
+                if (outcome === 'refused') await releaseLease(entry.rpc, leaseId);
+            }));
         } finally {
             retrying = null;
         }
