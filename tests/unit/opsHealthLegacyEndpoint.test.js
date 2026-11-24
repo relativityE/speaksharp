@@ -6,6 +6,8 @@ import { runInNewContext } from 'node:vm';
 import { performance } from 'node:perf_hooks';
 import { summarize, renderMarkdown, renderPublicSummary, exitCodeForRows } from '../../scripts/lib/ops-health-report.mjs';
 
+import { evaluateGeminiGeneration, evaluateHighestWorkingGemini } from '../../scripts/lib/gemini-ops-row.mjs';
+
 // Participate in the regular Vitest lane and allow dependency-free offline reproduction.
 const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const source = readFileSync(new URL('../../scripts/ops-health.mjs', import.meta.url), 'utf8');
@@ -18,6 +20,7 @@ async function runMonitor({ statuses = {}, rejects = [], environment = {} } = {}
   const requests = [];
   const writes = new Map();
   const unexpected = [];
+  const rejectUnexpectedGemini = async (url) => { unexpected.push(url); throw new Error('Unexpected Gemini fetch'); };
   const processMock = {
     env: {
       BASE_URL: appUrl,
@@ -39,6 +42,8 @@ async function runMonitor({ statuses = {}, rejects = [], environment = {} } = {}
     path, performance, AbortController, setTimeout, clearTimeout,
     console: { log: () => {} },
     summarize, renderMarkdown, renderPublicSummary, exitCodeForRows,
+    evaluateGeminiGeneration: (key) => evaluateGeminiGeneration(key, { fetchImpl: rejectUnexpectedGemini }),
+    evaluateHighestWorkingGemini: (key) => evaluateHighestWorkingGemini(key, { fetchImpl: rejectUnexpectedGemini }),
     evaluateGithubRow: async () => { throw new Error('Unexpected GitHub evaluation'); },
     evaluateCanaryActivity: async (_repo, token, generatedAt) => {
       assert.equal(token, '');
@@ -76,7 +81,12 @@ test('healthy active checks make only App, Auth and usage preflight requests, wi
   assert.equal(supabaseRow(result).status, 'pass');
   assert.equal(supabaseRow(result).detail, 'auth=200; check-usage-limit=200');
   assert.equal(result.exitCode, 0);
-  assert.deepEqual(result.payload.summary, { pass: 2, warn: 0, fail: 0, skip: 6 });
+  assert.deepEqual(result.payload.checks.filter(({ name }) => name.startsWith('Gemini')).map(({ name, status }) => ({ name, status })), [
+    { name: 'Gemini API', status: 'skip' },
+    { name: 'Gemini generation', status: 'skip' },
+    { name: 'Gemini highest working model', status: 'skip' },
+  ]);
+  assert.deepEqual(result.payload.summary, { pass: 2, warn: 0, fail: 0, skip: 8 });
 });
 
 for (const [label, url] of [['Auth', authUrl], ['usage preflight', usageUrl]]) {
@@ -93,7 +103,7 @@ for (const [label, url] of [['Auth', authUrl], ['usage preflight', usageUrl]]) {
     assert.equal(supabaseRow(result).status, 'fail');
     assert.match(supabaseRow(result).detail, /offline transport failure/);
     assert.equal(result.exitCode, 1);
-    assert.equal(result.payload.checks.length, 8);
+    assert.equal(result.payload.checks.length, 10);
     assert.equal(result.payload.checks.at(-1).name, 'GitHub API');
   });
 }
