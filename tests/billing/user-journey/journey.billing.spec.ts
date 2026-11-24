@@ -13,7 +13,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
-  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, keptHistoryVerdict } from './contract';
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, keptHistoryVerdict, historySeedFailure } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
@@ -777,9 +777,11 @@ class SandboxJourney {
   }
 
   /**
-   * J9.a: two completed, run-marked earlier sessions, seeded by service role during the live trial (no takes). The
-   * account first records its own choice through its own API, as the Practice prompt does: transcripts saved and coaching
-   * ON, so "no new coaching" later is a real check, not a consequence of coaching being off.
+   * J9.a: two completed, run-marked earlier sessions, seeded during the live trial (no takes). The account first records
+   * its own choice through its own API, as the Practice prompt does: transcripts saved and coaching ON, so "no new
+   * coaching" later is a real check, not a consequence of coaching being off. The sessions are written by the MEMBER, under
+   * its own insert policy: the #1835 transcript-consent trigger reads the owner's choice FOR SHARE as the writing role, and
+   * service_role holds only SELECT on that table, so a service-role write of a transcript is refused (run 45370792241).
    */
   async seedHistory(): Promise<void> {
     this.stage = 'history_seeded';
@@ -788,12 +790,12 @@ class SandboxJourney {
     requireFact(!choice.error, 'history_privacy_choice_failed');
     for (const [index, earlier] of EARLIER_SESSIONS.entries()) {
       const words = earlier.phrase.split(' ').length;
-      const { data, error } = await this.admin.from('sessions').insert({
+      const { data, error } = await this.member.from('sessions').insert({
         user_id: this.uid, title: `${this.marker} earlier session ${index + 1}`, status: 'completed',
         transcript: earlier.phrase, duration: 60, total_words: words, wpm: words,
         created_at: new Date(Date.now() - earlier.daysAgo * 86_400_000).toISOString(),
       }).select('id').single();
-      requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), 'history_seed_failed');
+      requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), historySeedFailure(error));
       this.earlier.push(data.id);
     }
     const rows = await this.earlierRows();
