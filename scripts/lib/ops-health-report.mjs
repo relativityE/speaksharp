@@ -78,9 +78,9 @@ function renderCanaryActivity(lines, activity) {
     return '- ' + label + ': ' + when + ', [' + esc(where) + '](' + evidence.logUrl + ')' + reason + '.';
   };
   if (activity.firstFailure) lines.push(failureLine('First failure', activity.firstFailure));
-  for (const row of activity.distinct) lines.push(failureLine('Distinct later failure', row));
+  for (const row of activity.distinct) lines.push(failureLine(row.evidence.step ? 'Distinct later failed step' : 'Distinct later failure', row));
   if (activity.unclassifiedFailures) {
-    lines.push('- ' + activity.unclassifiedFailures + ' later failed attempt(s); GitHub did not report enough detail to tell whether the errors differed.');
+    lines.push('- ' + activity.unclassifiedFailures + ' failed attempt(s) also had later evidence without a recognized upstream job and step.');
   }
   lines.push('', 'Based on runs created on this UTC date and their same-day attempts. Retries of earlier runs are not included.');
 }

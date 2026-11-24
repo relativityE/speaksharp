@@ -1077,6 +1077,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         });
 
         await test.step('next Start without a hold', async () => {
+            // J3.b run 45355779902: nextStartEvidence opens /session as a NEW document, which cancels any coaching request still in
+            // flight on this page. The repeat take's accepted request (superseded on this page, never aborted, by design) was
+            // 10.6 s old and still unanswered when that navigation replaced the page, so its answer could never be observed and the
+            // three repeat-coaching rows held. Let every sent coaching request reach its own bounded end first (answered, failed or
+            // recorded unanswered at the Edge budget plus transport allowance). Nothing is sent or retried; the designed
+            // same-page interruption above is unchanged, and the next Start's own measurement starts after this wait.
+            await generations.settle();
             const next = await nextStartEvidence(page, `${suite}-next`, () => captureGate().confirm());
             nextStartRows(receipt, next);
         });

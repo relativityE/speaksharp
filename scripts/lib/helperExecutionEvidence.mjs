@@ -208,7 +208,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   // J8 (#1870): the same-account feedback journey's pure rules, through their own unit consumer.
   helperFile:'tests/live/helpers/rwtJ8Journey.ts',testFile:'tests/unit/rwtJ8Journey.test.ts',
   callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission","j8ParentPreflight","j8BackendApiKey","j8OwnerToken","j8OwnerChoiceClient",
-    "startPressSnapshot","legStartPressVerdict","j8bFinalSentFeedbackVerdict",
+    "startPressSnapshot","legStartPressVerdict","j8bFinalSentFeedbackVerdict","j8cSessionChoices",
     "J8WriteGate#open","J8WriteGate#close","J8WriteGate#enter","J8WriteGate#settle","J8WriteGate#keysOf"],
 }, {
   // J8 (Sam, 23 Nov): the spec's client for the parent's four named operations (the spec holds no key), through its own unit consumer
