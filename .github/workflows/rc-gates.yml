@@ -661,6 +661,10 @@ jobs:
   j8-runner:
     environment: trusted-main-credentials
     name: J8 - Parent runner (one run-owned account)
+    # J8 run 45357745529 attempt 1: the network `playwright install-deps` fetched 32 MB of fonts and mesa upgrades from a mirror at
+    # ~60-120 kB/s and hit its 300 s deadline before the test or any account existed. J8 now installs the same frozen Playwright
+    # manifest from the checksum-verified bundle its own prep job made (the path CI's e2e shards use, #1311).
+    needs: j8-apt-prep
     # Runs whenever J8 is requested, so an incompatible selection (any gate but gate-3-dast) fails loudly in the first step rather
     # than skipping both Gate 3 and J8 (Codex on 6975d161). Gate 3 steps aside only for gate-3-dast with the J8 runner.
     if: ${{ github.event.inputs.rwt_j8_runner != '' }}
@@ -712,6 +716,9 @@ jobs:
         timeout-minutes: 8
         with:
           install-playwright: 'true'
+          apt-bundle: 'true'
+          apt-bundle-manifest: 'playwright'
+          apt-bundle-artifact: j8-apt-deps-bundle
       - name: Run J8 through its parent runner
         timeout-minutes: 88
         env:
@@ -777,6 +784,51 @@ jobs:
             test-results/rwt/j8-runner.result.log
           retention-days: 14
           if-no-files-found: error
+
+  # The J8 runner's apt bundle, made once per run like CI's deps-prep (#1311): download-only from the standard Ubuntu archive with
+  # one bounded retry, cached by runner image + lockfile + prefetch script (the same key CI uses, so a main CI run usually warms
+  # it). The J8 job installs it offline on an exact image match, else takes the bounded compatibility path (apt-install.sh).
+  # Writes nothing outside this run: no secrets, no environment, no account.
+  j8-apt-prep:
+    name: J8 - apt bundle prep
+    if: ${{ github.event.inputs.rwt_j8_runner != '' }}
+    # Same pinned image as the J8 runner (#1839/#1840).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        timeout-minutes: 3
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-dependencies: 'false'
+          install-native-deps: 'false'
+          install-playwright: 'false'
+          apt-bundle: 'false'
+      - name: Capture runner image version
+        id: img
+        shell: bash
+        run: |
+          [ -n "${ImageVersion:-}" ] || { echo "::error::ImageVersion empty — cannot version the bundle cache"; exit 1; }
+          echo "version=${ImageOS:-unknown}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+      - name: Cache prefetched apt bundle
+        id: apt-bundle-cache
+        uses: actions/cache@v4
+        with:
+          path: apt-bundle
+          # Exactly ci.yml deps-prep's key, with no restore-keys: a stale-image or partial bundle is never restored.
+          key: apt-deps-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.version }}-noble-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('scripts/ci/apt-prefetch.sh') }}
+      - name: Prefetch apt dependency bundle (download-only, one retry)
+        if: steps.apt-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash scripts/ci/apt-prefetch.sh apt-bundle
+      - name: Upload apt dependency bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: j8-apt-deps-bundle
+          path: apt-bundle
+          if-no-files-found: error
+          retention-days: 1
 
   comparison-authorization:
     name: Model Comparison Authorization
