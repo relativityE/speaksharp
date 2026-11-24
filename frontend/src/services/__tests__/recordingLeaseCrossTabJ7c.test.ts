@@ -83,3 +83,22 @@ it('one tab removing its settled lease while another tab records a new one erase
     const page = await openTab();
     expect([...page.__storedUnsettledStartsForTests(A)].sort()).toEqual([Q, Z].sort()); // X gone; Q and Z both kept
 });
+
+it('sign-out cleanup in one tab never deletes a record another tab writes during that cleanup', async () => {
+    const tab1 = await openTab();
+    const tab2 = await openTab();
+    window.localStorage.setItem('sb-abcd-auth-token', '{"access_token":"x"}');
+    // Tab 2 records Z while tab 1's sign-out cleanup is under way: right after the cleanup first looks at storage.
+    const realKey = Storage.prototype.key;
+    let armed = true;
+    Storage.prototype.key = function (this: Storage, index: number) {
+        if (armed) { armed = false; void tab2.releaseTakeLease({ rpc: gone, startFailed: Z }); }
+        return realKey.call(this, index);
+    };
+    try { tab1.clearLocalStorageExceptUnsettledStarts(); } finally { Storage.prototype.key = realKey; }
+    await flush();
+    expect(armed).toBe(false);
+    expect(window.localStorage.getItem('sb-abcd-auth-token')).toBeNull();
+    const page = await openTab();
+    expect(page.__storedUnsettledStartsForTests(A)).toEqual([Z]);
+});

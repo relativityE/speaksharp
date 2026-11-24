@@ -74,7 +74,7 @@ describe('J7.c review finding 2: a failed Start is remembered before its first a
 });
 
 describe('J7.c review finding 1: sign-out keeps the unsettled-start records', () => {
-    it('keepUnsettledStartsAcross clears everything else but keeps the records, so the owner settles after a reload', async () => {
+    it('sign-out cleanup removes everything else but keeps the records, so the owner settles after a reload', async () => {
         const net = server();
         await acquireTakeLease({ rpc: net.rpc });
         const id = currentTakeLeaseId()!;
@@ -82,18 +82,18 @@ describe('J7.c review finding 1: sign-out keeps the unsettled-start records', ()
         await releaseTakeLease({ rpc: net.rpc, startFailed: id });
         net.state.online = true;
         window.localStorage.setItem('unrelated-app-key', 'x');
-        (lease as unknown as { keepUnsettledStartsAcross: (clear: () => void) => void }).keepUnsettledStartsAcross(() => window.localStorage.clear());
+        lease.clearLocalStorageExceptUnsettledStarts();
         expect(window.localStorage.getItem('unrelated-app-key')).toBe(null);
         expect(stored(A)).toEqual([id]);
         __resetTakeLeaseForTests(); setCurrentLogin(A, 1_700_000_000_001); // reload, sign back in
         await acquireTakeLease({ rpc: net.rpc });
         expect(net.obligations.has(id)).toBe(false);
     });
-    it('AuthProvider.signOut clears storage through keepUnsettledStartsAcross, never a bare localStorage.clear()', () => {
+    it('AuthProvider.signOut clears storage through clearLocalStorageExceptUnsettledStarts, never localStorage.clear()', () => {
         const src = readFileSync(resolve(__dirname, '../../contexts/AuthProvider.tsx'), 'utf8');
         const signOut = src.slice(src.indexOf('const signOut = useCallback'), src.indexOf('}, [supabase, queryClient]);'));
-        expect(signOut).toContain('keepUnsettledStartsAcross(() => window.localStorage.clear());');
-        expect(signOut).not.toMatch(/^\s*window\.localStorage\.clear\(\);/m);
+        expect(signOut).toContain('clearLocalStorageExceptUnsettledStarts();');
+        expect(src).not.toMatch(/localStorage\.clear\(\)/);
     });
 });
 
@@ -142,24 +142,21 @@ describe('J7.c review A (Jack on 6093a9ac): a pass requested while another is bu
 });
 
 describe('J7.c review B (Sam 12:41, Jack): sign-out keeps only exact one-lease records', () => {
-    it('only exact one-lease record keys survive, with their recorded time; auth, look-alikes, other keys and sessionStorage are gone', () => {
+    it('only exact one-lease record keys survive, with their recorded time; auth, look-alikes and other keys are gone', () => {
         const key = unsettledStartKey(A, 'f0110000-0000-4000-8000-00000000000a');
         const garbled = unsettledStartKey(A, 'f0110000-0000-4000-8000-00000000000b');
         window.localStorage.setItem(key, '1700000000000');
-        window.localStorage.setItem(garbled, '{"access_token":"x"}');                  // kept as a lease, value normalized
+        window.localStorage.setItem(garbled, '{"access_token":"x"}');                  // kept as a lease, value replaced
         window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A, '["x"]');           // not one lease record
         window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A + ':a:b', '1');      // not one lease record
         window.localStorage.setItem('speaksharp.recordingLease.unsettledStarts.v1:' + A, '["x"]'); // look-alike prefix
         window.localStorage.setItem('sb-abcd-auth-token', '{"access_token":"x"}');
         window.localStorage.setItem('speaksharp.other', 'x');
-        window.sessionStorage.setItem('session-key', 'x');
-        (lease as unknown as { keepUnsettledStartsAcross: (clear: () => void) => void })
-            .keepUnsettledStartsAcross(() => { window.localStorage.clear(); window.sessionStorage.clear(); });
+        lease.clearLocalStorageExceptUnsettledStarts();
         const keys = Array.from({ length: window.localStorage.length }, (_, i) => window.localStorage.key(i));
         expect(keys.sort()).toEqual([key, garbled].sort());
         expect(window.localStorage.getItem(key)).toBe('1700000000000');
         expect(window.localStorage.getItem(garbled)).toBe('0');
-        expect(window.sessionStorage.length).toBe(0);
     });
 });
 

@@ -301,6 +301,8 @@ let rerunRequested: { rpc?: LeaseRpc; only: Set<string> } | null = null;
 /** The leases the running pass covers. */
 let runningBatch = new Set<string>();
 let onlineListening = false;
+/** A reconnect seen before any account was signed in on this page. */
+let reconnectAwaitingOwner = false;
 
 const isKeyPart = (x: string): boolean => x.length > 0 && x.length <= 64 && !x.includes(':');
 const recordedAt = (v: string | null): number => (v !== null && /^\d{1,16}$/.test(v) ? Number(v) : 0);
@@ -370,11 +372,23 @@ function forget(leaseId: string, owner: string | null): void {
 }
 
 function onOnline(): void {
+    // J7.c (Codex on b0b720f3): no account yet (a reload before authentication restores it): the pass below has nothing to
+    // replay, so the reconnect is kept for `resumeReconnectForSignedInOwner`.
+    if (currentOwnerId() === null) reconnectAwaitingOwner = true;
     // An attempt still in flight cannot be retried now; it runs one follow-up pass when it ends unsettled.
     for (const entry of unreachedAbandons.values()) if (entry.inFlight) entry.onlineDuringFlight = true;
     // J7.c (Codex on 260bfd5a): a running pass may have sent its requests before this reconnect. Once it ends, one rerun
     // retries its leases still unsettled. Only this event asks for it; a pass never schedules itself.
     if (retrying) requestRerun([...runningBatch], undefined);
+    void retryUnreachedAbandons();
+}
+/**
+ * AuthProvider calls this right after it applies a signed-in owner. If the browser reconnected while no account was known
+ * yet, one pass runs now, for that account's own leases only; otherwise nothing happens. Once per such reconnect.
+ */
+export function resumeReconnectForSignedInOwner(): void {
+    if (!reconnectAwaitingOwner || currentOwnerId() === null) return;
+    reconnectAwaitingOwner = false;
     void retryUnreachedAbandons();
 }
 function requestRerun(leaseIds: string[], rpc: LeaseRpc | undefined): void {
@@ -383,22 +397,20 @@ function requestRerun(leaseIds: string[], rpc: LeaseRpc | undefined): void {
 }
 
 /**
- * J7.c (Codex on #1968): sign-out clears the browser's storage, which would also wipe these records, leaving the server's
- * admitted obligation with nothing to settle it. Runs `clear` and then puts back only the unsettled-start records (lease ids,
- * per account; a pass replays only the signed-in account's own, so another account never acts on them).
+ * J7.c sign-out storage cleanup (Codex on #1968; Sam 12:41; Codex on b0b720f3). Removes every localStorage key one by one
+ * EXCEPT exact one-lease records, which only their own account settles (a pass replays only the signed-in account's own).
+ * It never calls `clear()` and never rewrites a record, so a record another tab writes during the cleanup is never deleted.
  */
-export function keepUnsettledStartsAcross(clear: () => void): void {
-    const kept: Array<[string, string]> = [];
+export function clearLocalStorageExceptUnsettledStarts(): void {
+    let keys: string[] = [];
     try {
-        for (let i = 0; i < window.localStorage.length; i += 1) {
-            const key = window.localStorage.key(i);
-            // Only an exact one-lease record key is kept (Sam 12:41), with its recorded time; everything else is cleared.
-            if (key !== null && parseUnsettledKey(key) !== null) kept.push([key, String(recordedAt(window.localStorage.getItem(key)))]);
-        }
-    } catch { /* storage unreadable: nothing to keep */ }
-    clear();
-    for (const [key, value] of kept) {
-        try { window.localStorage.setItem(key, value); } catch { /* storage refused: memory still holds them this page */ }
+        keys = Array.from({ length: window.localStorage.length }, (_, i) => window.localStorage.key(i)).filter((k): k is string => k !== null);
+    } catch { return; /* storage unreadable: nothing to clear */ }
+    for (const key of keys) {
+        if (parseUnsettledKey(key) === null) { safeLocalStorageRemove(key); continue; }
+        // A record keeps only its recorded time (Sam 12:41): anything else stored at a record key is replaced, in place.
+        const value = safeLocalStorageGet(key);
+        if (value !== null && String(recordedAt(value)) !== value) safeLocalStorageSet(key, '0');
     }
 }
 
@@ -469,6 +481,7 @@ export function __resetTakeLeaseForTests(): void {
     retrying = null;
     rerunRequested = null;
     runningBatch = new Set();
+    reconnectAwaitingOwner = false;
     if (onlineListening && typeof window !== 'undefined') window.removeEventListener('online', onOnline);
     onlineListening = false;
 }

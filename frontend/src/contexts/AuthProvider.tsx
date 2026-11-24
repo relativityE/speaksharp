@@ -11,7 +11,7 @@ import { markIdentitySettled, resetIdentitySettlement } from '@/services/transcr
 import { clearFeedbackDraft } from '@/services/feedbackDraft';
 import { clearLoginSessions, loginStartedAtOf, setCurrentLogin } from '@/services/loginSessionLog';
 import { loadPracticePrivacy } from '@/services/practicePrivacy';
-import { keepUnsettledStartsAcross } from '@/services/recordingLease';
+import { clearLocalStorageExceptUnsettledStarts, resumeReconnectForSignedInOwner } from '@/services/recordingLease';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -301,6 +301,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             queryClient.removeQueries({ queryKey: ['session'] });
           }
           setCurrentLogin(nextUserId, loginStartedAtOf(nextSession));
+          resumeReconnectForSignedInOwner(); // J7.c: a reconnect seen before this owner was known settles its leases now
           sessionStateRef.current = nextSession;
           setSessionState(nextSession);
           // An auth event is an answer from authentication itself.
@@ -393,7 +394,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       useSessionStore.getState().resetSession();
       logger.info('[AuthProvider] Zustand session memory purged');
       // J7.c: everything is cleared except the unsettled recording-start records, which only their own account settles.
-      keepUnsettledStartsAcross(() => window.localStorage.clear());
+      clearLocalStorageExceptUnsettledStarts();
       window.sessionStorage.clear();
       logger.info('[AuthProvider] Window storage cleared');
       await supabase.auth.signOut();
@@ -432,6 +433,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         queryClient.removeQueries({ queryKey: ['session'] }); // same rule as the auth-event path (#1258 PR 4)
       }
       setCurrentLogin(s?.user?.id ?? null, loginStartedAtOf(s));
+      resumeReconnectForSignedInOwner(); // J7.c: a reconnect seen before this owner was known settles its leases now
       sessionStateRef.current = s;
       setSessionState(s);
       setIdentityAnswered(true);
