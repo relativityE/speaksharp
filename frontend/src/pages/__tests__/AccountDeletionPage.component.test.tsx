@@ -108,6 +108,38 @@ describe('explicit pending completion — real page and effect/status transports
     expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
     expect(effects()).toHaveLength(0);
   });
+  // J1.f / J7.d fail closed: readiness is asked about exactly this owner and this pending request, and only a literal
+  // `true` for that pair counts. Each case answers "ready" for something else, so the secured, settled read alone is all
+  // the page has; the exact-pair control below proves the same page does offer completion when readiness matches.
+  const readinessCalls: Array<[string, string]> = [];
+  const renderWithReadiness = (answer: (ownerId: string, requestId: string) => unknown) => render(<MemoryRouter>
+    <AccountDeletionPage completionReadiness={(ownerId, id) => {
+      readinessCalls.push([ownerId, id]);
+      return answer(ownerId, id) as boolean;
+    }} />
+  </MemoryRouter>);
+  it.each([
+    ['stale: ready for an earlier request of this owner', (ownerId: string, id: string) => ownerId === mocks.user!.id && id === '33333333-3333-4333-8333-333333333333'],
+    ['wrong owner: ready for this request under another owner', (ownerId: string, id: string) => ownerId === '99999999-9999-4999-8999-999999999999' && id === requestId],
+    ['truthy but not true for the exact pair', (ownerId: string, id: string) => (ownerId === mocks.user!.id && id === requestId ? 1 : false)],
+    ['throws for the exact pair', (ownerId: string, id: string) => { if (ownerId === mocks.user!.id && id === requestId) throw new Error('readiness unavailable'); return true; }],
+  ])('readiness that is %s cannot enable confirmation after a settled, secured read', async (_label, answer) => {
+    readinessCalls.length = 0;
+    renderWithReadiness(answer);
+    await screen.findByText(/Earlier work is settled/);
+    expect(completionCapabilities.get(mocks.user!.id, requestId, Date.now())?.acknowledged).toBe(true);
+    expect(readinessCalls).toContainEqual([mocks.user!.id, requestId]);
+    expect(readinessCalls.every(([ownerId, id]) => ownerId === mocks.user!.id && id === requestId)).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'I confirm permanent account deletion now, with no refund.' })).not.toBeInTheDocument();
+    expect(effects()).toHaveLength(0);
+  });
+  it('control: readiness answering true for exactly this owner and request does offer confirmation', async () => {
+    renderWithReadiness((ownerId, id) => ownerId === mocks.user!.id && id === requestId);
+    const button = await screen.findByRole('button', { name: 'Complete permanent account deletion' });
+    expect(button).toBeDisabled();
+    expect(effects()).toHaveLength(0);
+  });
   it('secures status first, then sends one explicitly confirmed owner effect and shows verified completion', async () => {
     renderPage(() => true);
     await confirmCompletion();
@@ -634,5 +666,146 @@ describe('deletion confirmation UI — real component, mocked provider boundary'
     expect(screen.getByRole('link', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Permanently delete|Email me/ })).not.toBeInTheDocument();
     expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('J1.f/J7.d step 6: the server readiness decision (no injected readiness)', () => {
+  const requestId = '55555555-5555-4555-8555-555555555555';
+  const key = 'c'.repeat(64);
+  const pending = { outcome: 'pending', requestId, phase: 'pending', destructiveEnabled: false, checkoutPending: 0 };
+  const transport = vi.fn<typeof fetch>();
+  const calls = (action: string) => transport.mock.calls.filter(([, o]) => JSON.parse(String(o?.body)).action === action);
+  let decision: unknown;
+  beforeEach(() => {
+    mocks.user = { id: `11111111-1111-4111-8111-${String(ownerSequence).padStart(12, '0')}` };
+    mocks.status = pending;
+    completionCapabilities.clear();
+    decision = { outcome: 'execution_ready', requestId, expiresAt: Date.now() + 30_000 };
+    transport.mockReset();
+    transport.mockImplementation(async (_url, options) => {
+      const body = JSON.parse(String(options?.body));
+      if (body.action === 'completion_status_issue') return Response.json({ outcome: 'status_capability', requestId, token: key, expiresAt: Date.now() + 600_000 });
+      if (body.action === 'completion_status_ack') return Response.json({ outcome: 'status_acknowledged', requestId });
+      if (body.action === 'completion_status_read') return Response.json({ outcome: 'pending', requestId, reason: 'ready', canRetry: false });
+      if (body.action === 'completion_readiness') return Response.json(decision);
+      if (body.action === 'completion_execute') return Response.json({ outcome: 'completed', requestId, accountDeleted: true, canRetry: false });
+      throw new Error('unexpected synthetic transport call');
+    });
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://test.supabase.co');
+    vi.stubGlobal('fetch', transport);
+  });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); completionCapabilities.clear(); });
+  const page = () => render(<MemoryRouter><AccountDeletionPage /></MemoryRouter>);
+  const button = () => screen.queryByRole('button', { name: 'Complete permanent account deletion' });
+
+  it('offers the effect only on the server decision, asked with the held token and the live owner bearer', async () => {
+    page();
+    expect(await screen.findByRole('button', { name: 'Complete permanent account deletion' })).toBeInTheDocument();
+    const [ask] = calls('completion_readiness');
+    expect(JSON.parse(String(ask[1]?.body))).toEqual({ action: 'completion_readiness', requestId, token: key });
+    expect(new Headers(ask[1]?.headers).get('Authorization')).toBe('Bearer test-only');
+    expect(calls('completion_status_issue')).toHaveLength(1); // readiness never issues a capability
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I confirm permanent account deletion now, with no refund.' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete permanent account deletion' }));
+    await screen.findByText('Your account has been deleted.');
+    expect(calls('completion_execute')).toHaveLength(1);
+  });
+  it.each([
+    ['unavailable', { outcome: 'unavailable', canRetry: false }],
+    ['another request', { outcome: 'execution_ready', requestId: '66666666-6666-4666-8666-666666666666', expiresAt: Date.now() + 30_000 }],
+    ['an expired deadline', { outcome: 'execution_ready', requestId, expiresAt: 1 }],
+    ['an extra field', { outcome: 'execution_ready', requestId, expiresAt: Date.now() + 30_000, token: 'c'.repeat(64) }],
+  ])('a decision of %s never offers the effect', async (_label, reply) => {
+    decision = reply;
+    page();
+    await waitFor(() => expect(calls('completion_readiness').length).toBeGreaterThan(0));
+    await screen.findByText(/Earlier work is settled/);
+    expect(button()).not.toBeInTheDocument();
+    expect(calls('completion_execute')).toHaveLength(0);
+  });
+  it('a pending/ready status without a server decision (readiness route failing) never offers the effect', async () => {
+    const original = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => JSON.parse(String(options?.body)).action === 'completion_readiness'
+      ? Promise.reject(new Error('readiness unavailable')) : original(url, options));
+    page();
+    await waitFor(() => expect(calls('completion_readiness').length).toBeGreaterThan(0));
+    expect(button()).not.toBeInTheDocument();
+  });
+  it('the decision expires: the effect is withdrawn at the deadline and a fresh decision is asked for', async () => {
+    decision = { outcome: 'execution_ready', requestId, expiresAt: Date.now() + 1_500 };
+    page();
+    await screen.findByRole('button', { name: 'Complete permanent account deletion' });
+    decision = { outcome: 'unavailable', canRetry: false };
+    await waitFor(() => expect(button()).not.toBeInTheDocument(), { timeout: 4_000 });
+    expect(calls('completion_readiness').length).toBeGreaterThanOrEqual(2);
+  });
+  it('another owner signing in drops the previous owner\'s decision', async () => {
+    const view = page();
+    await screen.findByRole('button', { name: 'Complete permanent account deletion' });
+    mocks.user = { id: '99999999-9999-4999-8999-999999999999' };
+    mocks.status = { outcome: 'not_pending', destructiveEnabled: false };
+    view.rerender(<MemoryRouter><AccountDeletionPage /></MemoryRouter>);
+    await waitFor(() => expect(button()).not.toBeInTheDocument());
+    expect(calls('completion_execute')).toHaveLength(0);
+  });
+  it('a refresh during a pending readiness request starts fresh readiness work once the stale flight settles', async () => {
+    const original = transport.getMockImplementation()!;
+    let release!: () => void;
+    let held = true;
+    transport.mockImplementation(async (url, options) => {
+      if (JSON.parse(String(options?.body)).action === 'completion_readiness' && held) {
+        held = false;
+        await new Promise<void>(resolve => { release = resolve; });
+      }
+      return original(url, options);
+    });
+    page();
+    await waitFor(() => expect(calls('completion_readiness')).toHaveLength(1));
+    // The user refreshes status while the first decision is still in flight: that decision becomes stale.
+    fireEvent.click(await screen.findByRole('button', { name: 'Check deletion status' }));
+    await act(async () => { release(); });
+    // The stale answer is discarded, and fresh readiness work runs for the current generation.
+    expect(await screen.findByRole('button', { name: 'Complete permanent account deletion' })).toBeInTheDocument();
+    expect(calls('completion_readiness').length).toBeGreaterThanOrEqual(2);
+  });
+  it('a genuine unavailable decision is not retried in a loop (only a stale flight re-runs)', async () => {
+    decision = { outcome: 'unavailable', canRetry: false };
+    page();
+    await waitFor(() => expect(calls('completion_readiness')).toHaveLength(1));
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(calls('completion_readiness')).toHaveLength(1);
+    expect(button()).not.toBeInTheDocument();
+  });
+  it('a confirmation answered pending starts completion work only when the user checks status (the J1.f/J7.d path)', async () => {
+    mocks.status = { outcome: 'not_pending', destructiveEnabled: false };
+    mocks.token = 'a'.repeat(64);
+    mocks.invoke.mockResolvedValue({ data: pending, error: null });
+    page();
+    fireEvent.click(await screen.findByLabelText('I understand this is permanent, ends my access now, and provides no refund.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    await screen.findByText(/No deletion will be retried from this page/);
+    mocks.status = pending;
+    await new Promise(resolve => setTimeout(resolve, 300));
+    // The confirmation's own pending answer secures no completion status and asks for no readiness by itself.
+    expect(calls('completion_status_issue')).toHaveLength(0);
+    expect(calls('completion_readiness')).toHaveLength(0);
+    expect(button()).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    expect(await screen.findByRole('button', { name: 'Complete permanent account deletion' })).toBeInTheDocument();
+    expect(calls('completion_readiness').length).toBeGreaterThan(0);
+  });
+  it('a session for a different user is never used to ask for readiness', async () => {
+    const original = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => {
+      // The owner secured status normally; by the time readiness would be asked, the live session is someone else's.
+      if (JSON.parse(String(options?.body)).action === 'completion_status_read') {
+        mocks.session.mockImplementation(async () => ({ data: { session: { user: { id: '99999999-9999-4999-8999-999999999999' }, access_token: 'test-only' } }, error: null }));
+      }
+      return original(url, options);
+    });
+    page();
+    await screen.findByText(/Earlier work is settled/);
+    expect(calls('completion_readiness')).toHaveLength(0);
+    expect(button()).not.toBeInTheDocument();
   });
 });

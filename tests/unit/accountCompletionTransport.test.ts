@@ -35,6 +35,13 @@ describe('#1643 completion transport — target', () => {
 });
 
 describe('#1643 completion transport — the outgoing request', () => {
+  it('a loopback local stack API (J1.f/J7.d disposable stack) is the only accepted http target', () => {
+    expect(completionStatusTarget('http://127.0.0.1:54321')).toBe(`http://127.0.0.1:54321${COMPLETION_STATUS_PATH}`);
+    expect(completionStatusTarget('http://localhost:54321/')).toBe(`http://localhost:54321${COMPLETION_STATUS_PATH}`);
+    for (const url of ['http://localhost.example.test', 'http://10.0.0.5:54321', 'http://kong:8000', 'http://127.0.0.1:54321/rest/v1', 'http://u:p@127.0.0.1:54321']) {
+      expect(completionStatusTarget(url)).toBeNull();
+    }
+  });
   it('read: POST of the closed body with no Authorization, credentials omitted, redirects refused, no cache', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(json({ outcome: 'processing', requestId, canRetry: false }));
     const transport = createCompletionTransport(ORIGIN, fetchImpl)!;

@@ -27,7 +27,7 @@ import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
     isCoachingUnavailableHeadline,
 } from './coachingExternal';
-import { type SaveHold, holdThenStop } from './rwtSaveHold';
+import { type SaveHold, SAVE_HOLD_BUFFER_MS, SAVE_MINIMUM_MS, holdThenStop } from './rwtSaveHold';
 import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
@@ -1792,7 +1792,10 @@ export async function practiceAgainEvidence(
      *  (#1835): the caller's consent readback, awaited immediately before the save take's Start and the repeat action's press. */
     opts: { saveTakeMs?: number; beforeCapture?: () => Promise<void>;
         /** J1 option B: hold the repeated take past the 5 s save minimum before its Stop (default: Stop at once). */
-        holdRepeatPastSaveMinimum?: boolean } = {},
+        holdRepeatPastSaveMinimum?: boolean;
+        /** J1.b (Sam, 22 Nov): a side check of the SAVE take, started once the repeat records and run inside its hold. It
+         *  never delays the Stop; `closesAt` is the hold's deadline. Awaited after the Stop, on every path. */
+        duringRepeatHold?: (w: { savedSessionId: string | null; closesAt: number }) => Promise<void> } = {},
 ): Promise<PracticeAgainEvidence> {
     const FINISHING_UP = /Finishing up your last session/;
     const ev: PracticeAgainEvidence = {
@@ -1921,22 +1924,31 @@ export async function practiceAgainEvidence(
         return ev;
     }
     clearInterval(watch);
-    // J1 option B: the hold clicks the validated recorder's own Stop itself; a failed hold still stops whatever is recording.
-    const held = opts.holdRepeatPastSaveMinimum && ev.repeatRecordingAt ? await holdThenStop(page, ev.repeatRecordingAt) : null;
-    ev.saveHold = held?.hold ?? null;
-    if (ev.saveHold && !ev.saveHold.ok) ev.reason = ev.saveHold.reason;
+    // J1.b: the side check starts with the hold and is bounded by its deadline; it is never awaited before the Stop.
+    const side = opts.holdRepeatPastSaveMinimum && opts.duringRepeatHold && ev.repeatRecordingAt
+        ? Promise.resolve().then(() => opts.duringRepeatHold!({ savedSessionId: ev.savedSessionId,
+            closesAt: ev.repeatRecordingAt! + SAVE_MINIMUM_MS + SAVE_HOLD_BUFFER_MS })).catch(() => undefined)
+        : Promise.resolve();
     try {
-        if (held?.clicked) await confirmBenchmarkStopped(page, `${label}-again`);
-        else await stopBenchmarkRecording(page, `${label}-again`);
-    } catch {
-        ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
-        ev.reason = 'the repeated take could not be stopped';
+        // J1 option B: the hold clicks the validated recorder's own Stop itself; a failed hold still stops whatever is recording.
+        const held = opts.holdRepeatPastSaveMinimum && ev.repeatRecordingAt ? await holdThenStop(page, ev.repeatRecordingAt) : null;
+        ev.saveHold = held?.hold ?? null;
+        if (ev.saveHold && !ev.saveHold.ok) ev.reason = ev.saveHold.reason;
+        try {
+            if (held?.clicked) await confirmBenchmarkStopped(page, `${label}-again`);
+            else await stopBenchmarkRecording(page, `${label}-again`);
+        } catch {
+            ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
+            ev.reason = 'the repeated take could not be stopped';
+            return ev;
+        }
+        ev.stopped = true;
+        ev.liveTracksAfterStop = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
+        if (ev.liveTracksAfterStop !== 0) ev.reason = 'the microphone stayed live after Stop';
         return ev;
+    } finally {
+        await side;
     }
-    ev.stopped = true;
-    ev.liveTracksAfterStop = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
-    if (ev.liveTracksAfterStop !== 0) ev.reason = 'the microphone stayed live after Stop';
-    return ev;
 }
 
 /**

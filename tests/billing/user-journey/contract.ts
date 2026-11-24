@@ -246,12 +246,13 @@ const INVALID_FIELD_TOKENS: Readonly<Record<string, string>> = Object.freeze({
   cardCvc: 'cvc', 'payment-cvcInput': 'cvc', email: 'email',
 });
 /**
- * The disposable Stripe Customer the journey preassigns. Only CONVERSION gets the fixture's own run-owned email (Sam on #1892:
- * "existing-customer sandbox conversion"); every other journey's Customer request is exactly what it was before (clock + owner marker).
+ * The disposable Stripe Customer the journey preassigns. Only CONVERSION and J9.b's RESTORE_ACCESS, which pays through the same
+ * hosted Checkout, get the fixture's own run-owned email (Sam on #1892: "existing-customer sandbox conversion"); every other
+ * journey's Customer request is exactly what it was before (clock + owner marker).
  */
 export function fixtureCustomerFields(journey: string, f: { clock: string; email: string; marker: string }): Record<string, string> {
   const base: Record<string, string> = { test_clock: f.clock, 'metadata[speaksharp_test]': f.marker };
-  return journey === 'conversion' ? { ...base, email: f.email } : base;
+  return journey === 'conversion' || journey === 'restore_access' ? { ...base, email: f.email } : base;
 }
 
 /**
@@ -641,6 +642,94 @@ export function assertNoSecondCharge(listed: unknown, expected: { customer: stri
 }
 
 /** A declined or abandoned Checkout grants nothing: no subscription, no payment, the session not complete. */
+/**
+ * J2 after a DECLINED card. In the Stripe sandbox events for run 44937743744, the decline created an `incomplete` subscription
+ * whose first invoice failed; that run's receipt did not establish that this exact session was the one it attached to, so this
+ * rule allows such a subscription only when the session itself references it. The declined session grants nothing only when:
+ * test mode, the expected session status, unpaid, every charge row for the customer `failed`; and, if a
+ * subscription is attached, it is exactly that session's subscription, for this customer, in test mode, `incomplete` (after a forced
+ * expiry also `incomplete_expired`), and its latest invoice is this customer's and has nothing paid on it. App access is checked
+ * separately and first (assertNoAppAccess). Before any card entry the plain rule (no subscription at all) still applies.
+ */
+export function assertDeclinedCheckoutGrantedNothing(input: {
+  session: unknown; subscription: unknown; invoice: unknown; customer: string; charges: unknown; chargesHasMore: unknown;
+  expectedStatus: 'open' | 'expired';
+}): string | null {
+  const session = (input.session ?? {}) as { livemode?: unknown; status?: unknown; payment_status?: unknown; subscription?: unknown };
+  requireFact(session.livemode === false && session.status === input.expectedStatus && session.payment_status === 'unpaid',
+    'declined_checkout_session_not_unpaid');
+  // Every charge row must be one Stripe documents; an unknown row is unread, never "not a success". Only `failed` is allowed.
+  const charges = Array.isArray(input.charges) ? input.charges as Array<{ status?: unknown } | null> : null;
+  requireFact(charges !== null && input.chargesHasMore === false && charges.every((c) => c !== null && typeof c === 'object'
+    && ['succeeded', 'pending', 'failed'].includes(c.status as string)), 'declined_checkout_charges_unread');
+  requireFact(charges.every((c) => c?.status === 'failed'), 'declined_checkout_charged');
+  // Only an actual null or absent reference means no attachment; anything else must be a well-formed subscription reference.
+  const ref = session.subscription;
+  if (ref === null || ref === undefined) return null;
+  const attached = typeof ref === 'string' ? ref : typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined;
+  requireFact(typeof attached === 'string' && /^sub_[A-Za-z0-9]+$/.test(attached), 'declined_checkout_subscription_malformed');
+  const sub = (input.subscription ?? {}) as { id?: unknown; livemode?: unknown; customer?: unknown; status?: unknown; latest_invoice?: unknown };
+  requireFact(sub.id === attached, 'declined_checkout_subscription_unread');
+  requireFact(sub.livemode === false && sub.customer === input.customer, 'declined_checkout_subscription_foreign');
+  // While Checkout is still open after the decline only `incomplete` is allowed; `incomplete_expired` only after expiry.
+  requireFact(declinedSubscriptionStatuses(input.expectedStatus).includes(sub.status as string), 'declined_checkout_subscription_not_incomplete');
+  const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice
+    : (sub.latest_invoice as { id?: unknown } | null | undefined)?.id;
+  const invoice = (input.invoice ?? {}) as { id?: unknown; customer?: unknown; livemode?: unknown; status?: unknown; amount_paid?: unknown };
+  requireFact(typeof invoiceId === 'string' && invoice.id === invoiceId && invoice.customer === input.customer
+    && invoice.livemode === false, 'declined_checkout_invoice_unread');
+  requireFact(invoice.status !== 'paid' && invoice.amount_paid === 0, 'declined_checkout_invoice_paid');
+  return attached;
+}
+
+/** The only non-Pro profile status SpeakSharp has (no Basic product); anything else, absent included, is not observed non-Pro. */
+export const NON_PRO_PROFILE_STATUS = 'free';
+
+/**
+ * J2 app access, judged on its own and BEFORE any Stripe read so a Stripe error cannot mask it: the account cannot start a
+ * session and its profile reads exactly the non-Pro status. Anything else is `failed_checkout_granted_access`.
+ */
+export function assertNoAppAccess(input: { canStart: unknown; profileStatus: unknown }): void {
+  requireFact(input.canStart === false && input.profileStatus === NON_PRO_PROFILE_STATUS, 'failed_checkout_granted_access');
+}
+
+/**
+ * J2 the customer's subscriptions, on a complete list: none at all, except that after a decline the one subscription the declined
+ * session attached (verified unpaid by assertDeclinedCheckoutGrantedNothing) may be listed ONCE, in that phase's allowed
+ * statuses. Anything else, a duplicate, or an incomplete or unread list is `failed_checkout_subscribed`.
+ */
+export function assertSubscriptionsAllowed(input: {
+  subscriptions: unknown; hasMore: unknown; allowed: { id: string; statuses: readonly string[] } | null;
+}): void {
+  const listed = Array.isArray(input.subscriptions) ? input.subscriptions as Array<{ id?: unknown; status?: unknown } | null> : null;
+  const { allowed } = input;
+  requireFact(listed !== null && input.hasMore === false && listed.length <= (allowed === null ? 0 : 1)
+    && listed.every((sub) => allowed !== null && sub !== null && typeof sub === 'object'
+      && sub.id === allowed.id && allowed.statuses.includes(sub.status as string)), 'failed_checkout_subscribed');
+}
+
+/**
+ * J2 after the paid retry (Codex P2 on #1935): the customer's complete list holds exactly one subscription with the paid retry's
+ * id, and at most one other: the declined session's own verified subscription, still unpaid (`incomplete` or
+ * `incomplete_expired`). Any other subscription, a duplicate, or an incomplete list is `more_than_one_subscription`.
+ */
+export function assertOnePaidRetrySubscription(input: {
+  subscriptions: unknown; hasMore: unknown; paidId: string; declinedId: string | null;
+}): void {
+  const listed = Array.isArray(input.subscriptions) ? input.subscriptions as Array<{ id?: unknown; status?: unknown } | null> : null;
+  const rows = listed ?? [];
+  const paid = rows.filter((sub) => sub !== null && typeof sub === 'object' && sub.id === input.paidId);
+  const others = rows.filter((sub) => !(sub !== null && typeof sub === 'object' && sub.id === input.paidId));
+  requireFact(listed !== null && input.hasMore === false && paid.length === 1 && others.length <= (input.declinedId === null ? 0 : 1)
+    && others.every((sub) => sub !== null && typeof sub === 'object' && sub.id === input.declinedId
+      && (sub.status === 'incomplete' || sub.status === 'incomplete_expired')), 'more_than_one_subscription');
+}
+
+/** After a decline: only `incomplete` while Checkout is still open; `incomplete_expired` too, but only after expiry. */
+export function declinedSubscriptionStatuses(phase: 'open' | 'expired'): readonly string[] {
+  return phase === 'open' ? ['incomplete'] : ['incomplete', 'incomplete_expired'];
+}
+
 /** Stripe's documented Checkout Session `status` and `payment_status` values (API reference, Checkout Session object). */
 export const CHECKOUT_SESSION_STATUSES = Object.freeze(['open', 'complete', 'expired']);
 export const CHECKOUT_PAYMENT_STATUSES = Object.freeze(['paid', 'unpaid', 'no_payment_required']);
@@ -715,4 +804,21 @@ export function assertSandboxConfiguration(env: Record<string, string | undefine
     'sandbox_target_binding_mismatch');
   requireFact(app !== 'https://speaksharp-public.vercel.app' && api !== productionApi, 'production_target_refused');
   return { app, api };
+}
+
+/**
+ * J9.a: each seeded earlier session was opened by its OWN id and showed its OWN transcript, and no other seeded session's.
+ * Opening one session twice, a missing or foreign id, another session's text, an unread view, or seeds that are not two
+ * or more distinct ids with distinct phrases all fail, so a count of opens can never stand in for the sessions themselves.
+ */
+export function keptHistoryVerdict(seeded: readonly { id: string; phrase: string }[],
+  opened: readonly { id: string; text: string | null }[]): boolean {
+  if (seeded.length < 2 || new Set(seeded.map(s => s.id)).size !== seeded.length
+    || new Set(seeded.map(s => s.phrase)).size !== seeded.length || seeded.some(s => !s.id || !s.phrase)) return false;
+  if (opened.length !== seeded.length || new Set(opened.map(o => o.id)).size !== opened.length) return false;
+  return seeded.every((own) => {
+    const view = opened.find(o => o.id === own.id);
+    return typeof view?.text === 'string' && view.text.includes(own.phrase)
+      && seeded.every(other => other.id === own.id || !view.text!.includes(other.phrase));
+  });
 }

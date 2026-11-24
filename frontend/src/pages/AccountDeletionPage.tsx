@@ -8,12 +8,11 @@ import { accountDeletionStatus, type AccountDeletionStatus } from '@/services/ac
 import { Button } from '@/components/ui/button';
 import { AccountCompletionStatusNotice } from '@/components/account/AccountCompletionStatusNotice';
 import { completionCapabilities, type AccountCompletionStatus } from '@/services/accountCompletionStatus';
-import { readCompletionStatus, secureStatusCapability } from '@/services/accountCompletionClient';
+import { readCompletionStatus, requestExecutionReadiness, secureStatusCapability } from '@/services/accountCompletionClient';
 import { createCompletionTransport } from '@/services/accountCompletionTransport';
 import { accountCompletionSubmitted, createAccountCompletionExecution, type CompletionExecutionState } from '@/services/accountCompletionExecution';
 
 type CompletionReadiness = (ownerId: string, requestId: string) => boolean;
-const unavailableReadiness: CompletionReadiness = () => false;
 
 interface DeletionResponse {
   outcome?: 'email_requested' | 'deleted' | 'refused' | 'incomplete' | 'verification_pending';
@@ -38,7 +37,13 @@ function closureResponse(value: unknown, action: 'request' | 'confirm'): Deletio
   return row as unknown as DeletionResponse;
 }
 
-export default function AccountDeletionPage({ completionReadiness = unavailableReadiness }:
+/**
+ * `completionReadiness` overrides the server decision in tests only. In the app the page offers the effect only on the
+ * server's owner- and request-bound readiness decision (`completion_readiness`, J1.f/J7.d step 6), held per
+ * {owner, request} until its short deadline. The generic status reason, the legacy flag and a secured capability never
+ * grant it, and the executor re-checks everything independently.
+ */
+export default function AccountDeletionPage({ completionReadiness }:
   { completionReadiness?: CompletionReadiness } = {}) {
   const { user, loading, signOut } = useAuthProvider();
   const token = accountDeletionToken();
@@ -76,8 +81,17 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
   const [completionView, setCompletionView] = useState<
     { ownerId: string; requestId: string; value: AccountCompletionStatus } | null>(null);
   const retainedOwner = useRef<string | null>(null);
-  const readinessRef = useRef(completionReadiness);
-  readinessRef.current = completionReadiness;
+  const [serverReady, setServerReady] = useState<{ ownerId: string; requestId: string; expiresAt: number } | null>(null);
+  const serverReadyRef = useRef(serverReady);
+  serverReadyRef.current = serverReady;
+  const readinessFlight = useRef(false);
+  const serverReadiness = useCallback<CompletionReadiness>((ownerId, requestId) => {
+    const held = serverReadyRef.current;
+    return !!held && held.ownerId === ownerId && held.requestId === requestId && Date.now() < held.expiresAt;
+  }, []);
+  const readinessRef = useRef<CompletionReadiness>(completionReadiness ?? serverReadiness);
+  readinessRef.current = completionReadiness ?? serverReadiness;
+  const clearServerReady = useCallback(() => { serverReadyRef.current = null; setServerReady(null); }, []);
   const ownerAndRequest = useRef<{ ownerId: string | null; requestId: string | null; loading: boolean }>(
     { ownerId: null, requestId: null, loading: true });
   ownerAndRequest.current = { ownerId: user?.id ?? null,
@@ -105,21 +119,23 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
   useLayoutEffect(() => {
     if (!user?.id) return; // Signed out (possibly because the account was deleted): keep the retained capability.
     if (retainedOwner.current !== null && retainedOwner.current !== user.id) {
+      clearServerReady();
       completionCapabilities.clear();
       completionGeneration.current += 1;
       setRetained(null);
       setCompletionView(null);
     }
     retainedOwner.current = user.id;
-  }, [user?.id]);
+  }, [user?.id, clearServerReady]);
 
   const readCompletion = useCallback(async (ownerId: string, requestId: string, generation: number) => {
     if (!completionTransport) return;
     const value = await readCompletionStatus(completionTransport, ownerId, requestId, Date.now);
     if (completionGeneration.current !== generation) return;
     // unavailable (incl. default-off/timeout) keeps today's pending display: never a completion inference.
+    if (value.outcome !== 'pending' || value.reason !== 'ready') clearServerReady();
     setCompletionView(value.outcome === 'unavailable' ? null : { ownerId, requestId, value });
-  }, [completionTransport]);
+  }, [completionTransport, clearServerReady]);
 
   const loadCompletion = useCallback(async (ownerId: string, requestId: string, ownerJwt: string) => {
     const generation = ++completionGeneration.current;
@@ -138,10 +154,11 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
   }, [completionTransport, readCompletion]);
 
   const dropCompletion = useCallback(() => {
+    clearServerReady();
     completionGeneration.current += 1;
     setRetained(null);
     setCompletionView(null);
-  }, []);
+  }, [clearServerReady]);
 
   /** Capability-only re-read for the retained request; never issues or acknowledges (no owner JWT is used). */
   // The signed-out recovery display follows the capability deadline by itself: one timer at `expiresAt` re-renders,
@@ -241,7 +258,10 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
       if (operationEpoch.current === epoch && ownerAndRequest.current.ownerId === ownerId) {
         setExecutionAttempt({ ownerId, requestId, phase: 'unknown' });
       }
-    } finally { clearTimeout(authDeadline); executionFlight.current = false; }
+    } finally {
+      clearTimeout(authDeadline); executionFlight.current = false;
+      clearServerReady(); // a readiness decision is single-use: any further effect needs a fresh one
+    }
   };
 
   const refreshStatus = useCallback(async () => {
@@ -389,6 +409,46 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
   const canComplete = !!user && !!retained && retained.ownerId === user.id && signedInMatch && recoverable
     && readiness(user.id, retained.requestId) && !submitted && !matchingExecution
     && (!shownCompletion || shownCompletion.outcome === 'pending');
+  // J1.f/J7.d step 6: while the held status for this owner's request reads pending/ready, ask the server for its
+  // owner- and request-bound readiness decision. The status reason only TRIGGERS the request; the server decision alone
+  // grants it. One flight at a time; every await is fenced by completion generation and owner. Re-asked at expiry.
+  const readinessWanted = !!user && !!retained && retained.ownerId === user.id && signedInMatch && recoverable
+    && !submitted && !matchingExecution && shownCompletion?.outcome === 'pending' && shownCompletion.reason === 'ready';
+  const [readyTick, setReadyTick] = useState(0);
+  useEffect(() => {
+    // An injected readiness (tests) owns the decision outright: never ask the server alongside it.
+    if (completionReadiness || !readinessWanted || !user || !retained || !completionTransport) return undefined;
+    const held = serverReadyRef.current;
+    if (held && held.ownerId === user.id && held.requestId === retained.requestId && Date.now() < held.expiresAt) {
+      const timer = setTimeout(() => setReadyTick(n => n + 1), Math.max(0, held.expiresAt - Date.now()));
+      return () => clearTimeout(timer);
+    }
+    if (readinessFlight.current) return undefined;
+    readinessFlight.current = true;
+    const ownerId = user.id, requestId = retained.requestId, generation = completionGeneration.current;
+    const current = () => completionGeneration.current === generation && ownerAndRequest.current.ownerId === ownerId;
+    void (async () => {
+      let stale = false;
+      try {
+        const auth = await getSupabaseClient()?.auth.getSession();
+        const session = auth && !auth.error ? auth.data.session : null;
+        if (!current()) { stale = true; return; }
+        if (!session || session.user.id !== ownerId || !session.access_token) return;
+        const deadline = await requestExecutionReadiness(completionTransport, ownerId, requestId, session.access_token, Date.now);
+        if (!current()) { stale = true; return; }
+        if (deadline === null) return;
+        const next = { ownerId, requestId, expiresAt: deadline };
+        serverReadyRef.current = next;
+        setServerReady(next);
+      } catch { /* no decision: the effect stays unavailable */ } finally {
+        readinessFlight.current = false;
+        // A flight made stale by a refresh or owner change dropped its answer: run the effect again so the CURRENT
+        // generation gets its own decision. A genuine unavailable answer does not re-run (no polling loop).
+        if (stale) setReadyTick(n => n + 1);
+      }
+    })();
+    return undefined;
+  }, [completionReadiness, readinessWanted, user, retained, completionTransport, serverReady, readyTick]);
 
   return <main className="mx-auto max-w-2xl px-4 pb-24 pt-28" data-testid="account-deletion-page">
     <h1 className="text-3xl font-bold">Delete account</h1>

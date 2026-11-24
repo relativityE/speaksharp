@@ -24,12 +24,16 @@ const AHT1811_HELPERS=[
   ['tests/live/helpers/feedbackNoSessionCleanup.ts','tests/unit/feedbackNoSessionCleanup.test.ts',["noSessionWriteUncertainty"]],
   ['tests/live/helpers/feedbackRecoveryInventory.ts','tests/unit/feedbackBoundedWrites.test.ts',["verifyRecoveryStore","recoveryFileName","recordDurably","settleRecoveryInventory","readRecoveryInventory","unresolvedAttempts","recoverFromInventory"]],
   ['tests/live/helpers/feedbackReportCleanup.ts','tests/unit/feedbackBoundedWrites.test.ts',["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"]],
-  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
-    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"]],
-  // AHT-14 (#1868): the attempt's network transfer behind the offline gate.
+  ['tests/live/helpers/rwtAdverseRecovery.ts','tests/unit/rwtAdverseRecovery.test.ts',["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","betweenFilesFailureVerdict",
+    "bytesCounted","betweenFilesGate","attemptPhase","runBetweenFilesFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict",
+    "shownFailureVerdict","shownFailureSettled","pollShownFailure","worstVerdict"]],
+  // AHT-14 (#1868; J7.c option B): the attempt's model files and the held next file behind the offline gate.
   ['tests/live/helpers/rwtAdverse.ts','tests/unit/rwtAdverseRecovery.test.ts',["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
-    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
-    "ModelTransferTracker#snapshot"]],
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed","ModelTransferTracker#stateOf",
+    "ModelTransferTracker#snapshot","BetweenFilesHold#startAttempt","BetweenFilesHold#onRoute","BetweenFilesHold#held","BetweenFilesHold#release",
+    "BetweenFilesHold#releaseAll"]],
+  // J7.c option B (#1941): the isolated build refuses while a repo-root dotenv file exists.
+  ['tests/e2e/helpers/isolatedBuildDotenv.ts','tests/unit/j7cIsolatedBuildDotenv.test.ts',["rootDotenvFiles","assertNoRootDotenv"]],
   ['tests/live/helpers/rwtFocusEditCancel.ts','tests/unit/rwtFocusEditCancel.test.ts',["editCancelVerdict"]],
   // #1882: the Focus switch take on the live clock and the rail settled on actual rows.
   ['tests/live/helpers/rwtLiveTimedTake.ts','tests/unit/rwtFocusSwitchLiveClock1882.test.ts',["readRailRowCount","railSettled"]],
@@ -67,6 +71,21 @@ test('AHT-02 through AHT-15 helpers select exact offline callable consumers on h
     'source-reviewed journey must not acquire live execution credit');
   assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/rwtAdverseJourney.ts'),false,
     'source-reviewed journey must not acquire live execution credit');
+});
+test('J1.b coaching collector routes to its real unit consumer, never UNCOVERED',()=>{
+  // Run 45253840361 attempt 2: full-evidence reported this helper UNCOVERED because it had no registered consumer.
+  const helperFile='tests/live/helpers/rwtCoachingCollector.ts',testFile='tests/unit/rwtCoachingRetentionEvidence1593.test.ts';
+  const callables=['createCoachingTakeCapture','witnessShownTake'];
+  assert.deepEqual(HELPER_CONTRACTS.find(item=>item.helperFile===helperFile),{helperFile,testFile,callables});
+  const route=executionRoute(helperFile,root);
+  assert.equal(route.runner,'vitest-helper');
+  assert.equal(route.applicable,true);
+  const selected=selectExecutionContracts(root,[helperFile],{helpersOnly:true});
+  assert.equal(selected.length,1);
+  assert.equal(selected[0].testFile,testFile);
+  assert.deepEqual(selected[0].callables,callables);
+  const consumer=fs.readFileSync(path.join(root,testFile),'utf8');
+  for(const name of callables)assert.match(consumer,new RegExp(`\\b${name}\\(`),`${testFile} must call ${name}`);
 });
 test('AHT helper qualification refuses missing consumer and missing callable for every added edge',()=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'aht-helper-routes-'));

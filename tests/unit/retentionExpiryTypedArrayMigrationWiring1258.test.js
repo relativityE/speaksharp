@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -15,6 +14,7 @@ import {
     prepareExactMigrationWorkspace,
     resolveExactMigrationConfig,
 } from '../../scripts/lib/exactMigrationGate.mjs';
+import { assertMigrationBytePin, assertStagedMigrationOrder, assertTargetOnlyDryRunCases } from '../helpers/exactMigrationWiringCases.ts';
 
 /**
  * #1258 P0 follow-up — 20261013120000's Production apply (run 38428832342) deployed the reviewed definitions but failed
@@ -37,7 +37,7 @@ const REJECTION_RECOVERY = '20261017200000'; // later checkout-rejection recover
 const T2_TARGETS = ['20261018090000', '20261018170000', '20261019010000', '20261019055102', '20261019202856', '20261020230653'];
 // C1 follows the T2 queue; these later targets must remain pending and isolated.
 // C1 and its exact local-retirement successor must remain pending for this earlier target.
-const C1_TARGETS = ['20261024083000', '20261025021046', '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000'];
+const C1_TARGETS = ['20261024083000', '20261025021046', '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000', '20261027192550'];
 const GATE = `postflight_${VERSION}`;
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
@@ -61,15 +61,13 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
     });
 
     it('is allowlisted as staged, directly after 20261013120000, before the held commercial-activation entry', () => {
-        expect(entry).toMatchObject({ file: FILE, classification: 'staged' });
-        const order = EXACT_MIGRATION_ALLOWLIST.map((e) => e.version);
-        expect(order.indexOf(VERSION)).toBe(order.indexOf(PREVIOUS) + 1);
-        expect(EXACT_MIGRATION_ALLOWLIST.indexOf(entry)).toBeLessThan(EXACT_MIGRATION_ALLOWLIST.indexOf(ACTIVATION));
+        expect.assertions(3);
+        assertStagedMigrationOrder(FILE, VERSION, PREVIOUS, ACTIVATION, EXACT_MIGRATION_ALLOWLIST);
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
-        const bytes = readFileSync(resolve(SUPABASE, 'migrations', FILE));
-        expect(entry.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+        expect.assertions(1);
+        assertMigrationBytePin(resolve(SUPABASE, 'migrations', FILE), entry.sha256);
     });
 
     it('is selectable as a dispatch target, and the phrase binds its filename, hash and the exact main SHA', () => {
@@ -80,8 +78,8 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
-        expect(assertExactDryRun(`Would push these migrations:\n • ${FILE}\nFinished supabase db push.`, config).files).toEqual([FILE]);
-        expect(() => assertExactDryRun(`Would push these migrations:\n • ${FILE}\n • ${ACTIVATION.file}\n`, config)).toThrow(/target-only/);
+        expect.assertions(2);
+        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, output => assertExactDryRun(output, config));
     });
 
     // The real Production ledger fixture (2026-09-23), advanced so every earlier queue entry is applied, with 20261013120000

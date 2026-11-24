@@ -56,6 +56,21 @@ export function accountStatusCapability(value: unknown, heldRequestId: string, n
   return { requestId: heldRequestId, token: row.token, expiresAt: row.expiresAt };
 }
 
+/** J1.f/J7.d step 6: the longest a readiness decision may be trusted on this device, whatever the reply says. */
+export const READINESS_TTL_MS = 60_000;
+/**
+ * The server's owner- and request-bound readiness decision for the held request: exactly
+ * `{outcome:'execution_ready', requestId, expiresAt}` with a future integer deadline. Returns the deadline this device
+ * may trust (never more than READINESS_TTL_MS ahead), or null. Distinct from the status reason, which never grants it.
+ */
+export function accountExecutionReadiness(value: unknown, heldRequestId: string, now: number): number | null {
+  const row = record(value);
+  if (!row || row.outcome !== 'execution_ready' || !closed(row, ['outcome', 'requestId', 'expiresAt'])) return null;
+  if (!UUID.test(heldRequestId) || row.requestId !== heldRequestId) return null;
+  if (typeof row.expiresAt !== 'number' || !Number.isSafeInteger(row.expiresAt) || !(row.expiresAt > now)) return null;
+  return Math.min(row.expiresAt, now + READINESS_TTL_MS);
+}
+
 /** True only for the held request's acknowledgment. Acknowledgment is not an effect grant. */
 export function accountStatusAcknowledgment(value: unknown, heldRequestId: string): boolean {
   const row = record(value);

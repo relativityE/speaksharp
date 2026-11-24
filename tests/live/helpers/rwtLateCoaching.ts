@@ -31,6 +31,18 @@
  * clock. Bounded here: waitMs + FINAL_READ_MS + 3 × PROBE_MS + POST_REOPEN_READ_MS. NOT bounded here: `openSavedReview()`
  * (awaited directly; its own Playwright timeouts apply), so the complete reopen/finalizer/cleanup-reserve bound remains an
  * explicit integration requirement. Cancelling a timer does not cancel the underlying GET; its late result is ignored.
+ *
+ * IN-WINDOW MODE (Sam, 22 Nov, J1.b run 45014809858 `target-expired`): the next take now saves, and newest-one retention then
+ * expires A's text, so the ordinary reopen must happen BEFORE that save. With `closesAt` (the next take's Stop deadline) the
+ * row runs inside the next take's existing recording window and never delays its Stop: polling ends at `closesAt`; no pair by
+ * then is HOLD `not-saved-in-window` (no final read, never FAIL: the window, not the product, ran out); the reopen is bounded by
+ * the time left and receives the window's absolute close (`openSavedReview(cutoffAt)`; Sam on 4b7c4d44: a relative budget started
+ * only after the page existed, so a slow page creation could navigate past the close, see `reopenWithinCutoff`); a reopen that
+ * cannot finish in the window is HOLD `reopen-outside-window`;
+ * the reported-only newer-completed probes are not taken before the reopen, so they cannot spend the window. The post-reopen
+ * re-read still binds the verdict to A while retained, and it too gets only the time left (Sam on cf07d0d9): none left, or not
+ * settled by the close, is HOLD `reread-outside-window`; the after-reopen probe is capped the same way (none left = null). The ORDER (A's answer vs the next take's recording) stays recorded only:
+ * `deferredLateCoachingSink` holds the row until the caller knows it, so the after-successor case is never judged here.
  */
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
@@ -67,8 +79,9 @@ export interface LateCoachingDeps {
     readSaved: () => Promise<SavedRead>;
     /** Reported only: completed rows of this owner with a transcript, ranked above A by (created_at, id); null = unread. */
     newerCompleted?: (anchor: { createdAt: string; id: string }) => Promise<number | null>;
-    /** Reopen that take's saved review (Analytics detail) in a separate page. */
-    openSavedReview: () => Promise<ReopenedReview>;
+    /** Reopen that take's saved review (Analytics detail) in a separate page. In-window mode passes the window's ABSOLUTE close
+     *  (`cutoffAt`, epoch ms on the same clock); the page must not navigate at or after it (see `reopenWithinCutoff`). */
+    openSavedReview: (cutoffAt?: number) => Promise<ReopenedReview>;
     same: (a: string, b: string) => boolean;
     /** The signed-in account the row must belong to (identity-contradiction otherwise). */
     expectedUid: string;
@@ -150,8 +163,12 @@ export async function lateCoachingSavedRow(
     sink: LateCoachingSink,
     sessionId: string | null,
     deps: LateCoachingDeps,
-    o: { waitMs?: number; pollMs?: number; order?: AnswerOrder } = {},
+    o: { waitMs?: number; pollMs?: number; order?: AnswerOrder; closesAt?: number;
+        /** J1.b: called only on PASS, with the pair the take's own reopened saved review showed (identity, transcript, pair and
+         *  re-read all proven). Awaited after the row is written; a throw is swallowed and changes no verdict. */
+        onShown?: (pair: { what_worked: string; what_to_try_next: string }) => Promise<void> } = {},
 ): Promise<void> {
+    const inWindow = typeof o.closesAt === 'number' && Number.isFinite(o.closesAt);
     const order = o.order ?? 'unknown';
     const inner = sink;
     sink = { forbid: (...v) => inner.forbid(...v), row: (step, verdict, detail, evidence) => inner.row(step, verdict, detail, { ...evidence, answerOrder: order }) };
@@ -185,10 +202,14 @@ export async function lateCoachingSavedRow(
     };
     const readOnce = (ms: number) => bounded(() => deps.readSaved().catch((): SavedRead => ({ ok: false })), ms);
     const startedAt = now();
-    const deadline = startedAt + waitMs;
+    const deadline = inWindow ? Math.min(startedAt + waitMs, o.closesAt as number) : startedAt + waitMs;
+    /** In-window mode: the time left before the next take's Stop (Sam on cf07d0d9: no read gets a fresh budget past it). */
+    const windowLeft = () => (inWindow ? (o.closesAt as number) - now() : Infinity);
     const probe = async (anchor: { createdAt: string; id: string }): Promise<number | null | undefined> => {
         if (!deps.newerCompleted) return undefined;
-        const r = await bounded(() => deps.newerCompleted!(anchor).catch(() => null), PROBE_MS);
+        const ms = Math.min(PROBE_MS, windowLeft());
+        if (ms <= 0) return null;
+        const r = await bounded(() => deps.newerCompleted!(anchor).catch(() => null), ms);
         return r.done && Number.isInteger(r.value) && (r.value as number) >= 0 ? r.value : null;
     };
     const newer: Record<string, number | null> = {};
@@ -214,12 +235,16 @@ export async function lateCoachingSavedRow(
             const c = observe(r.value);
             if (c === true) return;
             if (c.kind === 'available') {
-                if (!anchor) { anchor = { createdAt: c.createdAt, id: c.id }; record('newerCompletedFirst', await probe(anchor)); }
+                if (!anchor) { anchor = { createdAt: c.createdAt, id: c.id }; if (!inWindow) record('newerCompletedFirst', await probe(anchor)); }
                 if (c.coaching.state === 'pair') { saved = { well: c.coaching.well, next: c.coaching.next, transcriptDigest: c.transcriptDigest }; break; }
             }
         }
         const left = deadline - now();
         if (left > 0) await sleep(Math.min(pollMs, left));
+    }
+    if (!saved && inWindow) {
+        hold('not-saved-in-window', 'the interrupted take\'s saved coaching was not observed before the next take\'s Stop; the next take was not delayed');
+        return;
     }
     if (!saved) {
         // The ONE fresh, bounded observation at the bound decides; nothing older can.
@@ -234,13 +259,26 @@ export async function lateCoachingSavedRow(
         fail('not-saved', `no coaching was saved to the interrupted take within ${Math.round(waitMs / 1000)} s while its transcript was still retained`);
         return;
     }
-    if (anchor) record('newerCompletedFinal', await probe(anchor));
+    if (anchor && !inWindow) record('newerCompletedFinal', await probe(anchor));
     sink.forbid(saved.well, saved.next);
     { const inner2 = sink; sink = { forbid: (...v) => inner2.forbid(...v), row: (st, vd, dt, ev) => inner2.row(st, vd, dt, { ...ev, ...newer }) }; }
     let reopened: ReopenedReview;
+    const outsideWindow = () => sink.row(LATE_COACHING_ROW, 'HOLD',
+        'the interrupted take\'s saved review could not be reopened before the next take\'s Stop; the next take was not delayed', { reason: 'reopen-outside-window' });
     try {
-        reopened = await deps.openSavedReview();
+        if (inWindow) {
+            const left = (o.closesAt as number) - now();
+            if (left <= 0) { outsideWindow(); return; }
+            const r = await bounded(() => deps.openSavedReview(o.closesAt as number), left);
+            if (!r.done) { outsideWindow(); return; }
+            reopened = r.value;
+        } else {
+            reopened = await deps.openSavedReview();
+        }
     } catch {
+        // A reopen that failed once the window had closed (e.g. its page opened too late and was refused) is the window, not
+        // the review: HOLD reopen-outside-window.
+        if (inWindow && now() >= (o.closesAt as number)) { outsideWindow(); return; }
         sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take\'s saved review could not be opened', { reason: 'review-unopened' });
         return;
     }
@@ -280,7 +318,16 @@ export async function lateCoachingSavedRow(
     const equal = deps.same(reopened.pair.what_worked, saved.well) && deps.same(reopened.pair.what_to_try_next, saved.next);
     if (equal) {
         // Post-reopen binding: one more atomic read of A — the same take, still retained, the same saved pair.
-        const again = await readOnce(POST_REOPEN_READ_MS);
+        const rereadMs = Math.min(POST_REOPEN_READ_MS, windowLeft());
+        if (rereadMs <= 0) {
+            sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take could not be re-read before the next take\'s Stop; the next take was not delayed', { reason: 'reread-outside-window' });
+            return;
+        }
+        const again = await readOnce(rereadMs);
+        if (inWindow && !again.done) {
+            sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take could not be re-read before the next take\'s Stop; the next take was not delayed', { reason: 'reread-outside-window' });
+            return;
+        }
         if (!again.done || !again.value.ok) { sink.row(LATE_COACHING_ROW, 'HOLD', 'the interrupted take could not be re-read after the reopen', { reason: 'owner-read-failed-after-reopen' }); return; }
         const c = classifyTarget(again.value.row, { sessionId, uid: deps.expectedUid });
         if (anchor) record('newerCompletedAfterReopen', await probe(anchor));
@@ -295,6 +342,64 @@ export async function lateCoachingSavedRow(
         equal ? 'the interrupted take\'s coaching is saved to its own session and its reopened saved review (its own route and session) shows exactly that pair'
             : 'the interrupted take\'s saved review shows coaching that differs from its saved pair',
         { reason: equal ? 'saved-and-shown' : 'shown-differs' });
+    if (equal && o.onShown) await o.onShown({ what_worked: reopened.pair.what_worked, what_to_try_next: reopened.pair.what_to_try_next }).catch(() => undefined);
+}
+
+/**
+ * The saved-review page, bounded by an ABSOLUTE cutoff (Sam on 4b7c4d44). The cutoff is checked right after `newPage()` resolves:
+ * at or past it, the page is closed WITHOUT navigating and the call rejects (the outer witness has already HOLDed). Otherwise
+ * `read` runs with the page closed at the time LEFT, so no wait outlives the window. The page is always closed afterwards. With
+ * no cutoff (ordinary mode) it simply reads and closes.
+ */
+export async function reopenWithinCutoff<P extends { close(): Promise<void> }>(o: {
+    newPage: () => Promise<P>;
+    read: (page: P) => Promise<ReopenedReview>;
+    cutoffAt?: number;
+    now?: () => number;
+    /** Schedules the page close; returns its cancel. Injectable for tests. */
+    setTimer?: (ms: number, fire: () => void) => () => void;
+}): Promise<ReopenedReview> {
+    const now = o.now ?? Date.now;
+    const setTimer = o.setTimer ?? ((ms: number, fire: () => void) => { const h = setTimeout(fire, ms); return () => clearTimeout(h); });
+    const page = await o.newPage();
+    let cancel: (() => void) | undefined;
+    try {
+        if (typeof o.cutoffAt === 'number') {
+            const left = o.cutoffAt - now();
+            if (!(left > 0)) throw new Error('the saved-review page opened after the window closed; it was not navigated');
+            cancel = setTimer(left, () => { void page.close().catch(() => undefined); });
+        }
+        return await o.read(page);
+    } finally {
+        cancel?.();
+        await page.close().catch(() => undefined);
+    }
+}
+
+type RowEvidence = Record<string, string | number | boolean | null>;
+/**
+ * In-window mode's sink: redaction (`forbid`) passes through at once; the row is held until `flush(order)`, which writes it with
+ * the RECORDED answer order (known only after the window). A window that never ran (no hold, no session, the task threw) flushes
+ * one HOLD `window-not-observed`; a second row is never written.
+ */
+export function deferredLateCoachingSink(inner: LateCoachingSink): { sink: LateCoachingSink; flush: (order: AnswerOrder) => void } {
+    let held: { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: RowEvidence } | null = null;
+    let flushed = false;
+    return {
+        sink: {
+            forbid: (...v) => inner.forbid(...v),
+            row: (step, verdict, detail, evidence) => {
+                if (step !== LATE_COACHING_ROW || held || flushed) throw new Error('deferredLateCoachingSink: one row only');
+                held = { verdict, detail, evidence: { ...(evidence ?? {}) } };
+            },
+        },
+        flush: (order) => {
+            if (flushed) return;
+            flushed = true;
+            const h = held ?? { verdict: 'HOLD' as const, detail: 'the interrupted take was not checked inside the next take\'s recording window', evidence: { reason: 'window-not-observed' } };
+            inner.row(LATE_COACHING_ROW, h.verdict, h.detail, { ...h.evidence, answerOrder: order });
+        },
+    };
 }
 
 /** The access token in the page's Supabase auth storage, or null. Never logged or returned to a receipt. */

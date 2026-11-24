@@ -27,9 +27,9 @@ const offPin = (jobs: Record<string, Job>, select: (job: Job) => boolean) =>
     Object.entries(jobs).filter(([name, job]) => select(job) && job['runs-on'] !== (EXCEPTIONS[name] ?? 'ubuntu-24.04')).map(([name]) => name);
 
 describe('Playwright-dependent jobs run on a runner image the pinned Playwright supports', () => {
-    it('rc-gates: the three Playwright-installing gates are exactly the pinned ones', () => {
+    it('rc-gates: the Playwright-installing jobs (three gates and the J8 runner) are exactly the pinned ones', () => {
         const { jobs } = load('.github/workflows/rc-gates.yml');
-        expect(Object.keys(jobs).filter((name) => installsPlaywright(jobs[name])).sort()).toEqual(['gate-1-product', 'gate-3-dast', 'gate-5-ux']);
+        expect(Object.keys(jobs).filter((name) => installsPlaywright(jobs[name])).sort()).toEqual(['gate-1-product', 'gate-3-dast', 'gate-5-ux', 'j8-runner']);
         expect(offPin(jobs, installsPlaywright)).toEqual([]);
     });
 

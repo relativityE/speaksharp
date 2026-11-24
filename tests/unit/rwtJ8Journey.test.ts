@@ -3,16 +3,19 @@
  * J8 (nine-journey design; Sam's disposition 2026-11-15): one run-owned account, three feedback legs, one fence, one receipt
  * with three leg-scoped readback results. The pure rules behind it, with their failing controls.
  */
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    J8_ADMISSION_ENV, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8RunnerAdmission, legReadback,
+    J8_ADMISSION_ENV, J8_LEGACY_REFUSAL, j8AdmissionPresent, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8ParentPreflight, j8RunnerAdmission, J8_CONSENT_MODE, j8BackendApiKey, j8OwnerChoiceClient, j8OwnerToken, legReadback,
     legReceipt, legSink, mergeLegReadback, readTakeDigests, takeDigest, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
-    type J8Leg,
+    j8bFinalSentFeedbackVerdict, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
 } from '../live/helpers/rwtJ8Journey';
 import type { ReadbackActionBinding } from '../live/helpers/rwtAcceptance';
+import { RwtReceipt, receiptContentLeaks, telemetryClassRows } from '../live/helpers/rwtJourney';
 import type { ReadbackPlan } from '../live/helpers/rwtOracles';
 
 const RELEASE = 'a'.repeat(40);
@@ -170,6 +173,49 @@ describe('j8RunnerAdmission: no runner, no signup (Sam on 94fe88d7)', () => {
         expect(skip).toBeGreaterThan(gate);
         expect(ret).toBeGreaterThan(skip);
         expect(body).toContain('await prepareDisposable(page, receipt, owner, admission.lookupRef)');
+        // The receipt names the runner's own attempt, so the nightly entry maps only this run's receipt.
+        expect(body).toContain('receipt.meta.runnerAttempt = admission.attemptId;');
+        expect(body.indexOf('receipt.meta.runnerAttempt = admission.attemptId;')).toBeLessThan(body.indexOf('prepareDisposable('));
+    });
+});
+
+describe('only the J8 journey signs up under a J8 admission (Sam on 27ee1856)', () => {
+    const spec = () => readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../live/rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+    it('any value of the admission variable counts as present; only its absence does not', () => {
+        expect(j8AdmissionPresent({})).toBe(false);
+        expect(j8AdmissionPresent({ [J8_ADMISSION_ENV]: '/adm.json' })).toBe(true);
+        expect(j8AdmissionPresent({ [J8_ADMISSION_ENV]: '' })).toBe(true);
+    });
+    it('both legacy tests skip FIRST under an admission, before any page action or signup', () => {
+        const src = spec();
+        const titles = ["test('feedback selected for an older take links only to that take'", "test('No session feedback stores no take or coaching link'"];
+        for (const title of titles) {
+            const start = src.indexOf(title);
+            expect(start).toBeGreaterThan(-1);
+            const next = src.indexOf("\n    test('", start + 1);
+            const body = src.slice(start, next === -1 ? undefined : next);
+            const skip = body.indexOf('test.skip(j8AdmissionPresent(process.env), J8_LEGACY_REFUSAL);');
+            const ret = body.indexOf('if (j8AdmissionPresent(process.env)) return;');
+            expect(skip).toBeGreaterThan(-1);
+            expect(ret).toBeGreaterThan(skip);
+            expect(body.indexOf('prepareDisposable(')).toBeGreaterThan(ret);
+            // Every page action the test takes comes after the refusal (a token the test never uses is not required).
+            for (const later of ['tap.attach(page)', 'armWatchdog(', 'page.goto(', 'page.route(']) {
+                const at = body.indexOf(later);
+                expect({ later, after: at === -1 || at > ret }).toEqual({ later, after: true });
+            }
+        }
+        // The J8 journey and the two legacy tests are the file's only tests.
+        expect(src.match(/\n {4}test\('/g)?.length).toBe(3);
+    });
+    it('prepareDisposable refuses before any page action or signup when called without the runner email under an admission', () => {
+        const src = spec();
+        const body = src.slice(src.indexOf('async function prepareDisposable('), src.indexOf('async function prepareDisposable(') + 2000);
+        const guard = body.indexOf('if (runnerEmail === undefined && j8AdmissionPresent(process.env)) {');
+        expect(guard).toBeGreaterThan(-1);
+        expect(body.indexOf('return false;', guard)).toBeLessThan(body.indexOf('page.goto('));
+        for (const later of ['installMicAcquisitionCounter(page)', "page.goto('/auth/signup')", 'signUpDisposableAccount(']) expect(body.indexOf(later)).toBeGreaterThan(guard);
+        expect(J8_LEGACY_REFUSAL).toMatch(/only the J8 journey may sign up/);
     });
 });
 
@@ -342,5 +388,324 @@ describe('writerDrainedVerdict', () => {
         expect(reader).toContain('readTakeDigests(');
         expect(reader).not.toContain('new Map()');
         expect(flat).toContain('const before = linkedToOlder ? await readTakes() : null;');
+    });
+});
+
+describe('legStartPressVerdict: each leg\'s OWN Start presses (J8.a zero, J8.b its two takes)', () => {
+    const counts = (o: Partial<Record<string, number>> = {}): StartPressCounts => startPressSnapshot({ 'mic-start': 0, 'mic-download': 0,
+        'mic-retry': 0, 'verdict-practice-again': 0, 'focus-points-retry': 0, ...o } as StartPressCounts);
+    const AHT07 = { total: 2, perControl: { 'mic-start': 1, 'mic-download': 1, 'verdict-practice-again': 1 } };
+    it('a snapshot is a frozen copy: the tap counting on never changes it', () => {
+        const live = { 'mic-start': 0, 'mic-download': 0, 'mic-retry': 0, 'verdict-practice-again': 0, 'focus-points-retry': 0 };
+        const snap = startPressSnapshot(live);
+        live['mic-start'] = 5;
+        expect(snap['mic-start']).toBe(0);
+        expect(Object.isFrozen(snap)).toBe(true);
+    });
+    it('J8.a (none): PASS only for zero presses in its interval; one press of ANY control FAILs', () => {
+        expect(legStartPressVerdict(counts(), counts(), 'none').status).toBe('PASS');
+        for (const c of ['mic-start', 'mic-download', 'mic-retry', 'verdict-practice-again', 'focus-points-retry']) {
+            expect({ c, s: legStartPressVerdict(counts(), counts({ [c]: 1 }), 'none').status }).toEqual({ c, s: 'FAIL' });
+        }
+        // Presses before the interval do not count against the leg (only the delta does).
+        expect(legStartPressVerdict(counts({ 'mic-start': 3 }), counts({ 'mic-start': 3 }), 'none').status).toBe('PASS');
+    });
+    it('J8.b (budget): its two designed takes PASS; zero, three, or a control over its cap FAIL', () => {
+        const from = counts();
+        expect(legStartPressVerdict(from, counts({ 'mic-start': 1, 'verdict-practice-again': 1 }), AHT07)).toMatchObject({ status: 'PASS',
+            evidence: { startPresses: 2, cap: 2, overControls: null } });
+        expect(legStartPressVerdict(from, counts({ 'mic-download': 1, 'verdict-practice-again': 1 }), AHT07).status).toBe('PASS');
+        expect(legStartPressVerdict(from, counts(), AHT07).status).toBe('FAIL');
+        expect(legStartPressVerdict(from, counts({ 'mic-start': 1, 'mic-download': 1, 'verdict-practice-again': 1 }), AHT07).detail)
+            .toMatch(/more often than designed/);
+        expect(legStartPressVerdict(from, counts({ 'mic-start': 2 }), AHT07)).toMatchObject({ status: 'FAIL', evidence: { overControls: 'mic-start' } });
+        // An unlisted control allows none: one Start Retry fails even within the total.
+        expect(legStartPressVerdict(from, counts({ 'mic-start': 1, 'mic-retry': 1 }), AHT07)).toMatchObject({ status: 'FAIL', evidence: { overControls: 'mic-retry' } });
+    });
+    it('CONTROL: a press in J8.a is never hidden by J8.b\'s count, because each leg has its own interval', () => {
+        const start = counts();
+        const afterA = counts({ 'mic-start': 1 }); // a stray press in J8.a
+        const afterB = counts({ 'mic-start': 1, 'verdict-practice-again': 1 }); // J8.b then pressed only one
+        expect(legStartPressVerdict(start, afterA, 'none').status).toBe('FAIL');
+        // The journey-wide total is 2 (would pass a total-only check); J8.b's own count is 1, still within its cap, so the
+        // proof that J8.b ran its two takes rests on J8.a's own FAIL above, never on the total.
+        expect(legStartPressVerdict(afterA, afterB, AHT07)).toMatchObject({ evidence: { startPresses: 1 } });
+    });
+    it('a missing snapshot, a negative or an unreadable count is HOLD, never PASS', () => {
+        expect(legStartPressVerdict(null, counts(), 'none').status).toBe('HOLD');
+        expect(legStartPressVerdict(counts(), null, AHT07).status).toBe('HOLD');
+        expect(legStartPressVerdict(counts({ 'mic-start': 2 }), counts({ 'mic-start': 1 }), 'none').status).toBe('HOLD');
+        expect(legStartPressVerdict(counts(), counts({ 'mic-start': Number.NaN }), 'none').status).toBe('HOLD');
+        expect(legStartPressVerdict(counts(), { ...counts(), 'mic-start': undefined } as unknown as StartPressCounts, 'none').status).toBe('HOLD');
+    });
+});
+
+describe('J8.b final older-take sent evidence', () => {
+    const event = (outcome: string, at: number, journeyId: string | undefined = 'final-b') => ({
+        event: 'feedback_submit', at, journeyId, bootId: 'boot-b', releaseSha: RELEASE,
+        trafficType: 'canary', fields: { outcome, submit_seq: 7 },
+    });
+    const own = [event('attempted', 21), event('storage_ok', 23)];
+    it('binds only the final pair and keeps telemetry receipt distinct from sent evidence', () => {
+        const neighboring = { ...event('storage_ok', 22), journeyId: 'fault-leg' };
+        const v = j8bFinalSentFeedbackVerdict([event('attempted', 10), own[0], neighboring, own[1]], ['final-b'], 20, 24, [], RELEASE);
+        expect(v.verdict).toBe('PASS');
+        expect(v.detail).toMatch(/left the page.*readback/);
+        expect(v.evidence).toMatchObject({ attempted: 1, storageOk: 1 });
+    });
+    it('holds on missing or borrowed bindings, blind beacons, missing pair and invalid time', () => {
+        for (const [j, from, to, blind] of [
+            [[], 20, 24, []], [['final-b', 'elsewhere'], 20, 24, []],
+            [['elsewhere'], 20, 24, []], [['final-b'], 20, 22, []],
+            [['final-b'], 20, 24, [22]], [['final-b'], Number.NaN, 24, []],
+        ] as const) expect(j8bFinalSentFeedbackVerdict(own, j, from, to, blind, RELEASE).verdict).toBe('HOLD');
+        expect(j8bFinalSentFeedbackVerdict([...own, { ...event('attempted', 22), journeyId: undefined }],
+            ['final-b'], 20, 24, [], RELEASE).verdict).toBe('HOLD');
+    });
+    it('does not turn duplicate or mismatched final-pair observations into a pass', () => {
+        expect(j8bFinalSentFeedbackVerdict([...own, event('attempted', 24)], ['final-b'], 20, 24, [], RELEASE).verdict).toBe('FAIL');
+        const wrong = { ...own[1], fields: { outcome: 'storage_ok', submit_seq: 8 } };
+        expect(j8bFinalSentFeedbackVerdict([own[0], wrong], ['final-b'], 20, 24, [], RELEASE).verdict).toBe('FAIL');
+    });
+});
+
+describe('the J8 spec writes the three former gaps on their own legs', () => {
+    const spec = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../live/rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+    const body = spec.slice(spec.indexOf("test('J8: one account"), spec.indexOf("test('No session feedback stores no take"));
+    it('J8.a: its own zero-Start row, from the journey start to the end of its submit', () => {
+        expect(body).toContain("startsAtAttach = startPressSnapshot(parity.startPressesByControl);");
+        expect(body.indexOf('startsAtAttach = startPressSnapshot')).toBeLessThan(body.indexOf('prepareDisposable(page'));
+        expect(body).toContain("legStartPressVerdict(startsAtAttach, startsAfterJ8a, 'none')");
+        expect(body).toContain("a.row('no Start press', aStarts.status, aStarts.detail, aStarts.evidence);");
+        expect(body.indexOf('startsAfterJ8a = startPressSnapshot')).toBeGreaterThan(body.indexOf("gate.close('J8.a')"));
+    });
+    it('J8.b: its own Start count from J8.a\'s end to its own end, against AHT-07\'s budget', () => {
+        expect(body).toContain("legStartPressVerdict(startsAfterJ8a, startPressSnapshot(parity.startPressesByControl), AHT07_START_PRESS_BUDGET)");
+        expect(body).toContain("b.row('Start presses within budget', bStarts.status, bStarts.detail, bStarts.evidence);");
+        expect(body.indexOf('const bStarts')).toBeGreaterThan(body.indexOf("gate.close('J8.b')"));
+    });
+    it('J8.b: the final submit observes its fresh acknowledgment, and its window starts before the submit', () => {
+        const final = body.slice(body.indexOf('ledger.beginFinal();'), body.indexOf('ledger.endWindow();', body.indexOf('ledger.beginFinal();')));
+        expect(final).toContain('const finalSubmit: { fromMs: number; submitAt?: number } = { fromMs: Date.now() };');
+        expect(final.indexOf('finalB = finalSubmit;')).toBeLessThan(final.indexOf("submitFeedback(page, tap, owner.uid, 'selected_older_session'"));
+        expect(final).toContain('onSubmitted: ({ submitAt }) => { finalSubmit.submitAt = submitAt; }');
+        expect(final).toContain('onFreshAcknowledgment: (observation) => writeFreshAcknowledgmentRow(b, observation)');
+    });
+    it('J8.b: its readback is bound to the final submit only, and the sent pair is its own row (received is readback)', () => {
+        const finish = spec.slice(spec.indexOf('async function finishJ8Receipt('), spec.indexOf('const finalizer = new JourneyFinalizer();'));
+        expect(finish).toContain("{ fromMs: finalB?.fromMs ?? Number.POSITIVE_INFINITY, toMs: windows[leg]?.toMs ?? Number.NEGATIVE_INFINITY }");
+        expect(finish).toContain("excludeJourneys: leg === 'J8.b' ? faultLegJourneys : []");
+        expect(finish).toContain("legSink(receipt, 'J8.b').row('final feedback pair sent', sent.verdict, sent.detail, sent.evidence);");
+        expect(body).toContain('finishJ8Receipt(receipt, testInfo, tap, claimed, steps, windows, faultLegJourneys, storedProof, finalB);');
+        // No J8.b row may claim RECEIVED from the browser's own sent events.
+        expect(spec).not.toContain("steps.step('J8.b received feedback'");
+    });
+});
+
+describe('J8.b received evidence is the final submit\'s own (Sam: fault attempts excluded, borrowed submits refused)', () => {
+    const STORED = { storedRows: 1, insertKeys: 1 };
+    // A fault attempt's submit on a journey the run did not record as a fault leg, early in J8.b's leg window.
+    const earlier = { event: 'feedback_submit', at: 201, journeyId: 'journey-unlisted-fault', bootId: 'boot-x', releaseSha: RELEASE, trafficType: 'canary' };
+    it('BORROWED: over the whole leg window an earlier submit is the first one, so J8.b binds nothing', () => {
+        const whole = legReadback([...ALL_EVENTS, earlier], { ...B.window, bindings: [B.binding], excludeJourneys: [], stored: STORED }, CTX);
+        expect(whole.missingBindings).toEqual(['share_feedback']);
+    });
+    it('the final submit\'s window (from just before its click) binds only the final submit\'s journey', () => {
+        const final = legReadback([...ALL_EVENTS, earlier], { fromMs: 202, toMs: B.window.toMs, bindings: [B.binding], excludeJourneys: [], stored: STORED }, CTX);
+        expect(final.missingBindings).toEqual([]);
+        expect(final.journeys.map((j) => j.journeyId)).toEqual([B.journeyId]);
+    });
+});
+
+describe('the J8 nightly entry\'s admission is the one the spec accepts, for this run and attempt only', () => {
+    const require = createRequire(import.meta.url);
+    const entry = require('../../tools/cloud-test/nightly/j8-nightly-entry.cjs') as {
+        admitJ8: (o: Record<string, unknown>) => { admissionFile: string; attemptId: string; email: string };
+        finalizerEvaluate: (r: unknown, rb: unknown, o: { workDir: string }) => { errors: string[]; rows: { step: string; verdict: string }[] } | null;
+        j8CaseResult: (r: unknown, rb: unknown, ev: unknown) => { assertions: { leg: string; id: string; result: string }[]; unmapped: { step: string; outcome: string }[] };
+    };
+    const mapping = require('../../tools/cloud-test/nightly/j8-receipt-mapping.cjs') as {
+        J8_RECEIPT_MAP: Record<string, Record<string, { scope: string; step: string }[]>>;
+    };
+    const fresh = () => { const d = mkdtempSync(path.join(tmpdir(), 'j8-adm-')); return d; };
+    it('j8RunnerAdmission admits the entry\'s record, with its reserved email, and refuses another run or attempt', () => {
+        const dir = fresh();
+        const adm = entry.admitJ8({ evidenceDir: dir, runId: RUN_ID, runAttempt: RUN_ATTEMPT, configuredDomain: 'tests.example.com', now: () => 1795300000000 });
+        const env = { [J8_ADMISSION_ENV]: adm.admissionFile, GITHUB_RUN_ID: RUN_ID, GITHUB_RUN_ATTEMPT: RUN_ATTEMPT };
+        const read = (f: string) => readFileSync(f, 'utf8');
+        expect(j8RunnerAdmission(env, read)).toEqual({ admitted: true, lookupRef: adm.email, attemptId: adm.attemptId });
+        expect(j8RunnerAdmission({ ...env, GITHUB_RUN_ATTEMPT: '2' }, read).admitted).toBe(false);
+        expect(j8RunnerAdmission({ ...env, GITHUB_RUN_ID: '43000000001' }, read).admitted).toBe(false);
+    });
+    it('the entry settles a receipt with the reviewed finalizer: a receipt it cannot validate comes back with errors, never rows', () => {
+        const out = entry.finalizerEvaluate({ suite: J8_SUITE, release: RELEASE, rows: [] }, { suite: J8_SUITE, release: RELEASE, journeys: [], missingBindings: [] },
+            { workDir: fresh() });
+        expect(out).not.toBeNull();
+        expect(out!.errors.length).toBeGreaterThan(0);
+    }, 30_000);
+    it('A FULLY PASSING RUN PASSES (Codex on 2e2e3bd2): the real telemetry rows, settled by the reviewed finalizer, map every J8 row PASS', () => {
+        // The telemetry rows exactly as the J8 spec writes them (telemetryClassRows, claimed, qualifying), over a tap that saw one
+        // user-class signup journey and the three canary leg journeys. `signup-stage telemetry received` is HOLD on every run.
+        const legs = { 'J8.a': 'journey-a', 'J8.b': 'journey-final-b', 'J8.c': 'journey-c' } as const;
+        const tap = { undecodable: 0, blindBeacons: 0, events: [{ trafficType: 'user' }, ...Object.values(legs).map(() => ({ trafficType: 'canary' }))],
+            journeyIds: (c: string) => (c === 'canary' ? Object.values(legs) : ['journey-signup']), trafficTypes: () => ['user', 'canary'] };
+        const written = new RwtReceipt(J8_SUITE);
+        telemetryClassRows(written, tap as never, true, true);
+        expect(written.rows.find((r) => r.step === 'signup-stage telemetry received')?.verdict).toBe('HOLD');
+        // Every step the mapping reads PASS, the spec's deferred retention HOLD, and the journey's own content-free and residue rows.
+        const steps = new Set<string>(['receipt content-free', 'zero residue']);
+        for (const [leg, rows] of Object.entries(mapping.J8_RECEIPT_MAP)) for (const sources of Object.values(rows))
+            for (const s of sources) if (s.scope !== 'readback') steps.add(s.scope === 'leg' ? `${leg}: ${s.step}` : s.step);
+        const rows = [...written.rows,
+            ...[...steps].map((step) => (step === 'J8 leg readback bindings' ? { step, verdict: 'PASS', detail: 'bound', evidence: { ...legs } }
+                : { step, verdict: 'PASS', detail: 'observed' })),
+            { step: 'feedback retention', verdict: 'HOLD', detail: 'the parent deletes the account after the spec exits' }];
+        const attempt = 'j8-43000000000-1';
+        const receipt = { suite: J8_SUITE, release: RELEASE, meta: { runnerAttempt: attempt }, rows,
+            readback: { journeys: Object.values(legs).map((journeyId) => ({ journeyId, stages: ['share_feedback'] })), reportedJourneyIds: [], missingBindings: [] } };
+        const readback = { suite: J8_SUITE, release: RELEASE, missingBindings: [], binding: { runId: RUN_ID, runAttempt: RUN_ATTEMPT, createAttempt: attempt },
+            finalSubmit: { journeyId: legs['J8.b'] }, journeys: Object.values(legs).map((journeyId) => ({ journeyId, stages: ['share_feedback'], verdict: 'QUALIFIED',
+                received: { release_sha: RELEASE, journey_id: journeyId, boot_id: `boot-${journeyId}` } })) };
+        const evaluated = entry.finalizerEvaluate(receipt, readback, { workDir: fresh() });
+        expect(evaluated?.errors).toEqual([]);
+        // The finalizer settles the gating received row from the readback and leaves the report-only one HOLD.
+        expect(evaluated!.rows.filter((r) => r.verdict !== 'PASS').map((r) => r.step).sort()).toEqual(['feedback retention', 'signup-stage telemetry received']);
+        const out = entry.j8CaseResult(receipt, readback, evaluated);
+        expect(out.assertions.length).toBeGreaterThan(0);
+        expect(out.assertions.filter((a) => a.result !== 'PASS')).toEqual([]);
+        // CONTROL: the same run with one gating row left HOLD (the received row unsettled by a readback that did not qualify) is not PASS.
+        const unqualified = { ...readback, journeys: readback.journeys.map((j, i) => (i === 0 ? { ...j, verdict: 'HOLD' } : j)) };
+        const held = entry.j8CaseResult(receipt, unqualified, entry.finalizerEvaluate(receipt, unqualified, { workDir: fresh() }));
+        expect(held.assertions.some((a) => a.result === 'HOLD')).toBe(true);
+    }, 60_000);
+});
+
+describe('J8 receipt leak guard: the run-owned account id is registered (upload-payload review, 23 Nov)', () => {
+    const spec = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../live/rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+    it('the spec registers owner.uid with the receipt immediately after it is known, beside the email and the service key', () => {
+        const assigned = spec.indexOf('owner.uid = account.uid;');
+        const forbidden = spec.indexOf('receipt.forbid(owner.uid);');
+        expect(assigned).toBeGreaterThan(-1);
+        expect(forbidden).toBeGreaterThan(assigned);
+        expect(spec.slice(assigned, forbidden).split('\n').filter((l) => !l.trim().startsWith('//')).length).toBeLessThanOrEqual(2);
+        expect(spec).toContain('receipt.forbid(...[owner.email, SERVICE_ROLE].filter(Boolean));');
+    });
+    it('a receipt carrying the registered account id is caught by the content check; one without it is clean', () => {
+        const uid = '7f3c9a1e-1111-4111-8111-222222222222';
+        const leaking = new RwtReceipt(J8_SUITE);
+        leaking.row('evidence carrying the id', 'PASS', 'detail', { userId: uid });
+        expect(receiptContentLeaks(leaking, [uid])).toEqual([uid]);
+        const clean = new RwtReceipt(J8_SUITE);
+        clean.row('evidence without the id', 'PASS', 'detail', { userIdSha256: 'a'.repeat(64) });
+        expect(receiptContentLeaks(clean, [uid])).toEqual([]);
+    });
+});
+
+describe('J8 preflight on the parent-backed path (Codex on 40e1a5a6)', () => {
+    const OTHER = ['ORIGIN GATE: x', 'SHA GATE: y', 'AUTHORIZATION GATE: z'];
+    const SHARED_CAPABILITY = 'CAPABILITY GATE: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are required for server rows and UID-scoped cleanup';
+    const OPS = { RWT_J8_OPS_URL: 'http://127.0.0.1:41234/op', RWT_J8_OPS_TOKEN: 'a'.repeat(64) };
+    it('with the parent operations and no key, the shared key requirement does not stop J8; every other gate is kept', () => {
+        expect(j8ParentPreflight([SHARED_CAPABILITY], OPS)).toEqual([]);
+        expect(j8ParentPreflight([...OTHER, SHARED_CAPABILITY], OPS)).toEqual(OTHER);
+    });
+    it('the key in the browser process, or no parent operations, is still a capability failure', () => {
+        expect(j8ParentPreflight([], { ...OPS, SUPABASE_SERVICE_ROLE_KEY: 'k' })).toEqual(['CAPABILITY GATE: the J8 browser process must not hold the production key; the parent runs its operations']);
+        for (const env of [{}, { RWT_J8_OPS_URL: OPS.RWT_J8_OPS_URL }, { RWT_J8_OPS_TOKEN: OPS.RWT_J8_OPS_TOKEN }]) {
+            expect(j8ParentPreflight([SHARED_CAPABILITY], env)).toEqual(['CAPABILITY GATE: the parent operations address and run token are required (J8 runs only through its parent runner)']);
+        }
+    });
+    it('the J8 spec applies it on the runner\'s path only (the reserved email), and the shared preflight elsewhere', () => {
+        const spec = readFileSync(path.join(__dirname, '..', 'live', 'rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+        expect(spec).toContain('const missing = runnerEmail !== undefined ? j8ParentPreflight(rwtPreconditionFailures(), process.env) : rwtPreconditionFailures();');
+    });
+});
+
+describe('J8.b explicit privacy opt-in, read back as the signed-in owner (Jack on b3d09f6b; Sam, 23 Nov)', () => {
+    const UIDX = '33333333-3333-4333-8333-333333333333';
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const tokenFor = (sub: string) => `${b64({ alg: 'HS256' })}.${b64({ sub })}.sig`;
+    const BACKEND = 'https://abcdefghijklmnopqrst.supabase.co';
+    const ANON = 'public-anon-key';
+    const rowFor = (o: Partial<{ user_id: string; transcript_save: boolean; ai_coaching: boolean; consent_version: number }> = {}) =>
+        ({ user_id: UIDX, transcript_save: true, ai_coaching: true, consent_version: 1, ...o });
+    /** A PostgREST stand-in: returns `rows` for the owner-filtered read, [] for the table probe; records every request. */
+    function backend(rows: unknown[] | 'fail' | 'transport', seen: Array<{ url: string; headers: Record<string, string> }> = []) {
+        const fetchImpl = (async (url: string, init: { headers: Record<string, string> }) => {
+            seen.push({ url, headers: init.headers });
+            if (rows === 'transport') throw new Error('socket hang up');
+            if (rows === 'fail') return { ok: false, status: 401, json: async () => ({ code: 'PGRST301' }) };
+            const u = new URL(url);
+            return { ok: true, status: 200, json: async () => (u.searchParams.has('limit') ? [] : rows) };
+        }) as unknown as typeof fetch;
+        return { fetchImpl, seen };
+    }
+    const settle = async (rows: unknown[] | 'fail' | 'transport', o: { token?: string | null; anonKey?: string | null } = {}) => {
+        const { readPracticeChoice, fixedConsentBeforeStartVerdict } = await import('../live/helpers/rwtPracticeConsent');
+        const b = backend(rows);
+        const client = j8OwnerChoiceClient({ url: BACKEND, anonKey: o.anonKey === undefined ? ANON : o.anonKey,
+            token: o.token === undefined ? tokenFor(UIDX) : o.token, fetchImpl: b.fetchImpl });
+        const readback = await readPracticeChoice(client, UIDX);
+        return { verdict: fixedConsentBeforeStartVerdict({ build: 'includes_1835', mode: J8_CONSENT_MODE, expected: J8_CONSENT_MODE, readback, ownerId: UIDX }), seen: b.seen };
+    };
+
+    it('the fixed mode is Save: Yes, Coaching: Yes (J8.b needs coaching on both takes)', () => {
+        expect(J8_CONSENT_MODE).toBe('save_on_coaching_on');
+    });
+    it('PASS only when the owner\'s own saved choice is exactly Save: Yes, Coaching: Yes', async () => {
+        const { verdict, seen } = await settle([rowFor()]);
+        expect(verdict.status).toBe('PASS');
+        // The owner's read: practice_privacy_choices only, filtered to the owner, with the public key and the owner's own token.
+        expect(seen).toHaveLength(1);
+        const u = new URL(seen[0].url);
+        expect({ origin: u.origin, path: u.pathname, filter: u.searchParams.get('user_id') }).toEqual({ origin: BACKEND, path: '/rest/v1/practice_privacy_choices', filter: `eq.${UIDX}` });
+        expect(seen[0].headers).toMatchObject({ apikey: ANON, Authorization: `Bearer ${tokenFor(UIDX)}` });
+    });
+    it('without the choice (no row), or with any other choice, the take never starts: FAIL/HOLD, never PASS', async () => {
+        expect((await settle([])).verdict).toMatchObject({ status: 'FAIL', reason: 'readback_missing' });
+        expect((await settle([rowFor({ ai_coaching: false })])).verdict).toMatchObject({ status: 'FAIL', reason: 'readback_differs' });
+        expect((await settle([rowFor({ transcript_save: false, ai_coaching: false })])).verdict).toMatchObject({ status: 'FAIL', reason: 'readback_differs' });
+        expect((await settle([rowFor({ user_id: '44444444-4444-4444-8444-444444444444' })])).verdict).toMatchObject({ status: 'FAIL', reason: 'readback_wrong_owner' });
+        expect((await settle([rowFor(), rowFor()])).verdict.status).not.toBe('PASS');
+    });
+    it('no owner token, no public key, a refused read or a transport failure is unreadable (HOLD), and nothing is sent without both', async () => {
+        for (const [rows, o, sends] of [[[rowFor()], { token: null }, 0], [[rowFor()], { anonKey: null }, 0], ['fail', {}, 1], ['transport', {}, 1]] as const) {
+            const { verdict, seen } = await settle(rows as never, o);
+            expect({ status: verdict.status === 'PASS' ? 'PASS' : 'not PASS', sends: seen.length }).toEqual({ status: 'not PASS', sends });
+        }
+    });
+    it('the owner client serves practice_privacy_choices only', () => {
+        const client = j8OwnerChoiceClient({ url: BACKEND, anonKey: ANON, token: tokenFor(UIDX), fetchImpl: backend([]).fetchImpl });
+        expect(() => client.from('sessions')).toThrow(/only practice_privacy_choices/);
+    });
+    it('the owner token is the page\'s own, and only when it belongs to the run\'s account', () => {
+        const entries = [{ key: 'sb-abc-auth-token', value: JSON.stringify({ access_token: tokenFor(UIDX) }) }];
+        expect(j8OwnerToken(entries, UIDX)).toBe(tokenFor(UIDX));
+        expect(j8OwnerToken(entries, '44444444-4444-4444-8444-444444444444')).toBe(null);
+        expect(j8OwnerToken([], UIDX)).toBe(null);
+        expect(j8OwnerToken(entries, '')).toBe(null);
+    });
+    it('the public key is taken only from the page\'s own requests to the backend origin', () => {
+        expect(j8BackendApiKey(`${BACKEND}/rest/v1/x`, { apikey: ANON }, BACKEND)).toBe(ANON);
+        expect(j8BackendApiKey('https://evil.example.com/rest/v1/x', { apikey: 'other' }, BACKEND)).toBe(null);
+        expect(j8BackendApiKey(`${BACKEND}/rest/v1/x`, {}, BACKEND)).toBe(null);
+        expect(j8BackendApiKey('not a url', { apikey: ANON }, BACKEND)).toBe(null);
+    });
+    it('the J8 spec opts in through the real prompt and confirms the owner readback before the first take, and halts otherwise', () => {
+        const spec = readFileSync(path.join(__dirname, '..', 'live', 'rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+        const j8 = spec.slice(spec.indexOf("const b = legSink(receipt, 'J8.b');"));
+        const at = (needle: string) => j8.indexOf(needle);
+        const settleAt = at('settleJ8PracticeConsent(page, owner.uid, backendApiKey)');
+        const confirmAt = at('settled.gate.confirm()');
+        const firstTake = at('createSavedOpenMicTake(page, 1, true)');
+        expect(settleAt).toBeGreaterThan(-1);
+        expect(confirmAt).toBeGreaterThan(settleAt);
+        expect(firstTake).toBeGreaterThan(confirmAt);
+        expect(j8.slice(settleAt, firstTake).match(/receipt\.halt\('practice privacy choice'/g)).toHaveLength(2);
+        // The readback uses the owner's own session and the page's own public key: no service key, no seeded choice.
+        const helper = spec.slice(spec.indexOf('async function settleJ8PracticeConsent'), spec.indexOf('async function createSavedOpenMicTake'));
+        expect(helper).toContain('j8OwnerChoiceClient({ url: SUPABASE_URL, anonKey, token: j8OwnerToken(entries, ownerUid) })');
+        expect(helper).toContain('settleFixedConsentOnPractice(');
+        expect(helper).not.toMatch(/SERVICE_ROLE|admin|parentOps|upsert|insert/);
     });
 });

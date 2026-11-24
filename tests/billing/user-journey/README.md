@@ -203,6 +203,13 @@ prints the plan and what still blocks it; it reads committed files only and neve
 outcome 8's own mode: it holds only the paid value loop, which `smoke` and `full` never include, so a Gemini outage
 or a coaching bug shows as outcome 8 not proven, never as billing not proven.
 
+`full` also adds `paid_account_kept` (J9.a): two completed, run-marked earlier sessions are seeded during the live
+trial (the account's own transcript and coaching choice first, then service-role inserts; no takes), the account pays
+once by test card, and a fresh sign-in must keep Pro, open each seeded session by its own id showing its own
+transcript (`keptHistoryVerdict`; one session opened twice fails), list both in Progress, make no coaching request and
+store no coaching for them, and show the $10.00 monthly plan as the current plan in one block of Manage billing. It is
+a seeded test-mode proof, never evidence of calendar-time longevity, and the hosted portal text is Stripe's own.
+
 Access after a membership ends follows Akin's 2026-11-14 rule, "No payment, no service or access to their past
 data", which the #1863 payment wall enforces. In `portal_expiry` and `refund_period_end`, once the paid period
 ends the run proves the account and saved data are kept (database read), then `access_expired` (the still

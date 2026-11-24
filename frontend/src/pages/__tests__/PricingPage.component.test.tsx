@@ -8,6 +8,9 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import { trackConversionCtaViewed } from '@/services/conversionFunnel';
 
 // Mock modules
+// The shared render helper mounts the real app toaster for this retry check.
+
+vi.unmock('@/components/ui/sonner');
 vi.mock('@/lib/supabaseClient');
 // Control the payments-enabled gate; default true preserves the existing enabled-state tests.
 vi.mock('@/config/appRuntimeConfig', async (importOriginal) => ({
@@ -259,25 +262,29 @@ describe('PricingPage', () => {
             consoleSpy.mockRestore();
         });
 
-        it('should handle checkout error gracefully', async () => {
+        it('tells the user checkout failed and allows one deliberate retry', async () => {
             const user = userEvent.setup();
-            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
-            mockInvoke.mockResolvedValue({
-                data: null,
-                error: new Error('Checkout failed'),
-            });
-
+            const failure = { data: null, error: new Error('Synthetic checkout unavailable') };
+            let finishCheckout!: (result: typeof failure) => void;
+            mockInvoke.mockReturnValueOnce(new Promise<typeof failure>((resolve) => { finishCheckout = resolve; }));
+            mockInvoke.mockResolvedValueOnce(failure);
             renderPricingPage();
 
-            const proButton = screen.getByText('Continue for $10/month');
-            await user.click(proButton);
+            await user.click(screen.getByRole('button', { name: 'Continue for $10/month' }));
+            const pending = screen.getByRole('button', { name: 'Starting checkout...' });
+            expect(pending).toBeDisabled();
+            await user.click(pending);
+            expect(mockInvoke).toHaveBeenCalledTimes(1);
 
-            // Should not throw, error is logged
-            await waitFor(() => {
-                expect(mockInvoke).toHaveBeenCalled();
-            });
+            finishCheckout(failure);
+            expect(await screen.findByText(/Unable to start checkout\. Please try again/)).toBeVisible();
+            const retry = screen.getByRole('button', { name: 'Continue for $10/month' });
+            expect(retry).toBeEnabled();
+            await user.click(retry);
 
-            consoleSpy.mockRestore();
+            expect(mockInvoke.mock.calls.map(([functionName]) => functionName)).toEqual([
+                'stripe-checkout', 'stripe-checkout',
+            ]);
         });
 
         it('should open Stripe billing portal for paid Pro accounts', async () => {

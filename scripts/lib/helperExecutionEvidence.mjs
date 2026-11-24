@@ -35,6 +35,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtJourney.ts', testFile:'tests/unit/progressReaderUrlPredicates.test.ts',
   callables:['analyticsThroughActions','backFromProgressRestoresSession'],
 }, {
+  // J1.a (Sam on run 45014809858): the new account's 30-day trial, through its own unit consumer.
+  helperFile:'tests/live/helpers/rwtTrialGrant.ts', testFile:'tests/unit/rwtTrialGrant.test.ts',
+  callables:['trialGrantVerdict','trialGrantRow'],
+}, {
   // J1 option B (Sam, 21 Nov): the save-minimum hold and its atomic Stop, through its own unit consumer.
   helperFile:'tests/live/helpers/rwtSaveHold.ts', testFile:'tests/unit/rwtSaveHold.test.ts',
   callables:['saveHoldVerdict','stopClickVerdict','holdThenStopWith','pageSaveHoldDeps','holdThenStop'],
@@ -64,6 +68,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/db/helpers/completionEnv.ts', testFile:'tests/db/atomic-completion-retention.integration.test.ts',
   callables:['MIG','sid','buildCompletionDb','db0','closeCompletionDbs','actingAs','newSession','complete','transcriptBearingCount','row'],
 }, {
+  helperFile:'tests/helpers/exactMigrationWiringCases.ts', testFile:'tests/unit/progressEvaluationMigrationWiring1471.test.js',
+  callables:['assertMigrationBytePin','assertStagedMigrationOrder','assertTargetOnlyDryRunCases'],
+}, {
   helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/exactMigrationGate.test.js',
   callables:['proveC1CatalogStages'],
 }, {
@@ -76,12 +83,28 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/billing/user-journey/contract.ts',testFile:'tests/billing/user-journey/contract.test.ts',
   callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice',
-    'isCorrelatedDelivery','assertSandboxConfiguration'],
+    'isCorrelatedDelivery','assertSandboxConfiguration','keptHistoryVerdict'],
 }, {
   // Run 44203911253: the hosted-Checkout email step the conversion journey calls (browser counterpart: tests/e2e spec).
   helperFile:'tests/billing/user-journey/hostedEmail.ts',testFile:'tests/billing/user-journey/hostedEmail.test.ts',
   callables:['fillHostedEmail'],
+}, {
+  // J9.b restore_access: the walled-then-restored history, the single $10 test-mode charge and the portal plan checks (visible text only).
+  helperFile:'tests/billing/user-journey/restoreAccess.ts',testFile:'tests/billing/user-journey/restoreAccess.test.ts',
+  callables:['assertTakeReadable','assertHistoryWalled','assertHistoryRestored','assertSingleCharge','portalShowsPlan','visiblePlanChains'],
 }, {helperFile:"tests/billing/user-journey/paidValueLoop.ts",testFile:"tests/billing/user-journey/paidValueLoop.test.ts",callables:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]}, {helperFile:"tests/billing/user-journey/localStackResources.mjs",testFile:"tests/billing/user-journey/localStackResources.test.ts",callables:["captureStackIdentity", "assertIdentityShape", "stackIdentitySha256", "verifyStackDestroyed"]}, {helperFile:"tests/billing/user-journey/localStackReceipt.mjs",testFile:"tests/billing/user-journey/contract.test.ts",callables:["journeyReceiptDefects", "destructionDefects", "finaliseLocalStackReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPlan.mjs",testFile:"tests/billing/user-journey/fullMode.test.ts",callables:["workflowDispatch", "planRun", "finaliseModeReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPreflight.mjs",testFile:"tests/billing/user-journey/runnerPreflight.test.ts",callables:["fingerprint", "assertTestKeys", "assertKeysMatchStack", "assertLocalSupabaseKeys", "probeLocalBackend", "runnerPreflight"]}, {
+  // J1.f / J7.d on the disposable billing stack: the deletion link, the page's final message, the loop step and the leg receipts.
+  helperFile:'tests/billing/user-journey/accountDeletionJourney.ts',testFile:'tests/unit/accountDeletionJourney.test.ts',
+  callables:['deletionLink','terminalMessage','deletionLoopStep','legReceipt','scorerAccount','combinedDeletionReceipt'],
+}, {
+  // J1.f / J7.d: the run's disposable deletion grant, its seed and env lines, and the request-scoped coverage seed.
+  helperFile:'tests/billing/user-journey/accountDeletionLocalStack.mjs',testFile:'tests/unit/accountDeletionLocalStack.test.ts',
+  callables:['buildDeletionGrant','seedSql','envFileLines','coverageSql','localDbUrl'],
+}, {
+  // J1.f / J7.d scoring: each leg's deletion facts plus the stack's teardown, destruction proof and Stripe residue.
+  helperFile:'tests/billing/user-journey/deletionReceipt.mjs',testFile:'tests/billing/user-journey/deletionReceipt.test.ts',
+  callables:['finaliseDeletionReceipt'],
+}, {
   // #1760 model comparison harness and evaluator helpers, each through its own unit consumer.
   helperFile:'tests/model-dropin/comparisonBounds.ts',testFile:'tests/model-dropin/comparisonBounds.test.ts',
   callables:['validateApproval','requireCompatibleBackend','elapsedMs','privateTimingMetrics','canonicalCaseReceipts','canonicalPopulation','caseMs','registerPackageCaseLimits',
@@ -131,8 +154,15 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtHarnessParity.ts',testFile:'tests/unit/rwtHarnessParityExecution1812.test.ts',
   callables:['HarnessParityTap#takeBindings','HarnessParityTap#attach','HarnessParityTap#noCloudSttRow','HarnessParityTap#startPressRow','HarnessParityTap#ownedPagesClosedRow','probeSaveIsolationRow','numericComparisonRow','readRepeatEligibility','repeatEligibilityEvidence'],
 }, {
+  helperFile:'tests/live/helpers/rwtNumericActive.ts',testFile:'tests/unit/rwtNumericActive.test.ts',
+  callables:['matchingNumericSet','preflightActive','readPersistedNumeric','readExpectedActive','observeActive'],
+}, {
   helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
-  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter'],
+  callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter','deferredLateCoachingSink','reopenWithinCutoff'],
+}, {
+  // J1.b (#1961): the coaching collector's hold-window witness, through the unit consumer that drives a real capture.
+  helperFile:'tests/live/helpers/rwtCoachingCollector.ts',testFile:'tests/unit/rwtCoachingRetentionEvidence1593.test.ts',
+  callables:['createCoachingTakeCapture','witnessShownTake'],
 }, {
   helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
   callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
@@ -159,19 +189,31 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["mergeCapture","captureRunReports","writeUncertainty","zeroResidueVerdict","cleanupRunReports","zeroResidueNotRun"],
 }, {
   helperFile:'tests/live/helpers/rwtAdverseRecovery.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
-  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","modelBytesSeen","midDownloadFailureVerdict",
-    "bytesCounted","downloadingNow","offlineInjectionGate","attemptPhase","runOfflineFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict"],
+  callables:["isRecoveryControl","retrySetupOutcome","recoverySavedVerdict","savedTranscriptDigest","reviewReopenVerdict","betweenFilesFailureVerdict",
+    "bytesCounted","betweenFilesGate","attemptPhase","runBetweenFilesFault","offlineNotExercisedVerdict","coldTakeSettledVerdict","unprovenRestoreVerdict","faultUnprovenRecoveryVerdict",
+    "shownFailureVerdict","shownFailureSettled","pollShownFailure","worstVerdict"],
 }, {
-  // AHT-14 (#1868): the attempt's network transfer behind the offline gate, through the same unit consumer.
+  // AHT-14 (#1868; J7.c option B): the attempt's model files and the held next file behind the offline gate, through the same unit consumer.
   helperFile:'tests/live/helpers/rwtAdverse.ts',testFile:'tests/unit/rwtAdverseRecovery.test.ts',
   callables:["downloadFailureVerdict","ModelTransferTracker#startAttempt","ModelTransferTracker#armFault","ModelTransferTracker#disarm",
-    "ModelTransferTracker#onRequest","ModelTransferTracker#onResponse","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed",
-    "ModelTransferTracker#snapshot"],
+    "ModelTransferTracker#onRequest","ModelTransferTracker#onFinished","ModelTransferTracker#onFailed","ModelTransferTracker#stateOf",
+    "ModelTransferTracker#snapshot","BetweenFilesHold#startAttempt","BetweenFilesHold#onRoute","BetweenFilesHold#held","BetweenFilesHold#release",
+    "BetweenFilesHold#releaseAll"],
+}, {
+  // J7.c option B (#1941): the isolated build's refusal of repo-root dotenv files, through its own unit consumer.
+  helperFile:'tests/e2e/helpers/isolatedBuildDotenv.ts',testFile:'tests/unit/j7cIsolatedBuildDotenv.test.ts',
+  callables:["rootDotenvFiles","assertNoRootDotenv"],
 }, {
   // J8 (#1870): the same-account feedback journey's pure rules, through their own unit consumer.
   helperFile:'tests/live/helpers/rwtJ8Journey.ts',testFile:'tests/unit/rwtJ8Journey.test.ts',
-  callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission",
+  callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission","j8ParentPreflight","j8BackendApiKey","j8OwnerToken","j8OwnerChoiceClient",
+    "startPressSnapshot","legStartPressVerdict","j8bFinalSentFeedbackVerdict",
     "J8WriteGate#open","J8WriteGate#close","J8WriteGate#enter","J8WriteGate#settle","J8WriteGate#keysOf"],
+}, {
+  // J8 (Sam, 23 Nov): the spec's client for the parent's four named operations (the spec holds no key), through its own unit consumer
+  // against the real served operations.
+  helperFile:'tests/live/helpers/j8ParentOpsClient.ts',testFile:'tests/unit/rwtJ8ParentOps.test.ts',
+  callables:["j8ParentOpsFromEnv","parentIdentityAndClaim","parentFenceClient","parentReportReader","parentReportsByKeys","parentTakeRows"],
 }, {
   // J1.d (#1883): the returning sign-out leg's pure rules, its sign-out recorder, and the browser leg (driven offline, fail-closed).
   helperFile:'tests/live/helpers/rwtJ1dJourney.ts',testFile:'tests/unit/rwtJ1dJourney.test.ts',

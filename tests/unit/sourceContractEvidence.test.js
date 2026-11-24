@@ -42,10 +42,10 @@ await expect(link).toHaveAttribute('href', '/account/delete');
 expect(closureCalls, 'opening Account issues no account-closure request').toEqual([]);`;
 const ROUTES=[[SOURCE_CONTRACTS[3],products,1],[SOURCE_CONTRACTS[4],recording,2],[SOURCE_CONTRACTS[5],pageContext,3],[SOURCE_CONTRACTS[6],deleteEntry,8]];
 
-test('billing registrations require the actual helper consumer and seven executed callable bodies',()=>{
+test('billing registrations require the actual helper consumer and eight executed callable bodies',()=>{
   const helper='tests/billing/user-journey/contract.ts';
   assert.deepEqual(registeredHelper(helper),{helperFile:helper,testFile:'tests/billing/user-journey/contract.test.ts',
-    callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice','isCorrelatedDelivery','assertSandboxConfiguration']});
+    callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice','isCorrelatedDelivery','assertSandboxConfiguration','keptHistoryVerdict']});
   assert.equal(executionRoute(helper,root).runner,'vitest-helper');
   assert.equal(executionRoute(helper,root).applicable,true);
   assert.equal(executionRoute('tests/billing/user-journey/unregistered.ts',root),null);
@@ -505,6 +505,9 @@ assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).ru
 assert.equal(executionRoute("tests/billing/user-journey/runnerPlan.mjs",root).applicable,true);
 assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).runner,'vitest-helper');
 assert.equal(executionRoute("tests/billing/user-journey/runnerPreflight.mjs",root).applicable,true);
+for(const helper of ["tests/billing/user-journey/accountDeletionJourney.ts","tests/billing/user-journey/accountDeletionLocalStack.mjs","tests/billing/user-journey/deletionReceipt.mjs"]){
+  assert.equal(executionRoute(helper,root).runner,'vitest-helper');assert.equal(executionRoute(helper,root).applicable,true);}
+{const file="tests/billing/user-journey/account-deletion.billing.spec.ts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
 {const file="tests/billing/user-journey/paid-value-loop.billing.spec.ts";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
 {const file="tests/billing/user-journey/journeySteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}
 {const file="tests/billing/user-journey/paidLoopSteps.mjs";const proof=inspectSourceContract(root,file);assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.detectedFaults>0);}

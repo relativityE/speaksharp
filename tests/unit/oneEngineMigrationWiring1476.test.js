@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -13,6 +12,7 @@ import {
     prepareExactMigrationWorkspace,
     resolveExactMigrationConfig,
 } from '../../scripts/lib/exactMigrationGate.mjs';
+import { assertMigrationBytePin, assertTargetOnlyDryRunCases } from '../helpers/exactMigrationWiringCases.ts';
 
 /**
  * #1476 PM pre-push review — the one-account/one-engine migration must be APPLICABLE through the exact allowlisted
@@ -46,7 +46,7 @@ const REJECTION_RECOVERY = '20261017200000'; // later checkout-rejection recover
 const T2_TARGETS = ['20261018090000', '20261018170000', '20261019010000', '20261019055102', '20261019202856', '20261020230653'];
 // C1 follows the T2 queue; these later targets must remain pending and isolated.
 // C1 and its exact local-retirement successor must remain pending for this earlier target.
-const C1_TARGETS = ['20261024083000', '20261025021046', '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000'];
+const C1_TARGETS = ['20261024083000', '20261025021046', '20261110173548', '20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000', '20261027192550'];
 
 describe('#1476 migration is wired into the exact allowlisted apply path', () => {
     const entry = EXACT_MIGRATION_ALLOWLIST.find((item) => item.version === VERSION);
@@ -65,8 +65,8 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
     });
 
     it('pins the FINAL byte hash of the file in the tree', () => {
-        const bytes = readFileSync(resolve(SUPABASE, 'migrations', FILE));
-        expect(entry.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+        expect.assertions(1);
+        assertMigrationBytePin(resolve(SUPABASE, 'migrations', FILE), entry.sha256);
     });
 
     it('is selectable as a dispatch target, and the phrase binds its filename, hash and the exact main SHA', () => {
@@ -77,8 +77,8 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
-        expect(assertExactDryRun(`Would push these migrations:\n • ${FILE}\nFinished supabase db push.`, config).files).toEqual([FILE]);
-        expect(() => assertExactDryRun(`Would push these migrations:\n • ${FILE}\n • ${ACTIVATION.file}\n`, config)).toThrow(/target-only/);
+        expect.assertions(2);
+        assertTargetOnlyDryRunCases(FILE, ACTIVATION.file, output => assertExactDryRun(output, config));
     });
 
     // The REAL Production ledger: read-only Migrations Preflight run 35919387314 (main@1319e8b58, 2026-09-23). Pending:

@@ -333,6 +333,8 @@ export async function readLiveCoachingPair(page: Pick<Page, 'evaluate'>, product
  * C can never stand in for B. No navigation, provider call, retry or durable write is performed by this observer.
  */
 export const COACHING_CAPTURE_READ_TIMEOUT_MS = 5_000;
+/** The explicit hold window of one read: it closes at `closesAt` on the caller's clock. */
+export interface HoldWindow { closesAt: number; now: () => number }
 
 export function createCoachingTakeCapture(input: {
     page: Page;
@@ -361,7 +363,12 @@ export function createCoachingTakeCapture(input: {
     const get = (id: string | null): CapturedCoachingTake => disposed ? { hold: 'capture_disposed' }
         : !synthetic ? { hold: 'collector_synthetic_only' }
             : id ? captures.get(id) ?? { hold: 'saved_take_not_witnessed' } : { hold: 'saved_take_identity_unavailable' };
-    const sample = async (sessionId: string, rendered?: CoachingSuggestionPair | null): Promise<void> => {
+    /**
+     * `holdWindow` marks an explicit hold-window read (`witnessShownTake`): its result is judged when it is PUBLISHED, not when the read
+     * started. A read that starts before `closesAt` but resolves at or after it publishes no NEW positive witness (Sam on #1961);
+     * a prior timely witness, a HOLD or a FAIL publishes as usual, and the passive poll (no window) is unchanged.
+     */
+    const sample = async (sessionId: string, rendered?: CoachingSuggestionPair | null, holdWindow?: HoldWindow): Promise<void> => {
         if (disposed || !synthetic || reading.has(sessionId) || ('fail' in get(sessionId))) return;
         reading.add(sessionId);
         let active = true;
@@ -408,10 +415,13 @@ export function createCoachingTakeCapture(input: {
           finally { reading.delete(sessionId); }
         })();
         const bounded = Promise.race([read, timeout]).then((captured) => {
-            if (!disposed) {
-                captures.set(sessionId, captured);
-                if ('take' in captured && !witnesses.has(sessionId)) witnesses.set(sessionId, captured);
+            if (disposed) return;
+            if ('take' in captured && !witnesses.has(sessionId) && holdWindow && holdWindow.now() >= holdWindow.closesAt) {
+                captures.set(sessionId, { hold: 'shown_witness_after_hold_window' });
+                return;
             }
+            captures.set(sessionId, captured);
+            if ('take' in captured && !witnesses.has(sessionId)) witnesses.set(sessionId, captured);
         }).finally(() => { active = false; clearTimeout(deadline); cancellations.delete(cancel); });
         activeReads.add(bounded);
         try { await bounded; } finally { activeReads.delete(bounded); }
@@ -433,6 +443,35 @@ export function createCoachingTakeCapture(input: {
             await Promise.all([pending, ...activeReads]);
         },
     };
+}
+
+/**
+ * J1.b (run 45142628330): the interrupted take B is never on the live page while the repeat records, so the passive poll's live
+ * read finds no rendered pair for it, and the repeat's save then expires B's inputs (`saved_inputs_expired`, no witness). This
+ * witnesses B with the pair its OWN reopened saved review showed (the caller proves route, rendered session, transcript and
+ * pair), while its inputs are still retained. Bounded by `closesAt` (the repeat's Stop deadline): no sample starts at or after
+ * it, and a sample that starts before the close but resolves at or after it publishes no new positive witness (the collector
+ * checks the window when it publishes). A sample skipped by an in-flight poll read, or a HOLD, is retried until the close; a
+ * witness or a FAIL ends it. It can only ADD a positive witness through the collector's ordinary checks; expiry, identity and
+ * changed-evidence verdicts are unchanged.
+ */
+export const SHOWN_WITNESS_RETRY_MS = 250;
+export async function witnessShownTake(
+    capture: { sample(sessionId: string, rendered?: CoachingSuggestionPair | null, holdWindow?: HoldWindow): Promise<void>; get(sessionId: string | null): CapturedCoachingTake },
+    sessionId: string,
+    shown: CoachingSuggestionPair,
+    closesAt: number,
+    clock: { now?: () => number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<void> {
+    const now = clock.now ?? Date.now;
+    const sleep = clock.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    while (now() < closesAt) {
+        await capture.sample(sessionId, shown, { closesAt, now });
+        const got = capture.get(sessionId);
+        if ('take' in got || 'fail' in got) return;
+        const left = closesAt - now();
+        if (left > 0) await sleep(Math.min(SHOWN_WITNESS_RETRY_MS, left));
+    }
 }
 
 export interface CoachingEvidenceOutcome {
