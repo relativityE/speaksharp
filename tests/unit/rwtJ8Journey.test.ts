@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
     J8_ADMISSION_ENV, J8_LEGACY_REFUSAL, j8AdmissionPresent, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8ParentPreflight, j8RunnerAdmission, J8_CONSENT_MODE, j8BackendApiKey, j8OwnerChoiceClient, j8OwnerToken, legReadback,
     legReceipt, legSink, mergeLegReadback, readTakeDigests, takeDigest, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
-    j8bFinalSentFeedbackVerdict, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
+    j8bFinalSentFeedbackVerdict, j8cSessionChoices, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
 } from '../live/helpers/rwtJ8Journey';
 import type { ReadbackActionBinding } from '../live/helpers/rwtAcceptance';
 import { RwtReceipt, receiptContentLeaks, telemetryClassRows } from '../live/helpers/rwtJourney';
@@ -707,5 +707,35 @@ describe('J8.b explicit privacy opt-in, read back as the signed-in owner (Jack o
         expect(helper).toContain('j8OwnerChoiceClient({ url: SUPABASE_URL, anonKey, token: j8OwnerToken(entries, ownerUid) })');
         expect(helper).toContain('settleFixedConsentOnPractice(');
         expect(helper).not.toMatch(/SERVICE_ROLE|admin|parentOps|upsert|insert/);
+    });
+});
+
+describe('J8.c session choices: the dialog\'s disabled separator is not a choice (run 45375829329)', () => {
+    const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
+    const opt = (value: string, disabled = false) => ({ value, disabled });
+    // The dialog's real shape with two saved takes (IssueReportDialog #1541): the takes, the disabled rule, then No session.
+    const real = [opt(B), opt(A), opt('__sep', true), opt('__none')];
+    it('accepts the dialog\'s real list, and the list without the rule', () => {
+        expect(j8cSessionChoices(real, [A, B])).toEqual({ ok: true });
+        expect(j8cSessionChoices([opt(A), opt(B), opt('__none')], [A, B])).toEqual({ ok: true });
+    });
+    it('the old exact-3 count of ALL options fails on that same real list (the stop in run 45375829329)', () => {
+        expect(real.map((o) => o.value)).toHaveLength(4);
+    });
+    it('refuses a missing or duplicated take, a third session, no No-session, a selectable separator or another disabled option', () => {
+        expect(j8cSessionChoices([opt(A), opt('__sep', true), opt('__none')], [A, B])).toEqual({ ok: false, reason: 'choice_count' });
+        expect(j8cSessionChoices([opt(A), opt(A), opt('__sep', true), opt('__none')], [A, B])).toEqual({ ok: false, reason: 'choice_not_listed_once' });
+        expect(j8cSessionChoices([opt(A), opt(B), opt('33333333-3333-4333-8333-333333333333'), opt('__sep', true), opt('__none')], [A, B]))
+            .toEqual({ ok: false, reason: 'choice_count' });
+        expect(j8cSessionChoices([opt(A), opt(B), opt('__sep', true)], [A, B])).toEqual({ ok: false, reason: 'choice_count' });
+        expect(j8cSessionChoices([opt(A), opt(B), opt('__sep'), opt('__none')], [A, B])).toEqual({ ok: false, reason: 'choice_count' });
+        expect(j8cSessionChoices([opt(A), opt(B), opt('__sep', true), opt(A, true), opt('__none')], [A, B])).toEqual({ ok: false, reason: 'unexpected_disabled_option' });
+        expect(j8cSessionChoices(real, [A, A])).toEqual({ ok: false, reason: 'takes_not_two_distinct' });
+    });
+    it('the J8.c submit reads each option\'s disabled flag and asserts through this rule', () => {
+        const spec = readFileSync('tests/live/rwt-feedback-association-boundaries.live.spec.ts', 'utf8');
+        expect(spec).toContain('expect(j8cSessionChoices(options, listedTakes)).toEqual({ ok: true });');
+        expect(spec).toContain('disabled: (option as HTMLOptionElement).disabled');
+        expect(spec).not.toContain('expect(values).toHaveLength(3);');
     });
 });
