@@ -3,12 +3,13 @@
  *  P1: a late release must never release the NEXT take's lease. The lease a release is about is captured and cleared at
  *      the call, before any await (Elon's racing-acquire repro is kept verbatim as the first test).
  *  P2: waits must not add up per remembered lease. Start gets ONE total budget across every pending lease; Stop never
- *      waits on old retries; unanswered leases stay remembered as uncertain; background work is bounded (a capped map).
+ *      waits on old retries; unanswered leases stay remembered as uncertain, never dropped; the work is bounded per pass
+ *      (Elon's DB repro 1795530380: a dropped lease is an open obligation that blocks cleanup and deletion).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     LEASE_SETTLE_RPC_DEADLINE_MS,
-    MAX_UNREACHED_ABANDONS,
+    MAX_ABANDONS_PER_PASS,
     acquireTakeLease,
     currentTakeLeaseId,
     releaseTakeLease,
@@ -121,7 +122,7 @@ describe('P1: a release only ever touches the lease held when it was called', ()
 });
 
 describe('P2: Start gets one total budget; Stop never waits on old retries', () => {
-    it.each([1, 3, 5, MAX_UNREACHED_ABANDONS])('%i hung remembered leases: Start waits one budget, Stop does not wait on them', async (n) => {
+    it.each([1, 3, 5, MAX_ABANDONS_PER_PASS, MAX_ABANDONS_PER_PASS + 4])('%i hung remembered leases: Start waits one budget, Stop does not wait on them', async (n) => {
         const net = network(); const stranded = await strand(net, n);
         expect(__unreachedAbandonsForTests()).toHaveLength(n);
         net.mode.abandon = 'hang';
@@ -175,8 +176,21 @@ describe('P2: Start gets one total budget; Stop never waits on old retries', () 
         }
     });
 
-    it('bounded background work: the map is capped, oldest dropped first to the existing cleanup', async () => {
-        const net = network(); const stranded = await strand(net, MAX_UNREACHED_ABANDONS + 3);
-        expect(__unreachedAbandonsForTests()).toEqual(stranded.slice(3));
+    it('no uncertain lease is ever dropped: the ninth (and twelfth) failed Start keeps the first lease remembered', async () => {
+        const net = network(); const stranded = await strand(net, MAX_ABANDONS_PER_PASS + 4);
+        expect(__unreachedAbandonsForTests()).toEqual(stranded);
+    });
+
+    it('bounded work: one pass makes at most MAX_ABANDONS_PER_PASS calls, oldest first; the rest settle on the next pass', async () => {
+        const net = network(); const stranded = await strand(net, MAX_ABANDONS_PER_PASS + 4);
+        net.mode.abandon = 'online';
+        const before = net.of('abandon_recording_start_v1').length;
+        await elapsedMs(() => acquireTakeLease({ rpc: net.rpc }));
+        expect(net.of('abandon_recording_start_v1').slice(before)).toEqual(stranded.slice(0, MAX_ABANDONS_PER_PASS));
+        expect(__unreachedAbandonsForTests()).toEqual(stranded.slice(MAX_ABANDONS_PER_PASS));
+        await elapsedMs(() => releaseTakeLease({ rpc: net.rpc }));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(__unreachedAbandonsForTests()).toEqual([]);
+        expect(net.of('abandon_recording_start_v1')).toContain(stranded[0]);
     });
 });
