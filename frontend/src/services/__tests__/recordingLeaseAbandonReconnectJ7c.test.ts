@@ -100,7 +100,6 @@ describe('J7.c: a failed Start\'s abandon that never reached the server is retri
     it.each([
         ['a take exists', { data: { abandoned: false, reason: 'take_exists' } }],
         ['unknown identity (another account, or no obligation)', { data: { abandoned: false, reason: 'unknown_identity' } }],
-        ['signed out', { data: { abandoned: false, reason: 'unauthenticated' } }],
         ['abandoned', { data: { abandoned: true, outcome: 'abandoned_not_recorded' } }],
     ])('CONTROL: when the server answered (%s), nothing is kept for retry', async (_l, a) => {
         const net = network(() => a);
@@ -116,6 +115,8 @@ describe('J7.c: a failed Start\'s abandon that never reached the server is retri
         ['an empty answer', { data: null }],
         ['a malformed answer', { data: { abandoned: 'yes' } }],
         ['a refusal with no reason', { data: { abandoned: false } }],
+        // J7.c (Elon 1795530380): "signed out" is an answer about the caller, not the lease; the obligation is still open.
+        ['a signed-out refusal (unauthenticated)', { data: { abandoned: false, reason: 'unauthenticated' } }],
     ])('when the abandon got %s, the lease is kept for retry (and still released now, as before)', async (_l, a) => {
         const net = network(() => { if (a === 'throw') throw new TypeError('Failed to fetch'); return a as { data?: unknown }; });
         await releaseTakeLease({ rpc: net.rpc, startFailed: 'lease-a' });
@@ -123,12 +124,21 @@ describe('J7.c: a failed Start\'s abandon that never reached the server is retri
         expect(net.calls).toEqual([{ fn: 'abandon_recording_start_v1', lease: 'lease-a' }, { fn: 'release_recording_lease', lease: 'lease-a' }]);
     });
 
-    it('bounded: a server that never answers costs five retries, then the lease is left to the existing cleanup', async () => {
+    it('a server without the abandon function (PGRST202) can never settle it: released as before, nothing kept to retry', async () => {
         const net = network(() => ({ error: { code: 'PGRST202', message: 'not found' } }));
         await releaseTakeLease({ rpc: net.rpc, startFailed: 'lease-a' });
         for (let i = 0; i < 8; i += 1) await goOnline();
-        expect(net.of('abandon_recording_start_v1')).toHaveLength(1 + 5);
+        expect(net.of('abandon_recording_start_v1')).toHaveLength(1);
+        expect(net.of('release_recording_lease')).toHaveLength(1);
         expect(__unreachedAbandonsForTests()).toEqual([]);
+    });
+
+    it('a server that keeps failing never makes the lease forgotten (Elon 1795530380): it is retried on every event', async () => {
+        const net = network(() => ({ error: { message: 'Failed to fetch' } }));
+        await releaseTakeLease({ rpc: net.rpc, startFailed: 'lease-a' });
+        for (let i = 0; i < 8; i += 1) await goOnline();
+        expect(net.of('abandon_recording_start_v1')).toHaveLength(1 + 8);
+        expect(__unreachedAbandonsForTests()).toEqual(['lease-a']);
     });
 
     it('concurrent reconnect and Retry share one retry pass: the old lease is abandoned once, not twice', async () => {

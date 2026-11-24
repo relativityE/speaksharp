@@ -16,6 +16,8 @@
  */
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { buildHolderLabel, interpretAcquireResult, isLeaseRevoked, type AcquireLeaseResult, type LeaseDecision } from './recordingLeasePolicy';
+import { authEpoch, currentOwnerId } from './loginSessionLog';
+import { safeLocalStorageGetJSON, safeLocalStorageRemove, safeLocalStorageSet } from '@/lib/safeStorage';
 
 export type LeaseRpc = (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
 
@@ -51,11 +53,12 @@ export async function acquireTakeLease(opts: { force?: boolean; rpc?: LeaseRpc; 
     const rpc = opts.rpc ?? defaultRpc;
     // J7.c (Elon's review, P2): ONE total wait for every remembered lease together, never one wait per lease. Entries still
     // unanswered when it runs out stay remembered (uncertain) and keep settling in the background.
-    await withinDeadline(retryUnreachedAbandons());
+    await withinDeadline(retryUnreachedAbandons({ rpc }));
     if (heldLeaseId !== null) await releaseTakeLease({ rpc });
     revoked = false;
 
     const leaseId = newLeaseId();
+    const owner = currentOwnerId();
     let result: AcquireLeaseResult | null = null;
     try {
         const { data, error } = await rpc('acquire_recording_lease', {
@@ -72,7 +75,11 @@ export async function acquireTakeLease(opts: { force?: boolean; rpc?: LeaseRpc; 
         result = null;
     }
     const decision = interpretAcquireResult(result);
-    if (decision.action === 'start') heldLeaseId = leaseId;
+    if (decision.action === 'start') {
+        heldLeaseId = leaseId;
+        // J7.c (Sam 1795530421): the lease belongs to the account that acquired it, whoever is signed in when it settles.
+        leaseOwners.set(leaseId, owner);
+    }
     return decision;
 }
 
@@ -172,18 +179,24 @@ export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: str
             stopHeartbeat();
             heldLeaseId = null;
         }
-        void retryUnreachedAbandons();
+        const owner = leaseOwners.has(leaseId) ? leaseOwners.get(leaseId) ?? null : currentOwnerId();
+        leaseOwners.delete(leaseId);
+        void retryUnreachedAbandons({ rpc });
+        const epoch = authEpoch();
         const outcome = await abandonStart(rpc, leaseId);
+        // A refusal heard after the signed-in account changed may be about the wrong account: kept, never trusted.
+        const settled = outcome === 'abandoned' || (outcome === 'refused' && sameAccount(owner, epoch));
+        if (settled) { if (unreachedAbandons.has(leaseId)) forget(leaseId, owner); } else rememberUnreachedAbandon(leaseId, rpc, owner);
         if (outcome === 'abandoned') return;
-        if (outcome === 'unreached') rememberUnreachedAbandon(leaseId, rpc);
         await releaseLease(rpc, leaseId);
         return;
     }
     stopHeartbeat();
     const leaseId = heldLeaseId;
     heldLeaseId = null;
-    void retryUnreachedAbandons();
+    void retryUnreachedAbandons({ rpc });
     if (leaseId === null) return;
+    leaseOwners.delete(leaseId);
     await releaseLease(rpc, leaseId);
 }
 
@@ -217,16 +230,21 @@ type AbandonOutcome = 'abandoned' | 'refused' | 'unreached';
 
 /**
  * One abandon call, bounded by `LEASE_SETTLE_RPC_DEADLINE_MS`. `refused` only when the server itself answered without
- * abandoning; anything else, a call that ran out of time included, is `unreached`.
+ * abandoning for this account; anything else, a call that ran out of time included, is `unreached`.
+ *  - J7.c (Elon's DB repro 1795530380): a server with no abandon function at all (PostgREST PGRST202) can never settle
+ *    it, so it is `refused`: the ordinary release runs and nothing is kept to retry forever.
+ *  - `unauthenticated` is an answer about the caller (signed out), not about the lease: the obligation is still open, so
+ *    it is `unreached` and kept for when its account is back.
  */
 async function abandonStart(rpc: LeaseRpc, leaseId: string): Promise<AbandonOutcome> {
     try {
         const answered = await withinDeadline(rpc('abandon_recording_start_v1', { p_lease_id: leaseId }));
         if (answered === TIMED_OUT) return 'unreached';
         const { data, error } = answered;
-        if (error) return 'unreached';
+        if (error) return (error as { code?: string }).code === 'PGRST202' ? 'refused' : 'unreached';
         const answer = data as { abandoned?: unknown; reason?: unknown } | null;
         if (answer?.abandoned === true) return 'abandoned';
+        if (answer?.reason === 'unauthenticated') return 'unreached';
         return answer?.abandoned === false && typeof answer.reason === 'string' ? 'refused' : 'unreached';
     } catch {
         return 'unreached';
@@ -234,30 +252,74 @@ async function abandonStart(rpc: LeaseRpc, leaseId: string): Promise<AbandonOutc
 }
 
 /**
- * Failed Starts whose abandon never reached the server, by exact lease, with the rpc that should settle them and the
- * retries left. Bounded, so a server that never answers (an old one without the function) costs a few calls, not one per
- * release forever; the obligation then stays for the existing cleanup, exactly as before this retry existed. The map is
- * capped too (oldest dropped first, to the same cleanup), so background work stays bounded however many Starts fail.
+ * Failed Starts whose abandon never reached the server, by exact lease, with the account that acquired it and the rpc that
+ * should settle it.
+ *
+ * J7.c (Elon's DB repro 1795530380, Sam 1795530421): an uncertain lease is NEVER dropped. On the server, acquiring writes an
+ * admitted save obligation that only the abandon (or a saved take) settles; the 15 s lease expiry and a plain release do
+ * not. Dropping the lease here, by a cap, a retry count or a page reload, recreated the stuck J7.c state: an obligation
+ * with no take that blocks run-owned cleanup and account deletion. So:
+ *  - the remembered set has no cap and no retry limit; only the server's own answer for that account ends an entry;
+ *  - what IS bounded is the work: a retry runs only on an event (an acquire, a release, the browser coming back online),
+ *    one pass at a time, at most `MAX_ABANDONS_PER_PASS` calls per pass (oldest first; the rest wait for the next pass),
+ *    each call within `LEASE_SETTLE_RPC_DEADLINE_MS`, and a Start waits on the pass for one budget only;
+ *  - entries are kept per account in localStorage (lease ids only, nothing the person said), so a reload or navigation
+ *    resumes them on the next acquire, release or reconnect;
+ *  - a pass only replays the signed-in account's own entries, and a refusal heard after the signed-in account changed is
+ *    not trusted: another account never settles, releases or forgets this account's leases.
  */
-const ABANDON_RETRIES = 5;
-export const MAX_UNREACHED_ABANDONS = 8;
-const unreachedAbandons = new Map<string, { rpc: LeaseRpc; left: number }>();
+export const MAX_ABANDONS_PER_PASS = 8;
+export const UNSETTLED_STARTS_KEY_PREFIX = 'speaksharp.recordingLease.unsettledStarts.v1:';
+type Unsettled = { rpc: LeaseRpc | null; owner: string | null };
+const unreachedAbandons = new Map<string, Unsettled>();
+/** The account that acquired each lease this page still knows about. */
+const leaseOwners = new Map<string, string | null>();
 let retrying: Promise<void> | null = null;
 let onlineListening = false;
 
-function rememberUnreachedAbandon(leaseId: string, rpc: LeaseRpc): void {
-    const known = unreachedAbandons.get(leaseId);
-    if (known) {
-        known.rpc = rpc;
-        known.left = ABANDON_RETRIES;
-    } else {
-        while (unreachedAbandons.size >= MAX_UNREACHED_ABANDONS) unreachedAbandons.delete(unreachedAbandons.keys().next().value as string);
-        unreachedAbandons.set(leaseId, { rpc, left: ABANDON_RETRIES });
-    }
+const isLeaseIdList = (v: unknown): boolean => Array.isArray(v) && v.length <= 1000 && v.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 64);
+
+function storedFor(owner: string): string[] {
+    return safeLocalStorageGetJSON<string[]>(UNSETTLED_STARTS_KEY_PREFIX + owner, [], isLeaseIdList);
+}
+
+/** Apply one change to the account's stored list (read, change, write), so other tabs' entries are never overwritten. */
+function storeChange(owner: string | null, add: string | null, remove: string | null): void {
+    if (owner === null) return; // no account to keep it under: memory only for this page
+    const next = storedFor(owner).filter((id) => id !== remove && id !== add);
+    if (add !== null) next.push(add);
+    if (next.length === 0) safeLocalStorageRemove(UNSETTLED_STARTS_KEY_PREFIX + owner);
+    else safeLocalStorageSet(UNSETTLED_STARTS_KEY_PREFIX + owner, JSON.stringify(next));
+}
+
+/** Merge the account's stored leases (another tab's, or this tab's before a reload) into memory. */
+function loadStored(owner: string | null): void {
+    if (owner === null) return;
+    for (const id of storedFor(owner)) if (!unreachedAbandons.has(id)) unreachedAbandons.set(id, { rpc: null, owner });
+}
+
+function sameAccount(owner: string | null, epoch: number): boolean {
+    return authEpoch() === epoch && currentOwnerId() === owner;
+}
+
+function listenForOnline(): void {
     if (!onlineListening && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('online', onOnline);
         onlineListening = true;
     }
+}
+
+function rememberUnreachedAbandon(leaseId: string, rpc: LeaseRpc, owner: string | null): void {
+    const known = unreachedAbandons.get(leaseId);
+    if (known) known.rpc = rpc;
+    else unreachedAbandons.set(leaseId, { rpc, owner });
+    storeChange(owner, leaseId, null);
+    listenForOnline();
+}
+
+function forget(leaseId: string, owner: string | null): void {
+    unreachedAbandons.delete(leaseId);
+    storeChange(owner, null, leaseId);
 }
 
 function onOnline(): void {
@@ -265,23 +327,27 @@ function onOnline(): void {
 }
 
 /**
- * Retry each unreached abandon once, all in parallel (each call bounded); keep only those still unreached. Never throws;
- * one retry pass at a time.
+ * One retry pass for the signed-in account: its oldest `MAX_ABANDONS_PER_PASS` unsettled leases, in parallel, each call
+ * bounded. Only the server's answer for this account ends an entry; everything else stays remembered. Never throws; one
+ * pass at a time.
  */
-export function retryUnreachedAbandons(): Promise<void> {
-    if (unreachedAbandons.size === 0) return Promise.resolve();
+export function retryUnreachedAbandons(opts: { rpc?: LeaseRpc } = {}): Promise<void> {
+    const owner = currentOwnerId();
+    loadStored(owner);
+    const batch = [...unreachedAbandons].filter(([, e]) => e.owner === owner).slice(0, MAX_ABANDONS_PER_PASS);
+    if (batch.length === 0) return retrying ?? Promise.resolve();
+    listenForOnline();
     retrying ??= (async () => {
+        const epoch = authEpoch();
         try {
-            await Promise.allSettled([...unreachedAbandons].map(async ([leaseId, entry]) => {
-                const outcome = await abandonStart(entry.rpc, leaseId);
-                if (unreachedAbandons.get(leaseId) !== entry) return; // dropped by the cap meanwhile: left to cleanup
-                if (outcome === 'unreached') {
-                    entry.left -= 1;
-                    if (entry.left <= 0) unreachedAbandons.delete(leaseId);
-                    return;
-                }
-                unreachedAbandons.delete(leaseId);
-                if (outcome === 'refused') await releaseLease(entry.rpc, leaseId);
+            await Promise.allSettled(batch.map(async ([leaseId, entry]) => {
+                const rpc = entry.rpc ?? opts.rpc ?? defaultRpc;
+                const outcome = await abandonStart(rpc, leaseId);
+                if (unreachedAbandons.get(leaseId) !== entry) return; // settled meanwhile by another call
+                if (outcome === 'abandoned') { forget(leaseId, entry.owner); return; }
+                if (outcome === 'unreached' || !sameAccount(entry.owner, epoch)) return; // still uncertain: kept
+                forget(leaseId, entry.owner);
+                await releaseLease(rpc, leaseId);
             }));
         } finally {
             retrying = null;
@@ -301,6 +367,7 @@ export function __resetTakeLeaseForTests(): void {
     heldLeaseId = null;
     revoked = false;
     unreachedAbandons.clear();
+    leaseOwners.clear();
     retrying = null;
     if (onlineListening && typeof window !== 'undefined') window.removeEventListener('online', onOnline);
     onlineListening = false;
