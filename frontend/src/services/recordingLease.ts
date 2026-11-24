@@ -181,9 +181,27 @@ export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: str
     await releaseLease(rpc, leaseId);
 }
 
+/**
+ * J7.c (Sam's review 1795522438, finding 2): every settle call — the abandon and the release that follows a refusal or an
+ * unreached abandon — waits at most this long. Acquire and release await the shared retry pass, so one hung call must
+ * never hold a Start or a Stop. A call that runs out of time is treated as unreached: the exact lease stays remembered
+ * for the next retry (its answer is uncertain, never assumed), and the server still expires an unreleased lease after
+ * 15 s without heartbeats. The call itself is not cancelled; only the wait for it ends.
+ */
+export const LEASE_SETTLE_RPC_DEADLINE_MS = 4_000;
+
+const TIMED_OUT = Symbol('lease-settle-timed-out');
+
+/** Resolve with the call's answer, or `TIMED_OUT` after the deadline. A thrown call still throws. */
+function withinDeadline<T>(call: Promise<T>): Promise<T | typeof TIMED_OUT> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => { timer = setTimeout(() => resolve(TIMED_OUT), LEASE_SETTLE_RPC_DEADLINE_MS); });
+    return Promise.race([call, deadline]).finally(() => clearTimeout(timer));
+}
+
 async function releaseLease(rpc: LeaseRpc, leaseId: string): Promise<void> {
     try {
-        await rpc('release_recording_lease', { p_lease_id: leaseId });
+        await withinDeadline(rpc('release_recording_lease', { p_lease_id: leaseId }));
     } catch {
         // The server expires an unreleased lease after 15 s without heartbeats; nothing else to do here.
     }
@@ -191,10 +209,15 @@ async function releaseLease(rpc: LeaseRpc, leaseId: string): Promise<void> {
 
 type AbandonOutcome = 'abandoned' | 'refused' | 'unreached';
 
-/** One abandon call. `refused` only when the server itself answered without abandoning; anything else is `unreached`. */
+/**
+ * One abandon call, bounded by `LEASE_SETTLE_RPC_DEADLINE_MS`. `refused` only when the server itself answered without
+ * abandoning; anything else, a call that ran out of time included, is `unreached`.
+ */
 async function abandonStart(rpc: LeaseRpc, leaseId: string): Promise<AbandonOutcome> {
     try {
-        const { data, error } = await rpc('abandon_recording_start_v1', { p_lease_id: leaseId });
+        const answered = await withinDeadline(rpc('abandon_recording_start_v1', { p_lease_id: leaseId }));
+        if (answered === TIMED_OUT) return 'unreached';
+        const { data, error } = answered;
         if (error) return 'unreached';
         const answer = data as { abandoned?: unknown; reason?: unknown } | null;
         if (answer?.abandoned === true) return 'abandoned';
