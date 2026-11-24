@@ -1,8 +1,14 @@
 import { closeAccount, type ClosureDependencies } from './accountClosure.ts';
+import { isLoopbackHttpOrigin } from './accountClosureLocalTarget.ts';
 
 export interface ClosureRequestDependencies {
   authenticate(req: Request): Promise<{ id: string; email: string } | null>;
   siteUrl: string;
+  /**
+   * True only when this function's own verified runtime target is a local disposable stack (account-closure/index.ts). Then,
+   * and only then, a plain-http loopback app origin is an acceptable redirect; a hosted function always requires https.
+   */
+  localDisposableStack?: boolean;
   randomToken(): string;
   hashToken(token: string): Promise<string>;
   issue(userId: string, hash: string): Promise<boolean>;
@@ -68,7 +74,8 @@ export async function handleClosureRequest(req: Request, deps: ClosureRequestDep
     }
     if (body.action === 'request') {
       const origin = new URL(deps.siteUrl);
-      if (origin.protocol !== 'https:' || origin.username || origin.password || origin.search || origin.hash
+      const scheme = origin.protocol === 'https:' || (deps.localDisposableStack === true && isLoopbackHttpOrigin(origin));
+      if (!scheme || origin.username || origin.password || origin.search || origin.hash
         || origin.pathname !== '/') return reply(503, { error: 'email_redirect_unavailable' });
       const token = deps.randomToken();
       if (!/^[a-f0-9]{64}$/.test(token)) return reply(503, { error: 'verification_unavailable' });

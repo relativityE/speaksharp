@@ -1,6 +1,7 @@
 /**
- * J7.c, Sam's review 1795522438 finding 2: acquire and release await the shared abandon-retry pass, so a settle call that
- * never answers must not hold a Start or a Stop. Every settle call is bounded by LEASE_SETTLE_RPC_DEADLINE_MS; a call that
+ * J7.c, Sam's review 1795522438 finding 2: a settle call that never answers must not hold a Start or a Stop. (Since Elon's
+ * review, Start waits on the shared abandon-retry pass for one total budget and Stop only kicks it; see
+ * recordingLeaseRaceAndBudgetJ7c.test.ts.) Every settle call is bounded by LEASE_SETTLE_RPC_DEADLINE_MS; a call that
  * runs out of time is unreached, so its exact lease stays remembered (uncertain, never assumed settled).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

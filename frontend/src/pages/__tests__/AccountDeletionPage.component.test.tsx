@@ -108,6 +108,38 @@ describe('explicit pending completion — real page and effect/status transports
     expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
     expect(effects()).toHaveLength(0);
   });
+  // J1.f / J7.d fail closed: readiness is asked about exactly this owner and this pending request, and only a literal
+  // `true` for that pair counts. Each case answers "ready" for something else, so the secured, settled read alone is all
+  // the page has; the exact-pair control below proves the same page does offer completion when readiness matches.
+  const readinessCalls: Array<[string, string]> = [];
+  const renderWithReadiness = (answer: (ownerId: string, requestId: string) => unknown) => render(<MemoryRouter>
+    <AccountDeletionPage completionReadiness={(ownerId, id) => {
+      readinessCalls.push([ownerId, id]);
+      return answer(ownerId, id) as boolean;
+    }} />
+  </MemoryRouter>);
+  it.each([
+    ['stale: ready for an earlier request of this owner', (ownerId: string, id: string) => ownerId === mocks.user!.id && id === '33333333-3333-4333-8333-333333333333'],
+    ['wrong owner: ready for this request under another owner', (ownerId: string, id: string) => ownerId === '99999999-9999-4999-8999-999999999999' && id === requestId],
+    ['truthy but not true for the exact pair', (ownerId: string, id: string) => (ownerId === mocks.user!.id && id === requestId ? 1 : false)],
+    ['throws for the exact pair', (ownerId: string, id: string) => { if (ownerId === mocks.user!.id && id === requestId) throw new Error('readiness unavailable'); return true; }],
+  ])('readiness that is %s cannot enable confirmation after a settled, secured read', async (_label, answer) => {
+    readinessCalls.length = 0;
+    renderWithReadiness(answer);
+    await screen.findByText(/Earlier work is settled/);
+    expect(completionCapabilities.get(mocks.user!.id, requestId, Date.now())?.acknowledged).toBe(true);
+    expect(readinessCalls).toContainEqual([mocks.user!.id, requestId]);
+    expect(readinessCalls.every(([ownerId, id]) => ownerId === mocks.user!.id && id === requestId)).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'I confirm permanent account deletion now, with no refund.' })).not.toBeInTheDocument();
+    expect(effects()).toHaveLength(0);
+  });
+  it('control: readiness answering true for exactly this owner and request does offer confirmation', async () => {
+    renderWithReadiness((ownerId, id) => ownerId === mocks.user!.id && id === requestId);
+    const button = await screen.findByRole('button', { name: 'Complete permanent account deletion' });
+    expect(button).toBeDisabled();
+    expect(effects()).toHaveLength(0);
+  });
   it('secures status first, then sends one explicitly confirmed owner effect and shows verified completion', async () => {
     renderPage(() => true);
     await confirmCompletion();
@@ -743,6 +775,24 @@ describe('J1.f/J7.d step 6: the server readiness decision (no injected readiness
     await new Promise(resolve => setTimeout(resolve, 600));
     expect(calls('completion_readiness')).toHaveLength(1);
     expect(button()).not.toBeInTheDocument();
+  });
+  it('a confirmation answered pending starts completion work only when the user checks status (the J1.f/J7.d path)', async () => {
+    mocks.status = { outcome: 'not_pending', destructiveEnabled: false };
+    mocks.token = 'a'.repeat(64);
+    mocks.invoke.mockResolvedValue({ data: pending, error: null });
+    page();
+    fireEvent.click(await screen.findByLabelText('I understand this is permanent, ends my access now, and provides no refund.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    await screen.findByText(/No deletion will be retried from this page/);
+    mocks.status = pending;
+    await new Promise(resolve => setTimeout(resolve, 300));
+    // The confirmation's own pending answer secures no completion status and asks for no readiness by itself.
+    expect(calls('completion_status_issue')).toHaveLength(0);
+    expect(calls('completion_readiness')).toHaveLength(0);
+    expect(button()).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    expect(await screen.findByRole('button', { name: 'Complete permanent account deletion' })).toBeInTheDocument();
+    expect(calls('completion_readiness').length).toBeGreaterThan(0);
   });
   it('a session for a different user is never used to ask for readiness', async () => {
     const original = transport.getMockImplementation()!;

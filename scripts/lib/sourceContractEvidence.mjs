@@ -28,6 +28,8 @@ export const SOURCE_CONTRACTS=Object.freeze([
   BILLING_TARGET,
   BILLING_README,
   "tests/billing/user-journey/paid-value-loop.billing.spec.ts",
+  // J1.f / J7.d (#1953): the disposable-stack deletion journeys, as wiring only; the browser legs run in their protected workflow.
+  'tests/billing/user-journey/account-deletion.billing.spec.ts',
   "tests/billing/user-journey/journeySteps.mjs",
   "tests/billing/user-journey/paidLoopSteps.mjs",
   "tests/billing/user-journey/sandbox-target.local.json",
@@ -176,6 +178,7 @@ const CASE07_SQL=Object.freeze({
 });
 // Real (non-type, unrenamed) imports a wiring contract requires; route contracts require none.
 const REQUIRED_IMPORTS=Object.freeze({
+'tests/billing/user-journey/account-deletion.billing.spec.ts':{module:'./accountDeletionJourney',names:['ENTRY_ROUTE','combinedDeletionReceipt','deletionLink','deletionLoopStep','legReceipt','scorerAccount','terminalMessage']},
 "tests/billing/user-journey/paid-value-loop.billing.spec.ts":{module:"./paidValueLoop",names:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]},
 
   'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':{module:'./helpers/rwtTwoPlaces',names:['displacedFenceVerdict','sameBrowserRefusedVerdict']},
@@ -364,6 +367,14 @@ const MODEL_WIRING=Object.freeze({
   ],
 });
 const wiring={
+'tests/billing/user-journey/account-deletion.billing.spec.ts':[
+  "expect(process.env.BILLING_SANDBOX_TARGET, 'the disposable local stack only').toBe('local-disposable-stack');",
+  "expect(loopbackTargets({ app: APP, api: API, mail: MAIL }), 'every target must be loopback before anything is created').toEqual({ status: 'PASS', reason: 'loopback_only' });",
+  "if (terminal === 'pending' && !covered) { seedCoverage(uid); covered = true; }",
+  "if (step === 'stop') return terminal;",
+  "facts.terminal = await confirmAndComplete(page, account.uid);",
+  "scored.push(scorerAccount(facts, sha256(account.uid)));",
+],
 "tests/billing/user-journey/paid-value-loop.billing.spec.ts":["readonly targets = assertSandboxConfiguration(env, committedTarget);", "if (useLocalStack) await runnerPreflight(env);", "requireFact(balance.livemode === false, 'stripe_account_not_test');", "assertEligibleEvaluation(evaluation, sessionId, this.uid);", "const result = paidValueLoopReceipt(run?.steps ?? new Set());", "result: status.result,", "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');"],
 
   [BILLING_SPEC]:[

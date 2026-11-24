@@ -1,4 +1,5 @@
 /** Explicit effect transport; the existing capability-only status reader remains separate. */
+import { isSecureOrLocalApiOrigin } from './accountCompletionTransport';
 export type CompletionExecutionResult =
   | { outcome: 'completed'; requestId: string; accountDeleted: true; canRetry: false }
   | { outcome: 'pending'; requestId: string; canRetry: false }
@@ -31,7 +32,7 @@ function targetFor(origin: unknown): string | null {
   if (typeof origin !== 'string') return null;
   try {
     const url = new URL(origin);
-    return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash
+    return isSecureOrLocalApiOrigin(url) && !url.username && !url.password && !url.search && !url.hash
       && (url.pathname === '/' || url.pathname === '') ? url.origin + PATH : null;
   } catch { return null; }
 }

@@ -64,6 +64,18 @@ describe('account-closure authenticated request/confirmation contract', () => {
     expect(deps.issue).not.toHaveBeenCalled();
     expect(deps.sendLink).not.toHaveBeenCalled();
   });
+  it('a loopback http app origin is accepted only when this function runs on a verified local disposable stack', async () => {
+    for (const [local, siteUrl, ok] of [[true, 'http://localhost:5173', true], [true, 'http://127.0.0.1:5173', true],
+      [undefined, 'http://localhost:5173', false], [false, 'http://localhost:5173', false], [true, 'http://example.test', false],
+      [true, 'http://localhost.example.test', false], [true, 'http://localhost:5173/path', false], [true, 'https://example.test', true]] as const) {
+      const { deps, request } = fixture();
+      deps.siteUrl = siteUrl; deps.localDisposableStack = local;
+      const status = (await handleClosureRequest(request({ action: 'request' }), deps)).status;
+      const redirect = vi.mocked(deps.sendLink).mock.calls[0]?.[1] ?? null;
+      expect({ local, siteUrl, refused: status === 503, redirectedToSite: typeof redirect === 'string' && redirect.startsWith(`${siteUrl}/account/delete?account_deletion_token=`) })
+        .toEqual({ local, siteUrl, refused: !ok, redirectedToSite: ok });
+    }
+  });
   it('anonymous requests have no mail or deletion side effects', async () => {
     const { deps, request, adapters } = fixture();
     vi.mocked(deps.authenticate).mockResolvedValue(null);
@@ -88,7 +100,9 @@ describe('account-closure authenticated request/confirmation contract', () => {
     expect((await handleClosureRequest(new Request('https://example.test', { method: 'POST', body: '{' }), deps)).status).toBe(400);
     expect(deps.issue).not.toHaveBeenCalled();
   });
-  it.each([{}, { action: 'confirm', token: secret }, { action: 'confirm', token: 'bad', confirmIrreversible: true }])('requires explicit confirmation and a valid token', async (body) => {
+  // One distinct name per case: execution evidence refuses a collection with duplicate test names.
+  it.each([['no action', {}], ['no irreversible confirmation', { action: 'confirm', token: secret }],
+    ['a malformed token', { action: 'confirm', token: 'bad', confirmIrreversible: true }]] as const)('requires explicit confirmation and a valid token (%s)', async (_case, body) => {
     const { deps, request, adapters } = fixture();
     expect((await handleClosureRequest(request(body), deps)).status).toBe(400);
     expect(adapters.consumeProof).not.toHaveBeenCalled();
