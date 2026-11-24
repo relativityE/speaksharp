@@ -194,6 +194,11 @@ export const HELPER_CONTRACTS = Object.freeze([{
     "startPressSnapshot","legStartPressVerdict","j8bFinalSentFeedbackVerdict",
     "J8WriteGate#open","J8WriteGate#close","J8WriteGate#enter","J8WriteGate#settle","J8WriteGate#keysOf"],
 }, {
+  // J8 (Sam, 23 Nov): the spec's client for the parent's four named operations (the spec holds no key), through its own unit consumer
+  // against the real served operations.
+  helperFile:'tests/live/helpers/j8ParentOpsClient.ts',testFile:'tests/unit/rwtJ8ParentOps.test.ts',
+  callables:["j8ParentOpsFromEnv","parentIdentityAndClaim","parentFenceClient","parentReportReader","parentReportsByKeys","parentTakeRows"],
+}, {
   // J1.d (#1883): the returning sign-out leg's pure rules, its sign-out recorder, and the browser leg (driven offline, fail-closed).
   helperFile:'tests/live/helpers/rwtJ1dJourney.ts',testFile:'tests/unit/rwtJ1dJourney.test.ts',
   callables:["j1dRunnerAdmission","historyPreservedVerdict","returnOwnerPreservedVerdict","noRecordingOrSessionWriteVerdict",

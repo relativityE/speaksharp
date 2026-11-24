@@ -60,7 +60,7 @@ on:
         required: false
         default: ''
       rwt_j8_runner:
-        description: "RWT ONLY — the exact value J8-PARENT-RUNNER, accepted only with gate gate-3-dast, diagnostic_dast_spec tests/live/rwt-feedback-association-boundaries.live.spec.ts and diagnostic_dast_grep set to the J8 test's exact selector: runs J8 through its own parent runner (tools/cloud-test/nightly/j8-nightly-entry.cjs) in the J8 job instead of Gate 3, on one run-owned account the runner deletes. Empty = Gate 3 as before; any other value fails before anything runs."
+        description: "RWT ONLY — the exact value J8-PARENT-RUNNER, accepted only with gate gate-3-dast, diagnostic_dast_spec tests/live/rwt-feedback-association-boundaries.live.spec.ts and diagnostic_dast_grep set to the J8 test's exact selector: runs J8 through its own parent runner (scripts/rwt-j8-parent-runner.cjs) in the J8 job instead of Gate 3, on one run-owned account the runner deletes. Empty = Gate 3 as before; any other value fails before anything runs."
         required: false
         default: ''
       rwt_canary_claim_ack:
@@ -687,7 +687,7 @@ jobs:
             const e = process.env;
             if (e.J8_RUNNER !== "J8-PARENT-RUNNER") { console.error("::error::rwt_j8_runner is accepted only as J8-PARENT-RUNNER; nothing ran."); process.exit(1); }
             if (e.DIAGNOSTIC_SPEC !== a.SPEC || e.DIAGNOSTIC_GREP !== a.SPEC_GREP) { console.error("::error::the J8 runner needs the J8 spec and its exact test selector; nothing ran."); process.exit(1); }
-            const n = require("./tools/cloud-test/nightly/j8-nightly-entry.cjs");
+            const n = require("./scripts/rwt-j8-parent-runner.cjs");
             if (e.RWT_WRITES_ACK !== n.J8_WRITES_ACK || e.RWT_CANARY_CLAIM_ACK !== n.J8_CANARY_ACK) { console.error("::error::J8 needs the exact disposable-account write and canary-claim acknowledgements; nothing ran."); process.exit(1); }
             console.log("J8 runner selected: one J8 run through its parent runner.");'
       # The served release is discovered here, never pinned by an input (Gate 3's release override stays confined to Gate 3).
@@ -758,7 +758,7 @@ jobs:
           node tools/cloud-test/scripts/resolve_rwt_served_release.mjs verify
           mkdir -p test-results/rwt
           # The spec writes its receipt under the checkout (the adapters' artifact root), so --run-dir is the checkout.
-          node tools/cloud-test/nightly/j8-nightly-entry.cjs --evidence-dir "$J8_EVIDENCE_DIR" --run-dir "$GITHUB_WORKSPACE" \
+          node scripts/rwt-j8-parent-runner.cjs --evidence-dir "$J8_EVIDENCE_DIR" --run-dir "$GITHUB_WORKSPACE" \
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --release-sha "$RELEASE_SHA" --execute true \
             | tee test-results/rwt/j8-runner.result.log
       # Content-free: the spec's receipt and the runner's summary line. Absence is not PASS.

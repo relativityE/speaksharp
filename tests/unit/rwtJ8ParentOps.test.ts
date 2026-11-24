@@ -4,7 +4,8 @@
  * Four named operations, each bound to the one admitted account and this run. Every control below is a refusal or a binding check.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { createJ8ParentOps, FENCE_FUNCTIONS } from '../../scripts/rwt-j8-parent-ops.mts';
+import { createJ8ParentOps, FENCE_FUNCTIONS, serveJ8ParentOps } from '../../scripts/rwt-j8-parent-ops.mts';
+import { j8ParentOpsFromEnv, parentFenceClient, parentIdentityAndClaim, parentReportReader, parentReportsByKeys, parentTakeRows } from '../live/helpers/j8ParentOpsClient';
 
 const TOKEN = 'a'.repeat(64);
 const AUTH = `Bearer ${TOKEN}`;
@@ -177,5 +178,117 @@ describe('lifecycle: admission closes when the spec exits; cleanup waits for in-
         const f = fixture();
         await f.handle.close();
         expect((await f.bind()).body).toEqual({ refused: 'closed' });
+    });
+});
+
+describe('served in the parent through the entry\'s settlement gate (real loopback server)', () => {
+    /** The entry's gate shape (j8-nightly-entry.cjs parentOperations): run while open, reject once closed, track what is in flight. */
+    function gate() {
+        let open = true; let runs = 0; const inFlight = new Set<Promise<unknown>>();
+        return {
+            runs: () => runs, inFlight: () => inFlight.size, close() { open = false; },
+            run<T>(fn: () => Promise<T>): Promise<T> {
+                if (!open) return Promise.reject(new Error('closed'));
+                runs += 1;
+                const call = Promise.resolve().then(fn);
+                const ended = call.then(() => undefined, () => undefined);
+                inFlight.add(ended); void ended.then(() => inFlight.delete(ended));
+                return call;
+            },
+        };
+    }
+    const post = (url: string, body: unknown, auth = AUTH) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: auth }, body: JSON.stringify(body) })
+        .then(async (r) => ({ status: r.status, body: await r.json() }));
+    async function served(g = gate()) {
+        const f = fixture();
+        const s = await serveJ8ParentOps({ admin: f.admin as never, email: EMAIL, binding: BINDING, token: TOKEN, gate: g, helpers: f.helpers as never });
+        return { f, s, g };
+    }
+
+    it('listens on loopback /op only and runs every operation through the gate', async () => {
+        const { f, s, g } = await served();
+        try {
+            expect(new URL(s.url)).toMatchObject({ protocol: 'http:', hostname: '127.0.0.1', pathname: '/op' });
+            expect(await post(s.url, { op: 'identity_and_claim', args: { uid: UID } })).toEqual({ status: 200, body: { failures: 0, claimed: true } });
+            expect((await post(s.url, { op: 'take_digests', args: { ids: [UID] } })).status).toBe(200);
+            expect(g.runs()).toBe(2);
+            expect(f.queries.at(-1)!.filters).toContainEqual(['eq', 'user_id', UID]);
+            expect((await fetch(s.url.replace('/op', '/other'), { method: 'POST', body: '{}' })).status).toBe(404);
+        } finally { s.close(); }
+    });
+    it('once the gate closes (the spec ended), a request is answered closed and nothing is read or written', async () => {
+        const { f, s, g } = await served();
+        try {
+            await post(s.url, { op: 'identity_and_claim', args: { uid: UID } });
+            g.close();
+            expect(await post(s.url, { op: 'fence', args: { fn: 'verify_rwt_feedback_fence_v1', args: { p_run_key: RUN_KEY } } })).toEqual({ status: 409, body: { refused: 'closed' } });
+            expect(f.rpc).not.toHaveBeenCalled();
+        } finally { s.close(); }
+    });
+    it('an operation in flight when the gate closes is tracked by the gate until it settles, and still completes', async () => {
+        const { f, s, g } = await served();
+        try {
+            await post(s.url, { op: 'identity_and_claim', args: { uid: UID } });
+            let finish!: () => void;
+            f.rpc.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ data: { closed: true }, error: null }); }) as never);
+            const pending = post(s.url, { op: 'fence', args: { fn: 'close_rwt_feedback_fence_v1', args: { p_run_key: RUN_KEY } } });
+            await vi.waitFor(() => expect(g.inFlight()).toBe(1));
+            g.close();
+            finish();
+            expect(await pending).toEqual({ status: 200, body: { data: { closed: true }, error: null } });
+            await vi.waitFor(() => expect(g.inFlight()).toBe(0));
+        } finally { s.close(); }
+    });
+    it('a wrong token is refused inside the gate before any data access; close() stops listening', async () => {
+        const { f, s } = await served();
+        expect(await post(s.url, { op: 'identity_and_claim', args: { uid: UID } }, `Bearer ${'b'.repeat(64)}`)).toEqual({ status: 401, body: { refused: 'unauthorized' } });
+        expect(f.admin.auth.admin.getUserById).not.toHaveBeenCalled();
+        s.close();
+        await expect(post(s.url, { op: 'take_digests', args: { ids: [UID] } })).rejects.toThrow();
+    });
+    it('refuses to serve without a gate', async () => {
+        const f = fixture();
+        await expect(serveJ8ParentOps({ admin: f.admin as never, email: EMAIL, binding: BINDING, token: TOKEN, gate: undefined as never })).rejects.toThrow('j8_parent_ops_setup');
+    });
+});
+
+describe('the spec-side client (tests/live/helpers/j8ParentOpsClient.ts) against the real served operations', () => {
+    const openGate = { run: <T,>(fn: () => Promise<T>) => fn() };
+    async function live() {
+        const f = fixture();
+        const s = await serveJ8ParentOps({ admin: f.admin as never, email: EMAIL, binding: BINDING, token: TOKEN, gate: openGate, helpers: f.helpers as never });
+        const ops = j8ParentOpsFromEnv({ RWT_J8_OPS_URL: s.url, RWT_J8_OPS_TOKEN: TOKEN })!;
+        return { f, s, ops };
+    }
+    it('only a loopback /op address with a 64-hex run token is accepted; outside the J8 runner there is no client', () => {
+        expect(j8ParentOpsFromEnv({})).toBe(null);
+        for (const [url, token] of [['https://127.0.0.1:1/op', TOKEN], ['http://localhost:1/op', TOKEN], ['http://127.0.0.1:1/other', TOKEN], ['http://127.0.0.1:1/op', 'short']]) {
+            expect(() => j8ParentOpsFromEnv({ RWT_J8_OPS_URL: url, RWT_J8_OPS_TOKEN: token })).toThrow(/only the loopback/);
+        }
+    });
+    it('identity and claim, the fence client, report reads by key(s) and id, and take rows all round-trip for the bound account', async () => {
+        const { f, s, ops } = await live();
+        try {
+            expect(await parentIdentityAndClaim(ops, UID)).toEqual({ failures: [], claimed: true });
+            const fence = parentFenceClient(ops);
+            expect(await fence.rpc('verify_rwt_feedback_fence_v1', { p_run_key: RUN_KEY })).toEqual({ data: { ok: true }, error: null });
+            expect(await parentReportsByKeys(ops, ['k1'])).toEqual({ data: [{ id: 'row' }], error: null });
+            expect(await parentReportsByKeys(ops, ['k1', 'k2'])).toEqual({ data: [{ id: 'row' }], error: null });
+            const byId = await parentReportReader(ops).from('user_issue_reports').select('id,metadata').eq('id', UID).eq('user_id', OTHER);
+            expect(byId).toEqual({ data: [{ id: 'row' }], error: null });
+            expect(await parentTakeRows(ops, [UID])).toEqual({ data: [{ id: 'row' }], error: null });
+            // The caller's user id and columns are never forwarded: every read is the bound uid with fixed columns.
+            for (const q of f.queries) expect(q.filters).toContainEqual(['eq', 'user_id', UID]);
+        } finally { s.close(); }
+    });
+    it('a parent refusal becomes a fail-closed error for the caller; a refused identity is a failure, never a claim', async () => {
+        const { s, ops } = await live();
+        try {
+            expect(await parentIdentityAndClaim(ops, OTHER)).toEqual({ failures: ['parent refused the account (not_the_admitted_account)'], claimed: false });
+            expect(await parentFenceClient(ops).rpc('verify_rwt_feedback_fence_v1', { p_run_key: RUN_KEY })).toEqual({ data: null, error: { code: 'parent_refused', message: 'no_bound_account' } });
+            expect(await parentReportReader(ops).from('sessions').select('id').eq('id', UID).eq('user_id', UID)).toEqual({ data: null, error: { code: 'parent_refused' } });
+            const wrongToken = j8ParentOpsFromEnv({ RWT_J8_OPS_URL: s.url, RWT_J8_OPS_TOKEN: 'c'.repeat(64) })!;
+            expect((await parentTakeRows(wrongToken, [UID])).error).toEqual({ code: 'parent_refused', message: 'unauthorized' });
+        } finally { s.close(); }
     });
 });

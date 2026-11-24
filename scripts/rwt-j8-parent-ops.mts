@@ -1,6 +1,6 @@
 /**
  * J8 parent operations (Sam, 23 Nov: "keep the production service-role key out of the browser test process"). Run only by the
- * J8 parent (j8-live-adapters.cjs), alive for the spec's lifetime. It holds the key; the Playwright spec it serves does not.
+ * J8 parent (j8-live-adapters.cjs), alive for the spec's lifetime. The parent holds the key; the Playwright spec it serves does not.
  *
  * It answers exactly four NAMED operations over loopback HTTP, each bound to the ONE account the parent admitted:
  *   identity_and_claim {uid}        the run-owned identity check (which writes this run's binding) and the canary claim. The uid is
@@ -12,13 +12,11 @@
  * No caller-chosen table, column, filter, account or run. Every request needs this run's bearer token (constant-time compared).
  * Every refusal is a closed code, never an email, id or row.
  *
- * Inputs (env, set by the parent): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RWT_J8_OPS_EMAIL (the admitted email),
- * RWT_J8_OPS_TOKEN (64 hex), GITHUB_REPOSITORY, GITHUB_WORKFLOW_REF, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT (the run binding).
- * Prints `RWT_J8_PARENT_OPS_READY <port>` once listening on 127.0.0.1.
+ * Served in-process by the J8 entry (serveJ8ParentOps) with the entry's own operations client (the approved project, over its own
+ * capped transport) and through the entry's settlement gate. Nothing here reads the environment.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
 import { markRunOwnedAccountCanary, runOwnedIdentityFailures } from '../tests/live/helpers/rwtJourney';
 import { fenceRunKey } from '../tests/live/helpers/feedbackFence';
 import { J8_FENCE_CASE, TAKE_PROJECTION_FIELDS } from '../tests/live/helpers/rwtJ8Journey';
@@ -139,35 +137,41 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-async function main(): Promise<number> {
-    const env = process.env;
-    const binding = { repository: env.GITHUB_REPOSITORY ?? '', workflow: env.GITHUB_WORKFLOW_REF ?? '', runId: env.GITHUB_RUN_ID ?? '', runAttempt: env.GITHUB_RUN_ATTEMPT ?? '' };
-    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.RWT_J8_OPS_EMAIL || !env.RWT_J8_OPS_TOKEN || !binding.repository || !binding.workflow) {
-        console.error('RWT_J8_PARENT_OPS blocked_setup');
-        return 78;
-    }
-    const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-    let handle: ReturnType<typeof createJ8ParentOps>;
-    try { handle = createJ8ParentOps({ admin: admin as never, email: env.RWT_J8_OPS_EMAIL, binding, token: env.RWT_J8_OPS_TOKEN }); }
-    catch { console.error('RWT_J8_PARENT_OPS blocked_setup'); return 78; }
+/** The entry's admission gate (j8-nightly-entry.cjs `parentOperations().port`): runs fn while open, rejects once the spec ended. */
+export interface SettlementGate { run<T>(fn: () => Promise<T>): Promise<T> }
+
+/**
+ * Serve the operations on 127.0.0.1 inside the J8 parent (the entry process; the key never leaves it). Every operation runs through
+ * the entry's settlement gate (Sam, 23 Nov), so the entry closes admission when the spec ends and waits for anything in flight before
+ * cleanup; a request the gate refuses is answered `closed`. -> { url, close() }; close() refuses new operations at once and stops
+ * listening; settlement itself is the gate's (the entry HOLDs the run if an operation does not settle).
+ */
+export async function serveJ8ParentOps({ admin, email, binding, token, gate, helpers }: {
+    admin: Admin; email: string; binding: ParentOpsBinding; token: string; gate: SettlementGate;
+    helpers?: Parameters<typeof createJ8ParentOps>[0]['helpers'];
+}): Promise<{ url: string; close(): void }> {
+    if (!gate || typeof gate.run !== 'function') throw new Error('j8_parent_ops_setup');
+    const handle = createJ8ParentOps({ admin, email, binding, token, ...(helpers ? { helpers } : {}) });
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         let reply: Reply;
         if (req.method !== 'POST' || req.url !== '/op') reply = refuse('not_found', 404);
-        else { try { reply = await handle(req.headers.authorization, await readJson(req)); } catch { reply = refuse('bad_request', 400); } }
-        res.writeHead(reply.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        else {
+            let body: unknown;
+            try { body = await readJson(req); } catch { body = undefined; }
+            if (body === undefined) reply = refuse('bad_request', 400);
+            else {
+                try { reply = await gate.run(() => handle(req.headers.authorization, body)); }
+                catch { reply = refuse('closed', 409); }
+            }
+        }
+        res.writeHead(reply.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Connection: 'close' });
         res.end(JSON.stringify(reply.body));
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => resolve()); });
     const address = server.address();
-    if (!address || typeof address === 'string') return 78;
-    console.log(`RWT_J8_PARENT_OPS_READY ${address.port}`);
-    await new Promise<void>((resolve) => {
-        const stop = () => { void handle.close().then(() => { console.log('RWT_J8_PARENT_OPS_SETTLED'); server.close(() => resolve()); }); };
-        process.on('SIGTERM', stop); process.on('SIGINT', stop);
-    });
-    return 0;
-}
-
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-    main().then((code) => { process.exitCode = code; }, () => { console.error('RWT_J8_PARENT_OPS failed'); process.exitCode = 1; });
+    if (!address || typeof address === 'string') { server.close(); throw new Error('j8_parent_ops_setup'); }
+    return {
+        url: `http://127.0.0.1:${address.port}/op`,
+        close() { void handle.close(); server.close(); },
+    };
 }

@@ -220,14 +220,16 @@ const UNCONFIRMED = Object.freeze({ status: null, stdout: '', unconfirmed: true 
  * final code and a valid line, and nothing runs after it in this session: no retry and no later journey or coaching call, since
  * the earlier process may still be running (Sam on 87fef151).
  */
-/** The production key and the PostHog personal key: the browser spec never inherits either (Sam, 23 Nov). */
-const SPEC_WITHHELD_ENV = Object.freeze(['SUPABASE_SERVICE_ROLE_KEY', 'POSTHOG_PERSONAL_API_KEY']);
-/** The readback needs PostHog but never the production key. */
-const READBACK_WITHHELD_ENV = Object.freeze(['SUPABASE_SERVICE_ROLE_KEY']);
+/**
+ * Credentials (Sam, 23 Nov). These adapters never receive the production key in `baseEnv`: the protected entry
+ * (scripts/rwt-j8-parent-runner.cjs) strips it and hands it over only as `heldEnv`, for the scoped delete child alone. Any spec,
+ * readback or coaching env that would still carry a held value is refused, so a key re-introduced by another path is caught by value.
+ * The browser spec also never inherits the PostHog personal key (the readback needs it; the spec does not).
+ */
+const SPEC_WITHHELD_ENV = Object.freeze(['POSTHOG_PERSONAL_API_KEY']);
+const heldValues = (heldEnv) => Object.values(heldEnv || {}).filter((v) => typeof v === 'string' && v.length > 0);
+const carriesHeld = (env, held) => held.length > 0 && Object.values(env).some((v) => held.includes(v));
 const OPS_SCRIPT = 'scripts/rwt-j8-parent-ops.mts';
-const OPS_READY_TIMEOUT_MS = 30_000;
-/** How long the parent operations may take to settle an in-flight operation after the spec exits. */
-const OPS_SETTLE_GRACE_MS = 30_000;
 const without = (env, names) => Object.fromEntries(Object.entries(env).filter(([k]) => !names.includes(k)));
 
 /** The reserved email the entry admitted (the admission record's createAttempt.lookupRef), or null. Never from the spec. */
@@ -239,40 +241,23 @@ function admittedEmail(admissionFile, readFile = (f) => require('node:fs').readF
 }
 
 /**
- * The parent operations process (scripts/rwt-j8-parent-ops.mts): it alone holds the production key, bound to the admitted email and
- * this run, and serves the spec over loopback with a per-run token. -> { url, stop } once it prints its ready line, or null.
+ * The parent operations (scripts/rwt-j8-parent-ops.mts), served inside THIS process: the entry's operations client (`opsAdmin`, the
+ * approved project over its own capped transport) is the only client they use, so the production key never leaves the parent. Every
+ * operation runs through the entry's settlement gate (`gate`, j8-nightly-entry.cjs parentOperations().port). -> { url, stop } or null.
  */
-async function startParentOps({ baseEnv, email, token, repoRoot, spawnImpl = require('node:child_process').spawn, readyTimeoutMs = OPS_READY_TIMEOUT_MS }) {
-    let child;
+async function startParentOps({ opsAdmin, gate, email, token, binding, repoRoot, load = loadParentOps }) {
     try {
-        child = spawnImpl(path.join(repoRoot, 'node_modules', '.bin', 'tsx'), [path.join(repoRoot, OPS_SCRIPT)],
-            { env: { ...baseEnv, RWT_J8_OPS_EMAIL: email, RWT_J8_OPS_TOKEN: token }, cwd: repoRoot, stdio: ['ignore', 'pipe', 'inherit'] });
+        const { serveJ8ParentOps } = await load(repoRoot);
+        const served = await serveJ8ParentOps({ admin: opsAdmin, email, binding, token, gate });
+        return { url: served.url, stop: async () => { served.close(); } };
     } catch { return null; }
-    // -> true only when the child closed admission, every in-flight operation settled, and it exited inside the grace; anything else
-    // (still busy, killed, or gone without settling) is false, and the run is HOLD: cleanup waits for protected recovery.
-    let settledLine = false;
-    child.stdout.on('data', (d) => { if (String(d).includes('RWT_J8_PARENT_OPS_SETTLED')) settledLine = true; });
-    const stop = (graceMs = OPS_SETTLE_GRACE_MS) => new Promise((resolve) => {
-        if (child.exitCode !== null || child.signalCode !== null) return resolve(settledLine);
-        const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } resolve(false); }, graceMs);
-        child.once('exit', (code) => { clearTimeout(timer); resolve(settledLine && code === 0); });
-        try { child.kill('SIGTERM'); } catch { clearTimeout(timer); resolve(false); }
-    });
-    const port = await new Promise((resolve) => {
-        let buf = '';
-        const timer = setTimeout(() => resolve(null), readyTimeoutMs);
-        child.stdout.on('data', (d) => {
-            buf += String(d);
-            const m = /RWT_J8_PARENT_OPS_READY (\d{2,5})/.exec(buf);
-            if (m) { clearTimeout(timer); resolve(Number(m[1])); }
-        });
-        child.once('exit', () => { clearTimeout(timer); resolve(null); });
-    });
-    if (!port) { await stop(); return null; }
-    return { url: `http://127.0.0.1:${port}/op`, stop };
+}
+async function loadParentOps(repoRoot) {
+    const { tsImport } = require('tsx/esm/api');
+    return tsImport(require('node:url').pathToFileURL(path.join(repoRoot, OPS_SCRIPT)).href, __filename);
 }
 
-function readbackSession({ run, sleep, repoRoot, baseEnv }) {
+function readbackSession({ run, sleep, repoRoot, baseEnv, held = [] }) {
     let waited = false;
     let unconfirmed = false;
     return async function readback(release, journeyId, extraEnv) {
@@ -280,7 +265,10 @@ function readbackSession({ run, sleep, repoRoot, baseEnv }) {
         if (!waited) { waited = true; await sleep(INGESTION_WAIT_MS); }
         let last = { status: null, stdout: '' };
         for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-            try { last = await run('pnpm', readbackArgs(release, journeyId), { env: { ...without(baseEnv, READBACK_WITHHELD_ENV), ...extraEnv }, cwd: repoRoot, timeout: READBACK_TIMEOUT_MS }); }
+            const env = { ...baseEnv, ...extraEnv };
+            // A held credential in the readback's env: nothing is started, and the answer is not final (HOLD).
+            if (carriesHeld(env, held)) return { status: null, stdout: '' };
+            try { last = await run('pnpm', readbackArgs(release, journeyId), { env, cwd: repoRoot, timeout: READBACK_TIMEOUT_MS }); }
             catch { last = null; }
             if (last?.drained !== true) { unconfirmed = true; return UNCONFIRMED; }
             if (last.timedOut === true) last = { status: null, stdout: '' };
@@ -331,10 +319,11 @@ async function bounded(promise, ms, onTimeout) {
  * `lookup` is absent and the entry cannot prove zero residue, so the run cannot be admitted by `main`.
  */
 function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), baseEnv = process.env, run = spawnRunner(), sleep = realSleep,
-    listUsers = null, admin = null, lookupTimeoutMs = LOOKUP_TIMEOUT_MS, clock = Date.now,
+    listUsers = null, admin = null, opsAdmin = null, heldEnv = {}, lookupTimeoutMs = LOOKUP_TIMEOUT_MS, clock = Date.now,
     startOps = startParentOps, readAdmission = undefined } = {}) {
+    const held = heldValues(heldEnv);
     if (!listUsers && admin?.auth?.admin && typeof admin.auth.admin.listUsers === 'function') listUsers = (args) => admin.auth.admin.listUsers(args);
-    const readback = readbackSession({ run, sleep, repoRoot, baseEnv });
+    const readback = readbackSession({ run, sleep, repoRoot, baseEnv, held });
     const adapters = {
         /**
          * Where the spec writes its receipt: Playwright runs with `cwd: repoRoot` and the receipt writer resolves `test-results/rwt`
@@ -342,33 +331,38 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
          */
         artifactRoot: repoRoot,
         /** -> { exitCode, admissionFile, runId, runAttempt, timedOut, drained }: the spec's terminal outcome, naming what it ran with. */
-        async runSpec({ env }) {
+        async runSpec({ env, operations }) {
             if (!env || typeof env !== 'object') return { exitCode: null, timedOut: false };
             const notRun = (why) => ({ exitCode: null, timedOut: false, drained: true, notRun: why, admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT });
+            // Sam, 23 Nov: every parent operation goes through the entry's settlement gate; without it (or the operations client) the
+            // spec is not run at all.
+            if (!operations || typeof operations.run !== 'function' || !opsAdmin) return notRun('no parent operations gate or client');
             const email = admittedEmail(env.RWT_J8_RUNNER_ADMISSION, readAdmission);
             if (!email) return notRun('the admission record names no reserved email');
             const token = require('node:crypto').randomBytes(32).toString('hex');
-            const ops = await startOps({ baseEnv: { ...baseEnv, ...env }, email, token, repoRoot });
+            const binding = { repository: String(baseEnv.GITHUB_REPOSITORY ?? ''), workflow: String(baseEnv.GITHUB_WORKFLOW_REF ?? ''),
+                runId: String(env.GITHUB_RUN_ID ?? ''), runAttempt: String(env.GITHUB_RUN_ATTEMPT ?? '') };
+            const ops = await startOps({ opsAdmin, gate: operations, email, token, binding, repoRoot });
             if (!ops) return notRun('the parent operations did not start');
             // The spec gets the parent's address and token, never the production or PostHog key.
             const specEnv = { ...without(baseEnv, SPEC_WITHHELD_ENV), VITE_USE_LIVE_DB: 'true', ...without(env, SPEC_WITHHELD_ENV), RWT_J8_OPS_URL: ops.url, RWT_J8_OPS_TOKEN: token };
             try {
-            let listed;
-            try { listed = await run('pnpm', specArgs('--list'), { env: specEnv, cwd: repoRoot, timeout: LIST_TIMEOUT_MS }); } catch { listed = null; }
-            if (listed?.timedOut === true || listed?.status !== 0 || listed?.drained !== true || !listsOnlyJ8(listed?.stdout))
-                return { exitCode: null, timedOut: false, drained: listed?.drained === true, notRun: 'the selector did not list exactly the J8 test', admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
-            let r;
-            try {
-                r = await run('pnpm', specArgs('--reporter=line'), { env: specEnv, cwd: repoRoot, timeout: SPEC_TIMEOUT_MS });
-            } catch { r = null; }
-            const timedOut = r?.timedOut === true;
-            const opsSettled = await ops.stop();
-            ops.stopped = true;
-            // An operation still running on the account after the spec exited: not drained, so teardown leaves the account for
-            // protected recovery rather than cleaning up under it.
-            return { exitCode: !timedOut && typeof r?.status === 'number' ? r.status : null, timedOut, drained: r?.drained === true && opsSettled === true,
-                admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
-            } finally { if (!ops.stopped) await ops.stop(); }
+                if (carriesHeld(specEnv, held)) return notRun('a held credential would reach the spec');
+                let listed;
+                try { listed = await run('pnpm', specArgs('--list'), { env: specEnv, cwd: repoRoot, timeout: LIST_TIMEOUT_MS }); } catch { listed = null; }
+                if (listed?.timedOut === true || listed?.status !== 0 || listed?.drained !== true || !listsOnlyJ8(listed?.stdout))
+                    return { exitCode: null, timedOut: false, drained: listed?.drained === true, notRun: 'the selector did not list exactly the J8 test', admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
+                let r;
+                try {
+                    r = await run('pnpm', specArgs('--reporter=line'), { env: specEnv, cwd: repoRoot, timeout: SPEC_TIMEOUT_MS });
+                } catch { r = null; }
+                const timedOut = r?.timedOut === true;
+                return { exitCode: !timedOut && typeof r?.status === 'number' ? r.status : null, timedOut, drained: r?.drained === true,
+                    admissionFile: env.RWT_J8_RUNNER_ADMISSION, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
+            } finally {
+                // Stop listening and refuse new operations; the entry closes its gate next and waits for anything still in flight.
+                await ops.stop();
+            }
         },
         /** -> { status, evidence }: the readback's exit code and its own evidence line (null unless final and agreeing). */
         async qualify({ journeyId, stages, attemptIds, firstDownload, release }) {
@@ -420,7 +414,8 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
                 || Object.keys(BINDING_ENV).some((k) => typeof binding[k] !== 'string' || !binding[k])) return { deleted: false, drained: true };
             if (!Number.isFinite(timeoutMs) || timeoutMs <= SETTLE_MS) return { deleted: false, drained: true };
             const processTimeout = Math.min(DELETE_TIMEOUT_MS, timeoutMs - SETTLE_MS);
-            const env = { ...baseEnv, RWT_J8_DELETE_UID: uid, RWT_J8_DELETE_EMAIL: email, RWT_J8_DELETE_DEADLINE_AT: String(clock() + processTimeout) };
+            // The one child that receives the held credential: the scoped delete of the run-owned account.
+            const env = { ...baseEnv, ...heldEnv, RWT_J8_DELETE_UID: uid, RWT_J8_DELETE_EMAIL: email, RWT_J8_DELETE_DEADLINE_AT: String(clock() + processTimeout) };
             for (const [k, name] of Object.entries(BINDING_ENV)) env[name] = binding[k];
             let r;
             try { r = await run(path.join(repoRoot, 'node_modules', '.bin', 'tsx'), [path.join(repoRoot, DELETE_SCRIPT)], { env, cwd: repoRoot, timeout: processTimeout }); }
@@ -436,5 +431,5 @@ function j8LiveAdapters({ repoRoot = path.join(__dirname, '..', '..', '..'), bas
 module.exports = {
     CLOSE_GRACE_MS, DELETE_SCRIPT, DELETE_TIMEOUT_MS, DRAIN_TIMEOUT_MS, PROC_TAG_ENV, SETTLE_MS, drainTagged, taggedPids, J8_DESCRIBE, J8_TEST, SPEC_GREP, LIST_TIMEOUT_MS, listsOnlyJ8, SPEC, LIVE_CONFIG, LIVE_PROJECT, INGESTION_WAIT_MS, RETRY_WAIT_MS, ATTEMPTS, READBACK_TIMEOUT_MS, SPEC_TIMEOUT_MS, LOOKUP_TIMEOUT_MS, EVIDENCE_PREFIX,
     boundCoachingReceipt, j8LiveAdapters, readbackEvidence, spawnRunner,
-    SPEC_WITHHELD_ENV, READBACK_WITHHELD_ENV, OPS_SCRIPT, admittedEmail, startParentOps,
+    SPEC_WITHHELD_ENV, OPS_SCRIPT, admittedEmail, startParentOps,
 };
