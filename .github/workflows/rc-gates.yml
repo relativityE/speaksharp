@@ -743,6 +743,10 @@ jobs:
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
         run: |
           set -euo pipefail
+          # The step's own start, taken first: the entry fixes the step's end from it (this step's 88-minute limit, less a margin)
+          # and stops admitting work early enough to finish cleanup before the step is killed.
+          J8_STEP_STARTED_AT="$(date +%s%3N)"
+          export J8_STEP_STARTED_AT
           # #1258: the restricted synthetic coaching artifact goes only to a fresh private directory outside the checkout.
           RWT_PRIVATE_EVIDENCE_DIR="$(mktemp -d "$RUNNER_TEMP/rwt-private.XXXXXX")"
           chmod 700 "$RWT_PRIVATE_EVIDENCE_DIR"

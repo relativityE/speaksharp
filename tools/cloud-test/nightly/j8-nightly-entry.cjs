@@ -29,6 +29,12 @@
 // The sealed packet is unchanged: the plan keeps J8 behind `no-j8-harness-adapter` (limits.cjs NEVER_SATISFIED), and `main` refuses
 // unless its caller supplies the spec, readback, evaluation and recovery. Its one live caller is `liveMain` (Sam, 23 Nov, #1953), the
 // CLI the release-checks J8 job runs: it reads the service-role key only to build the approved project's bounded admin client.
+// Sam, 23 Nov (the J8 deadline and cleanup fix): the whole run fits inside the runner step. The step's end (`stepEndAt`, its 88-minute
+// limit from the step's own start, less a margin) is fixed before admission. Admission itself, and each spec, readback, coaching and
+// evaluation call, starts only while that call's budget, its late settle and everything that must still run after it (cleanup above
+// all) fit before the step's end. Otherwise the remaining legs are a terminal HOLD and cleanup runs at once; an early refusal comes
+// before the account is reserved, so it leaves no create record. Parent operations the spec calls go through one admission gate that
+// closes when the spec ends; cleanup waits for any operation still in flight to settle, or leaves the account for protected recovery.
 // Every reason is content-free (no email, id or row).
 const fs = require('node:fs');
 const path = require('node:path');
@@ -59,7 +65,14 @@ const FINAL_SENT_ROW = 'J8.b: final feedback pair sent';
  * nothing it started is running when the entry moves on. The adapter tests pin both against the adapters' own bounds.
  */
 const DEADLINES = Object.freeze({ specMs: 32 * 60_000, readbackMs: 22 * 60_000, coachingMs: 22 * 60_000, lateSettleMs: 6 * 60_000,
-    evaluateMs: 2 * 60_000, cleanupMs: 10 * 60_000 });
+    evaluateMs: 2 * 60_000, cleanupMs: 10 * 60_000, parentOpSettleMs: 60_000 });
+/**
+ * The runner step's own limit (rc-gates `Run J8 through its parent runner`, timeout-minutes, pinned by the contract test) and the
+ * margin kept before it, so the entry has ended, and written its summary, before the step is killed.
+ */
+const J8_STEP_MS = 88 * 60_000;
+const STEP_MARGIN_MS = 3 * 60_000;
+const STEP_CUT_OFF = 'the runner step\'s end is too close to start another readback or coaching call, so the remaining legs are HOLD and cleanup runs now';
 /** The parent recovery's calls (j8-parent-recovery.cjs); with any missing the account is left and the run is HOLD. */
 const RECOVERY_DEPS = Object.freeze(['lookup', 'readAccount', 'scopedDelete', 'readResidue']);
 const TIMED_OUT = Symbol('timed out');
@@ -84,6 +97,40 @@ async function withinSettled(ms, settleMs, fn) {
     const late = await within(Number.isFinite(settleMs) ? settleMs : DEADLINES.lateSettleMs,
         () => call.then((v) => ({ fulfilled: true, value: v }), () => ({ fulfilled: false })));
     return late === TIMED_OUT ? { value: TIMED_OUT, settled: false } : { value: TIMED_OUT, settled: true, late };
+}
+/** A parent operation asked for after admission closed (the spec has ended): nothing is sent. */
+class ParentOperationRefused extends Error {}
+/**
+ * The one admission gate for the parent operations the spec calls (Sam, 23 Nov: the spec never holds the key; the parent runs the
+ * named operations for the admitted account). `port.run(fn)` runs one while admission is open; `close()` refuses every later one;
+ * `settle(ms)` waits up to `ms` for every operation already started to end (fulfilled or rejected), and says whether they all did.
+ * Closing never cancels an operation in flight: a fence close already under way finishes, and cleanup waits for it.
+ */
+function parentOperations() {
+    let open = true;
+    const inFlight = new Set();
+    const port = Object.freeze({
+        run(fn) {
+            if (!open) return Promise.reject(new ParentOperationRefused('admission to parent operations is closed: the spec has ended'));
+            const call = Promise.resolve().then(fn);
+            const ended = call.then(() => undefined, () => undefined);
+            inFlight.add(ended);
+            ended.then(() => inFlight.delete(ended));
+            return call;
+        },
+    });
+    return {
+        port,
+        close() { open = false; },
+        get open() { return open; },
+        get inFlight() { return inFlight.size; },
+        async settle(ms) {
+            if (inFlight.size === 0) return true;
+            if (!(ms > 0)) return false;
+            const all = Promise.all([...inFlight]);
+            return (await within(ms, () => all)) !== TIMED_OUT;
+        },
+    };
 }
 const sameList = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length
     && JSON.stringify(a.map(String).sort()) === JSON.stringify(b.map(String).sort());
@@ -188,7 +235,7 @@ function legJourneyIds(receipt) {
  * same way) plus its own binding: this run, attempt and create attempt, each journey's CLI evidence, and J8.b's final-submit
  * journey (only when the receipt's final submit row PASSes for that one journey).
  */
-async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, deadlines = DEADLINES, state = {} } = {}) {
+async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, deadlines = DEADLINES, state = {}, startable = () => true } = {}) {
     const journeys = [];
     const legs = legJourneyIds(receipt);
     // After a call passes its deadline, no later readback or coaching call is made in this run (Codex on 46fe2e02): its process may
@@ -217,7 +264,11 @@ async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, dea
     for (const j of receipt.readback.journeys) {
         const ask = { journeyId: String(j.journeyId), stages: stagesOf(j), attemptIds: attemptsOf(j), firstDownload: j.firstDownload === true, release: receipt.release };
         let r = null;
-        if (legs && !cutOff) r = await bounded(deadlines.readbackMs, () => qualify(ask));
+        // Sam, 23 Nov: a readback starts only while it, its late settle and everything after it fit before the step's end.
+        if (legs && !cutOff) {
+            if (startable(deadlines.readbackMs)) r = await bounded(deadlines.readbackMs, () => qualify(ask));
+            else cutOff = STEP_CUT_OFF;
+        }
         const { verdict, received } = boundReadback(r, ask);
         journeys.push({ journeyId: ask.journeyId, stages: ask.stages, attemptIds: ask.attemptIds, verdict, received });
     }
@@ -237,7 +288,8 @@ async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, dea
     const anchor = bIds.length === 1 && journeys.filter((j) => j.journeyId === bIds[0]).length === 1 ? bIds[0] : null;
     let result = null;
     if (anchor && typeof coaching === 'function' && !cutOff) {
-        result = await bounded(deadlines.coachingMs, () => coaching({ journeyId: anchor, expectation, release: receipt.release }));
+        if (startable(deadlines.coachingMs)) result = await bounded(deadlines.coachingMs, () => coaching({ journeyId: anchor, expectation, release: receipt.release }));
+        else cutOff = STEP_CUT_OFF;
         if (cutOff) out.cutOff = cutOff;
     }
     // Only the readback's own bound result is kept; anything else is an UNBOUND HOLD the finalizer can never settle a row from.
@@ -360,7 +412,7 @@ function sameDirectory(a, b) {
  * Exit: 0 every row PASS, cleanup complete AND the run's create attempt no longer blocks admission; 1 a row FAILed; 78 otherwise
  * (HOLD, refused or NOT RUN).
  */
-async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configuredDomain, expectedRelease, runBinding, deps, deadlines = DEADLINES, now = () => Date.now() }) {
+async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configuredDomain, expectedRelease, runBinding, deps, stepEndAt, deadlines = DEADLINES, now = () => Date.now() }) {
     if (typeof expectedRelease !== 'string' || !SHA.test(expectedRelease))
         return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the parent named no expected release' };
     // The binding the spec's signup writes (app_metadata.ct_run, runBinding.ts) and the parent recovery checks the account against.
@@ -375,6 +427,18 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
     // Sam on b1f8323f (2): a fresh artifact location. A receipt already there could stand in for this run's, so nothing is sent.
     const receiptFile = path.join(runDir, 'test-results', 'rwt', RECEIPT_FILE);
     if (fs.existsSync(receiptFile)) return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the receipt location is not fresh' };
+    // Sam, 23 Nov: the initial time budget is checked before the account is reserved, so an early refusal leaves no create record.
+    if (!Number.isFinite(stepEndAt)) return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: the parent named no runner step deadline' };
+    if (!(now() + deadlines.specMs + deadlines.parentOpSettleMs + deadlines.cleanupMs < stepEndAt))
+        return { exitCode: 78, reason: 'HOLD: J8 not admitted, nothing sent: too little of the runner step is left for the spec and cleanup' };
+    // Whether a call of `callMs` can start now: it, its late settle, the evaluation and cleanup all end before the step's end.
+    let stepHeld = false;
+    const startable = (callMs) => {
+        const fits = now() + callMs + deadlines.lateSettleMs + deadlines.evaluateMs + deadlines.cleanupMs < stepEndAt;
+        if (!fits) stepHeld = true;
+        return fits;
+    };
+    const operations = parentOperations();
     let admission;
     try { admission = admitJ8({ evidenceDir, runId, runAttempt, configuredDomain, now }); }
     catch (e) { return { exitCode: 78, reason: `HOLD: J8 not admitted, nothing sent: ${String(e.message).slice(0, 200)}` }; }
@@ -392,23 +456,32 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
         let outcome = null;
         try {
             outcome = await within(deadlines.specMs, () => deps.runSpec({ env: { RWT_J8_RUNNER_ADMISSION: admission.admissionFile, GITHUB_RUN_ID: String(runId),
-                GITHUB_RUN_ATTEMPT: String(runAttempt), LIVE_TEST_EMAIL_DOMAIN: admission.domain } }));
+                GITHUB_RUN_ATTEMPT: String(runAttempt), LIVE_TEST_EMAIL_DOMAIN: admission.domain }, operations: operations.port }));
         } catch { outcome = null; }
+        // Sam, 23 Nov: once the spec has ended (exited, killed or cut off), no new parent operation is admitted. One still in flight
+        // must settle before anything else runs; one that does not settle in time leaves every row HOLD and the account for protected
+        // recovery (teardown neither looks it up nor deletes it).
+        operations.close();
+        const opsSettled = await operations.settle(Math.min(deadlines.parentOpSettleMs, stepEndAt - now() - deadlines.cleanupMs));
         // Sam on 65365f36: an exit counts only once the adapter confirmed the spec's whole process tree (browser included) stopped.
         specExited = !!outcome && outcome !== TIMED_OUT && outcome.timedOut !== true && outcome.drained === true && Number.isInteger(outcome.exitCode);
         const specFault = specOutcomeFault(outcome, { admission, runId, runAttempt });
-        const read = specFault ? { fault: specFault } : readBoundReceipt(receiptFile, { attemptId: admission.attemptId, expectedRelease, notBeforeMs: specStart });
+        if (!opsSettled) readbackState.unconfirmed = 'a parent operation was still in flight when the spec ended and did not settle';
+        const read = !opsSettled ? { fault: 'a parent operation did not settle after the spec ended' }
+            : specFault ? { fault: specFault } : readBoundReceipt(receiptFile, { attemptId: admission.attemptId, expectedRelease, notBeforeMs: specStart });
         if (read.fault) caseResult = holdAll(read.fault);
         // A failed spec must show its failing row. Keyed on FAIL, not on every row PASS: the J8 receipt always carries the deferred
         // HOLD retention row, which the mapping does not floor, so "every row PASS" would never catch this contradiction.
         else if (outcome.exitCode === 1 && !read.receipt.rows.some((r) => r?.verdict === 'FAIL')) caseResult = holdAll('the spec failed but its receipt shows no failing row');
         else {
             receipt = read.receipt;
-            readback = await j8ReadbackVerdicts(receipt, deps, { binding: { runId: String(runId), runAttempt: String(runAttempt), createAttempt: admission.attemptId }, deadlines, state: readbackState });
+            readback = await j8ReadbackVerdicts(receipt, deps, { binding: { runId: String(runId), runAttempt: String(runAttempt), createAttempt: admission.attemptId }, deadlines, state: readbackState, startable });
             // Sam on f07fea31: the evaluation starts its own process, so it runs only once every readback and coaching process is
             // confirmed stopped, and it sits behind the same cleanup gate: an evaluation past its deadline, one that throws, or one
             // whose process was not confirmed stopped leaves the account for protected recovery. Every row is HOLD in all of these.
             if (readbackState.unconfirmed !== null) caseResult = holdAll('a readback or coaching process was not confirmed stopped, so the receipt was not settled');
+            // Sam, 23 Nov: the evaluation starts only while it and cleanup fit before the step's end; otherwise every row is HOLD.
+            else if (!(now() + deadlines.evaluateMs + deadlines.cleanupMs < stepEndAt)) { stepHeld = true; caseResult = holdAll('the runner step\'s end is too close to settle the receipt'); }
             else {
                 let evaluated;
                 try { evaluated = await within(deadlines.evaluateMs, () => deps.evaluate(receipt, readback)); }
@@ -419,22 +492,24 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
             }
         }
     } finally {
+        // Cleanup never runs past the step's end; the gates above keep its whole budget free.
         cleanup = await teardownJ8({ evidenceDir, admission, receipt, deps, binding, specExited, readbackUnconfirmed: readbackState.unconfirmed,
-            budgetMs: deadlines.cleanupMs, now });
+            budgetMs: Math.min(deadlines.cleanupMs, stepEndAt - now()), now });
     }
     const blocks = ownBlocks(evidenceDir, admission.recordRunId);
     const createJournal = blocks.length === 0 ? 'resolved' : 'unresolved';
     const results = caseResult.assertions.map((a) => a.result);
     const exitCode = results.includes('FAIL') ? 1
         : results.every((r) => r === 'PASS') && cleanup.cleanup === 'complete' && createJournal === 'resolved' ? 0 : 78;
-    return { exitCode, caseResult, readback, cleanup: { result: cleanup.cleanup, reasons: cleanup.incompleteReasons }, createJournal, blocks };
+    return { exitCode, caseResult, readback, cleanup: { result: cleanup.cleanup, reasons: cleanup.incompleteReasons }, createJournal, blocks,
+        stepDeadline: stepHeld || readback?.cutOff === STEP_CUT_OFF ? 'held' : 'clear' };
 }
 
 /**
  * The CLI's own checks, before anything is built, recorded or sent: explicit key/value arguments only, LIVE_TEST_EMAIL_DOMAIN and the
  * run binding from the parent. -> { args } or a refusal { exitCode: 78, reason }.
  */
-function cliArgs(argv, env) {
+function cliArgs(argv, env, clock = Date.now) {
     const ALLOWED = ['--evidence-dir', '--run-dir', '--run-id', '--run-attempt', '--release-sha', '--execute'];
     const a = {};
     if (argv.length % 2) return { exitCode: 78, reason: 'BLOCKED_SETUP: explicit key/value arguments required' };
@@ -446,7 +521,12 @@ function cliArgs(argv, env) {
         return { exitCode: 78, reason: 'BLOCKED_SETUP: --evidence-dir, --run-dir, --run-id, --run-attempt, --release-sha and --execute true are required' };
     if (!env.LIVE_TEST_EMAIL_DOMAIN) return { exitCode: 78, reason: 'BLOCKED_SETUP: LIVE_TEST_EMAIL_DOMAIN is not set in the parent' };
     if (!env.GITHUB_REPOSITORY || !env.GITHUB_WORKFLOW_REF) return { exitCode: 78, reason: 'BLOCKED_SETUP: the parent has no run binding (GITHUB_REPOSITORY, GITHUB_WORKFLOW_REF)' };
-    return { args: a };
+    // The runner step's own start (its first command), so the step's end is fixed from the step, not from when this process began.
+    const started = String(env.J8_STEP_STARTED_AT ?? '');
+    const at = clock();
+    if (!/^\d{13}$/.test(started) || Number(started) > at + 5_000 || at - Number(started) >= J8_STEP_MS)
+        return { exitCode: 78, reason: 'BLOCKED_SETUP: the runner step\'s start (J8_STEP_STARTED_AT) is missing or not this step\'s' };
+    return { args: a, stepEndAt: Number(started) + J8_STEP_MS - STEP_MARGIN_MS };
 }
 
 /**
@@ -460,7 +540,8 @@ async function main(argv, env = process.env, deps = {}) {
     if (['runSpec', 'qualify', 'evaluate', ...RECOVERY_DEPS].some((k) => typeof deps[k] !== 'function'))
         return { exitCode: 78, reason: 'HOLD: no offline spec, readback, evaluation and recovery fixtures; the J8 live gate is closed (no-j8-harness-adapter)' };
     return runJ8Nightly({ evidenceDir: a['--evidence-dir'], runDir: a['--run-dir'], runId: a['--run-id'], runAttempt: a['--run-attempt'],
-        configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN, expectedRelease: a['--release-sha'], runBinding: { repository: env.GITHUB_REPOSITORY, workflow: env.GITHUB_WORKFLOW_REF }, deps });
+        configuredDomain: env.LIVE_TEST_EMAIL_DOMAIN, expectedRelease: a['--release-sha'], runBinding: { repository: env.GITHUB_REPOSITORY, workflow: env.GITHUB_WORKFLOW_REF },
+        stepEndAt: cli.stepEndAt, deps });
 }
 
 /** The rc-gates acknowledgements a J8 run needs (rwt_writes_ack, rwt_canary_claim_ack). */
@@ -527,7 +608,7 @@ function j8RunSummary(r) {
         const rows = r.caseResult.assertions.filter((a) => a.leg === leg).map((a) => a.result);
         legs[leg] = rows.includes('FAIL') ? 'FAIL' : rows.length > 0 && rows.every((x) => x === 'PASS') ? 'PASS' : 'HOLD';
     }
-    return { exitCode: r.exitCode, legs, cleanup: r.cleanup?.result ?? null, createJournal: r.createJournal ?? null };
+    return { exitCode: r.exitCode, legs, cleanup: r.cleanup?.result ?? null, createJournal: r.createJournal ?? null, stepDeadline: r.stepDeadline ?? null };
 }
 
 if (require.main === module) liveMain(process.argv.slice(2)).then((r) => {
@@ -536,6 +617,6 @@ if (require.main === module) liveMain(process.argv.slice(2)).then((r) => {
     process.exitCode = r.exitCode;
 });
 module.exports = {
-    DEADLINES, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
+    DEADLINES, J8_STEP_MS, STEP_MARGIN_MS, STEP_CUT_OFF, ParentOperationRefused, parentOperations, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
     J8_CANARY_ACK, J8_LOOKUP_PAGES, J8_WRITES_ACK, cliArgs, j8AdminTransport, j8RunSummary, liveMain, main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
 };
