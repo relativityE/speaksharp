@@ -1028,7 +1028,7 @@ test('J9.a retention precondition: only the reviewed policy version, read back a
   assert.equal(retentionActive({ version: 'newest_one_v1', active: true }), true);
   // Negative control (Sam): an inactive policy, another version, or an unread value never passes.
   for (const read of [{ version: 'newest_one_v1', active: false }, { version: 'newest_one_v1', active: null }, { version: 'newest_one_v1', active: 'true' },
-    { version: 'newest_two_v1', active: true }, { version: null, active: true }, { version: 'NEWEST_ONE_V1', active: true }]) {
+    { version: 'newest_one_v2', active: true }, { version: null, active: true }, { version: 'NEWEST_ONE_V1', active: true }]) {
     assert.equal(retentionActive(read), false, JSON.stringify(read));
   }
   for (const [error, expected] of [[{ code: '55000', message: '1 ambiguous legacy session(s)' }, 'retention_activation_failed_55000'],
