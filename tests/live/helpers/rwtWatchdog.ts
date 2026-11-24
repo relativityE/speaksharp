@@ -59,6 +59,13 @@ export interface WatchProfile {
      */
     readonly allowAcquisitionAbortAfterNavigation?: boolean;
     /**
+     * J7.c run 45364395660 (Sam's review 1795522438, finding 1): the offline-download scenario only. Inside the fault phase a
+     * code-less FAILED -> FAILED_VISIBLE that arrives before the FAILED it presents waits `PRESENTATION_GRACE_MS` for it.
+     * Only a FAILED the watchdog first saw BEFORE that deadline can bind it; one first seen at or after it never rescues the
+     * row. Every other suite (save-retry included) judges an unbound presentation the moment it arrives, as before.
+     */
+    readonly bindLatePresentation?: boolean;
+    /**
      * AHT-13 (run 43156423671): a failed model download reaches FAILED with failure_code `other`, because the download error
      * is not one of the authored messages `recordingFailureCode` maps. Excuses `other` ONLY on a FAILED transition out of
      * engine preparation (from ENGINE_INITIALIZING) — never `other` while recording, stopping or saving.
@@ -117,6 +124,16 @@ export function presentedFailureOf(visible: StateRecord, history: readonly State
     return latest[0].fields.to_state === 'FAILED' ? latest[0].fields : undefined;
 }
 
+/**
+ * J7.c run 45364395660: events a page sends while offline reach the tap only after it reconnects, and not in capture order,
+ * so a FAILED -> FAILED_VISIBLE can arrive before the FAILED it presents. Only for a profile with `bindLatePresentation`
+ * (the offline-download scenario) and only inside its fault phase, an unbound presentation waits up to this long after the
+ * watchdog first SAW it for its same-attempt FAILED, then is bound by capture order as before. Only a FAILED first seen
+ * strictly before that deadline may bind it. Still unbound at the deadline, or at finalization, it is judged as it stands,
+ * which trips. Only the presentation waits: every FAILED, a Retry's included, is judged the moment it arrives.
+ */
+export const PRESENTATION_GRACE_MS = 5_000;
+
 export interface WatchSignal {
     readonly kind: FatalKind | StallKind;
     readonly event: string | null;
@@ -157,7 +174,7 @@ export const WATCH_PROFILES: Readonly<Record<string, WatchProfile>> = Object.fre
         allowFailureCodes: ['start_model_unavailable', 'engine_error', 'start_failed', 'timeout'],
     },
     'adverse-mic-model-offline-mid-download': {
-        allowModelFailure: true, allowStartRefused: true, allowUnclassifiedWhilePreparing: true,
+        allowModelFailure: true, allowStartRefused: true, allowUnclassifiedWhilePreparing: true, bindLatePresentation: true,
         allowFailureCodes: ['start_model_unavailable', 'engine_error', 'start_failed', 'timeout', ...LEASE_CODES],
     },
     'returning-user-navigation': {},
@@ -365,6 +382,10 @@ export class JourneyWatchdog {
     private readonly stateHistory = new Map<string, StateRecord[]>();
     /** Presentations excused by binding: a same-attempt event that later proves to sit between the pair trips. */
     private readonly boundPresentations = new Map<string, Array<{ failed: StateRecord; visible: StateRecord }>>();
+    /** Unbound fault-phase presentations still waiting for their late FAILED (`PRESENTATION_GRACE_MS`), in arrival order. */
+    private readonly pendingPresentations: Array<{ e: SentEvent; attempt: string; record: StateRecord; deadline: number }> = [];
+    /** When the watchdog first saw each attempt-bound record (the scan's clock): the arrival cutoff for a waiting presentation. */
+    private readonly firstSeen = new WeakMap<StateRecord, number>();
     /** `markNavigationIntent`: when, from which page, until when (`closeNavigationIntent`), and whether the one abort was claimed. */
     private navigationIntent: { at: number; until: number | null; page: unknown; claimed: boolean } | null = null;
     /** Time after which the suite's refusal allowance is withdrawn (a take-over press must not be refused again). */
@@ -607,11 +628,16 @@ export class JourneyWatchdog {
                 }
             }
             const history = this.stateHistory.get(attempt) ?? [];
-            if (fields.to_state === 'FAILED_VISIBLE' && fields.from_state === 'FAILED' && fields.failure_code === undefined) {
-                ctx.presentedFailure = presentedFailureOf(record, history);
-            }
+            const presentation = fields.to_state === 'FAILED_VISIBLE' && fields.from_state === 'FAILED' && fields.failure_code === undefined;
+            if (presentation) ctx.presentedFailure = presentedFailureOf(record, history);
             history.push(record);
+            this.firstSeen.set(record, now);
             this.stateHistory.set(attempt, history);
+            if (presentation && !ctx.presentedFailure && this.inFaultAt(record.capturedAt)
+                && this.profileAt(record.capturedAt, sourcePage).bindLatePresentation === true) {
+                this.pendingPresentations.push({ e, attempt, record, deadline: now + PRESENTATION_GRACE_MS });
+                return null;
+            }
         }
         const intent = this.navigationIntent;
         if (e.event === 'private_model_acquisition_failure' && intent && !intent.claimed && sourcePage === intent.page
@@ -626,6 +652,35 @@ export class JourneyWatchdog {
             if (failed) this.boundPresentations.set(attempt, [...(this.boundPresentations.get(attempt) ?? []), { failed, visible: record }]);
         }
         return kind ? { kind, event: e.event, fields, elapsedMs: now - this.started } : null;
+    }
+
+    /**
+     * Re-judge each waiting presentation against what was seen before its deadline: bound, it is judged as the FAILED it
+     * presents (and recorded as a bound pair); unbound at its deadline, or when `force` (finalization), it is judged as it
+     * stands. A record first seen at or after the deadline is never a candidate (Sam 1795522438 finding 1: the scan judges
+     * new events before settling, so without this cutoff a FAILED first seen after 5 s could still rescue the row).
+     */
+    private settlePresentations(now: number, force: boolean): WatchSignal | null {
+        for (let i = 0; i < this.pendingPresentations.length;) {
+            const p = this.pendingPresentations[i];
+            const history = (this.stateHistory.get(p.attempt) ?? [])
+                .filter((r) => r !== p.record && (this.firstSeen.get(r) ?? Infinity) < p.deadline);
+            const presented = presentedFailureOf(p.record, history);
+            if (!presented && !force && now < p.deadline) { i += 1; continue; }
+            this.pendingPresentations.splice(i, 1);
+            const sourcePage = (p.e as { sourcePage?: unknown }).sourcePage;
+            const kind = fatalSignalOf(p.e, this.profileAt(p.e.capturedAt, sourcePage), this.forbiddenAt(p.e.capturedAt),
+                presented ? { presentedFailure: presented } : {});
+            if (kind) return { kind, event: p.e.event, fields: p.record.fields, elapsedMs: now - this.started };
+            const failed = history.find((r) => r.fields === presented);
+            if (failed) this.boundPresentations.set(p.attempt, [...(this.boundPresentations.get(p.attempt) ?? []), { failed, visible: p.record }]);
+        }
+        return null;
+    }
+
+    /** Whether an event captured at `captured` fell inside the suite's fault phase. */
+    private inFaultAt(captured: number): boolean {
+        return this.faultIntervals.some((i) => captured >= i.from && captured <= i.to);
     }
 
     /** Classify every queued event (synchronous); the first unexpected fatal one is returned. */
@@ -645,7 +700,7 @@ export class JourneyWatchdog {
             const signal = this.judge(e, now);
             if (signal) { this.cursor += 1; return signal; }
         }
-        return null;
+        return this.settlePresentations(now, false);
     }
 
     /** One content-free status line: state, model, control, last watched event and its age. */
@@ -733,7 +788,7 @@ export class JourneyWatchdog {
         // Sam, #1662 RETURN on f527a033 (item 4): the terminal window closes AFTER the drain — an event that arrived while
         // the last DOM read was draining still judges this journey before its row is written.
         if (!this.signal) {
-            const terminal = this.scanTelemetry(Date.now());
+            const terminal = this.scanTelemetry(Date.now()) ?? this.settlePresentations(Date.now(), true);
             if (terminal) this.mark(terminal);
         }
         const s = this.signal;

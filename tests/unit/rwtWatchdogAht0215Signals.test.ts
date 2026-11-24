@@ -5,7 +5,7 @@
  * allowance is paired with the nearby signal it must NOT excuse (Sam's review: unrelated errors and stale presentations).
  */
 import { describe, expect, it } from 'vitest';
-import { JourneyWatchdog, fatalSignalOf, presentedFailureOf, watchProfileFor, type StateRecord, type WatchProfile } from '../live/helpers/rwtWatchdog';
+import { JourneyWatchdog, PRESENTATION_GRACE_MS, WATCH_PROFILES, fatalSignalOf, presentedFailureOf, watchProfileFor, type StateRecord, type WatchProfile } from '../live/helpers/rwtWatchdog';
 
 const ev = (event: string, watch: Record<string, string> = {}) => ({ event, watch, at: Date.now() });
 const state = (from: string, to: string, failure_code?: string) =>
@@ -157,6 +157,7 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
         const h = harness(); const w = watchdog(h, 'save-retry-recovery-request-lost'); const t = Date.now() + 10; // inside the fault phase
         h.tap.events.push(sent(h.page, { capturedAt: t, attempt: 'attempt-1' }, state('STOPPING', 'FAILED', 'session_save_failed')));
         h.tap.events.push(sent(h.page, { capturedAt: t + 5, attempt: 'attempt-2' }, state('FAILED', 'FAILED_VISIBLE')));
+        // J7.c (Sam 1795522438 finding 1): the late-presentation wait is the offline-download profile's only; save-retry trips at once.
         expect(await w.tick()).toMatchObject({ kind: 'recording_failed' });
     });
 
@@ -182,6 +183,116 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
         expect(await w.tick()).toBeNull();
         h.tap.events.push(sent(h.page, { capturedAt: t + 2 }, state('FAILED', 'READY')));
         expect(await w.tick()).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE' } });
+    });
+
+    // J7.c run 45364395660: offline-sent events reach the tap after reconnect, out of order. The cold Start's presentation
+    // arrived before the FAILED it presents and was judged unbound mid-Retry.
+    const OFFLINE = 'adverse-mic-model-offline-mid-download';
+    const coldFailed = () => state('ENGINE_INITIALIZING', 'FAILED', 'start_model_unavailable');
+
+    it('J7.c: the presentation arrives first; its FAILED arrives on the next scan inside the wait; bound, it passes', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5, batch: 1 }, state('FAILED', 'FAILED_VISIBLE')));
+        const now = Date.now();
+        expect(await w.tick(now)).toBeNull();
+        h.tap.events.push(sent(h.page, { capturedAt: t, batch: 2 }, coldFailed()));
+        expect(await w.tick(now + 2_700)).toBeNull();
+        expect(await w.tick(now + PRESENTATION_GRACE_MS * 3), 'settled: nothing left to trip later').toBeNull();
+    });
+
+    it('J7.c NEGATIVE: the late FAILED never comes: it trips at the deadline, not before', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5 }, state('FAILED', 'FAILED_VISIBLE')));
+        const now = Date.now();
+        expect(await w.tick(now), 'arrived: the wait starts now').toBeNull();
+        expect(await w.tick(now + PRESENTATION_GRACE_MS - 1)).toBeNull();
+        expect(await w.tick(now + PRESENTATION_GRACE_MS)).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE' } });
+    });
+
+    it('J7.c NEGATIVE: the late FAILED carries a code the scenario does not allow: it trips when it arrives', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5 }, state('FAILED', 'FAILED_VISIBLE')));
+        const now = Date.now();
+        expect(await w.tick(now)).toBeNull();
+        h.tap.events.push(sent(h.page, { capturedAt: t }, state('RECORDING', 'FAILED', 'session_save_failed')));
+        expect(await w.tick(now + 100)).toMatchObject({ kind: 'recording_failed', fields: { failure_code: 'session_save_failed' } });
+    });
+
+    it('J7.c NEGATIVE: a later-arriving transition captured between the late pair keeps it unbound: it trips', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5 }, state('FAILED', 'FAILED_VISIBLE')));
+        h.tap.events.push(sent(h.page, { capturedAt: t }, coldFailed()));
+        h.tap.events.push(sent(h.page, { capturedAt: t + 2 }, state('FAILED', 'READY')));
+        const now = Date.now();
+        expect(await w.tick(now)).toBeNull();
+        expect(await w.tick(now + PRESENTATION_GRACE_MS)).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE' } });
+    });
+
+    it('J7.c NEGATIVE: outside the fault phase nothing waits: an unbound presentation trips at once', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE);
+        w.setFaultPhase(false);
+        await new Promise((r) => setTimeout(r, 5));
+        h.tap.events.push(sent(h.page, { capturedAt: Date.now() + 5 }, state('FAILED', 'FAILED_VISIBLE')));
+        expect(await w.tick()).toMatchObject({ kind: 'recording_failed' });
+    });
+
+    it('J7.c NEGATIVE: a real Retry failure is never masked by a waiting presentation: it trips the moment it arrives', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5, attempt: 'cold' }, state('FAILED', 'FAILED_VISIBLE')));
+        const now = Date.now();
+        expect(await w.tick(now)).toBeNull();
+        w.setFaultPhase(false); // the network is back; the Retry is strict
+        await new Promise((r) => setTimeout(r, 5));
+        h.tap.events.push(sent(h.page, { capturedAt: Date.now() + 5, attempt: 'retry' }, state('ENGINE_INITIALIZING', 'FAILED', 'start_model_unavailable')));
+        expect(await w.tick(now + 50)).toMatchObject({ kind: 'recording_failed', fields: { failure_code: 'start_model_unavailable' } });
+    });
+
+    it('J7.c NEGATIVE (cutoff): a matching FAILED first seen AFTER the deadline never rescues the row', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5, batch: 1 }, state('FAILED', 'FAILED_VISIBLE')));
+        const now = Date.now();
+        expect(await w.tick(now)).toBeNull();
+        h.tap.events.push(sent(h.page, { capturedAt: t, batch: 2 }, coldFailed()));
+        expect(await w.tick(now + PRESENTATION_GRACE_MS + 1)).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE' } });
+    });
+
+    it('J7.c NEGATIVE (cutoff): a matching FAILED first seen exactly AT the deadline never rescues the row', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5, batch: 1 }, state('FAILED', 'FAILED_VISIBLE')));
+        const now = Date.now();
+        expect(await w.tick(now)).toBeNull();
+        h.tap.events.push(sent(h.page, { capturedAt: t, batch: 2 }, coldFailed()));
+        expect(await w.tick(now + PRESENTATION_GRACE_MS)).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE' } });
+    });
+
+    it('J7.c NEGATIVE (cutoff): first seen after the deadline but before finalization still FAILs the row at finalization', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5, batch: 1 }, state('FAILED', 'FAILED_VISIBLE')));
+        expect(await w.tick(Date.now() - PRESENTATION_GRACE_MS * 2), 'seen long ago: its deadline has passed').toBeNull();
+        h.tap.events.push(sent(h.page, { capturedAt: t, batch: 2 }, coldFailed()));
+        const rows: { verdict: string; evidence?: unknown }[] = [];
+        await w.record({ row: (_s: string, verdict: string, _d: string, evidence?: unknown) => { rows.push({ verdict, evidence }); } } as never);
+        expect(rows).toEqual([expect.objectContaining({ verdict: 'FAIL', evidence: expect.objectContaining({ kind: 'recording_failed' }) })]);
+    });
+
+    it.each(['save-retry-recovery-request-lost', 'save-retry-recovery-response-lost', 'abandon-and-two-tabs-navigate-away', 'adverse-mic-model-download-fails'])(
+        'J7.c NEGATIVE (scope): %s does not wait: an unbound in-fault presentation trips at once', async (suite) => {
+            const h = harness(); const w = watchdog(h, suite); const t = Date.now() + 10;
+            h.tap.events.push(sent(h.page, { capturedAt: t + 5 }, state('FAILED', 'FAILED_VISIBLE')));
+            expect(await w.tick()).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE' } });
+        });
+
+    it('J7.c scope: only the offline-download profile carries the late-presentation wait', () => {
+        expect(Object.entries(WATCH_PROFILES).filter(([, p]) => p.bindLatePresentation).map(([k]) => k)).toEqual(['adverse-mic-model-offline-mid-download']);
+    });
+
+    it('J7.c NEGATIVE: still waiting at finalization is a FAIL row, never a PASS', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5 }, state('FAILED', 'FAILED_VISIBLE')));
+        expect(await w.tick()).toBeNull();
+        const rows: { verdict: string; evidence?: unknown }[] = [];
+        await w.record({ row: (_s: string, verdict: string, _d: string, evidence?: unknown) => { rows.push({ verdict, evidence }); } } as never);
+        expect(rows).toEqual([expect.objectContaining({ verdict: 'FAIL', evidence: expect.objectContaining({ kind: 'recording_failed' }) })]);
     });
 
     it('pending-start: one `aborted` acquisition failure after the navigation intent passes', async () => {
