@@ -6,7 +6,7 @@ import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertT
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
   APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, takeOutcome, optInThroughPrompt,
-  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded } from './contract';
+  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded, keptHistoryVerdict } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -992,4 +992,26 @@ test('decline scan trusts only the hosted Checkout page and Stripe frames; an un
   for (const page of ['http://127.0.0.1:5173/practice', 'https://checkout.stripe.com.evil.example/c/pay', 'about:blank']) {
     assert.equal(trustedCheckoutFrame(page, 'https://js.stripe.com/v3/x.html'), false, page);
   }
+});
+
+test('J9.a kept history: each seeded session opened by its own id shows its own transcript; same-session-twice fails', () => {
+  const seeded = [{ id: 'a1', phrase: 'earlier practice one' }, { id: 'b2', phrase: 'earlier practice two' }];
+  const own = [{ id: 'a1', text: 'Transcript: earlier practice one.' }, { id: 'b2', text: 'earlier practice two' }];
+  assert.equal(keptHistoryVerdict(seeded, own), true);
+  assert.equal(keptHistoryVerdict(seeded, [...own].reverse()), true, 'order of opening does not matter');
+  // Opening the same session twice is two opens, never two sessions.
+  assert.equal(keptHistoryVerdict(seeded, [own[0], own[0]]), false, 'same session twice');
+  assert.equal(keptHistoryVerdict(seeded, [own[0], { id: 'a1', text: 'earlier practice two' }]), false, 'same id, other text');
+  // Each view must be its own session's: swapped, merged, missing, foreign or unread views fail.
+  assert.equal(keptHistoryVerdict(seeded, [{ id: 'a1', text: 'earlier practice two' }, { id: 'b2', text: 'earlier practice one' }]), false, 'swapped');
+  assert.equal(keptHistoryVerdict(seeded, [{ id: 'a1', text: 'earlier practice one earlier practice two' }, own[1]]), false, 'shows both');
+  assert.equal(keptHistoryVerdict(seeded, [own[0]]), false, 'one session missing');
+  assert.equal(keptHistoryVerdict(seeded, [own[0], { id: 'zz', text: 'earlier practice two' }]), false, 'foreign id');
+  assert.equal(keptHistoryVerdict(seeded, [own[0], { id: 'b2', text: null }]), false, 'unread view');
+  assert.equal(keptHistoryVerdict(seeded, [...own, { id: 'c3', text: 'x' }]), false, 'an extra open');
+  // The seeds themselves must be two or more distinct sessions with distinct phrases.
+  assert.equal(keptHistoryVerdict([seeded[0]], [own[0]]), false, 'one seed');
+  assert.equal(keptHistoryVerdict([seeded[0], { id: 'a1', phrase: 'earlier practice two' }], own), false, 'duplicate seed id');
+  assert.equal(keptHistoryVerdict([seeded[0], { id: 'b2', phrase: 'earlier practice one' }], own), false, 'duplicate seed phrase');
+  assert.equal(keptHistoryVerdict([seeded[0], { id: 'b2', phrase: '' }], own), false, 'empty seed phrase');
 });

@@ -26,7 +26,7 @@ on:
         required: true
         type: choice
         default: conversion
-        options: [conversion, renewal_recovery, portal_expiry, failed_checkout, portal_recovery, refund_period_end, restore_access, paid_value_loop]
+        options: [conversion, renewal_recovery, portal_expiry, failed_checkout, portal_recovery, refund_period_end, restore_access, paid_account_kept, paid_value_loop]
 
 permissions:
   contents: read

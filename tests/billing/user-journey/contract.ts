@@ -805,3 +805,20 @@ export function assertSandboxConfiguration(env: Record<string, string | undefine
   requireFact(app !== 'https://speaksharp-public.vercel.app' && api !== productionApi, 'production_target_refused');
   return { app, api };
 }
+
+/**
+ * J9.a: each seeded earlier session was opened by its OWN id and showed its OWN transcript, and no other seeded session's.
+ * Opening one session twice, a missing or foreign id, another session's text, an unread view, or seeds that are not two
+ * or more distinct ids with distinct phrases all fail, so a count of opens can never stand in for the sessions themselves.
+ */
+export function keptHistoryVerdict(seeded: readonly { id: string; phrase: string }[],
+  opened: readonly { id: string; text: string | null }[]): boolean {
+  if (seeded.length < 2 || new Set(seeded.map(s => s.id)).size !== seeded.length
+    || new Set(seeded.map(s => s.phrase)).size !== seeded.length || seeded.some(s => !s.id || !s.phrase)) return false;
+  if (opened.length !== seeded.length || new Set(opened.map(o => o.id)).size !== opened.length) return false;
+  return seeded.every((own) => {
+    const view = opened.find(o => o.id === own.id);
+    return typeof view?.text === 'string' && view.text.includes(own.phrase)
+      && seeded.every(other => other.id === own.id || !view.text!.includes(other.phrase));
+  });
+}
