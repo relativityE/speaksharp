@@ -49,6 +49,7 @@ export function currentTakeLeaseId(): string | null {
 /** Acquire the account's lease for a NEW take. Never throws; an unanswerable authority is `action: 'error'`. */
 export async function acquireTakeLease(opts: { force?: boolean; rpc?: LeaseRpc; holderLabel?: string } = {}): Promise<LeaseDecision> {
     const rpc = opts.rpc ?? defaultRpc;
+    await retryUnreachedAbandons();
     if (heldLeaseId !== null) await releaseTakeLease({ rpc });
     revoked = false;
 
@@ -150,32 +151,37 @@ export async function confirmTakeLease(opts: { rpc?: LeaseRpc } = {}): Promise<T
  * good, but only after proving no take exists for it. A refusal (a take exists), an error, or a server without the
  * function falls back to the ordinary release of that same lease, so this is never weaker than releasing. Only that
  * lease is touched: a newer take's lease is never cleared here.
+ *
+ * J7.c run 45364395660: a Start that fails because the browser went offline cannot reach the server either, and the
+ * one call was lost, leaving the admitted obligation open. If the abandon call itself is unreached (a thrown or
+ * transport error, no answer from the server), the exact lease is kept and the same call is retried when the browser
+ * comes back online (`window` `online`), and again before the next release or acquire. Only the server's own answer
+ * ends the retry: `abandoned`, or a definite refusal (a take exists, an unknown identity, another account), after which
+ * the ordinary release runs as before. The server still proves no take exists; nothing here is a weaker settle.
  */
 export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: string } = {}): Promise<void> {
     const rpc = opts.rpc ?? defaultRpc;
+    await retryUnreachedAbandons();
     if (opts.startFailed !== undefined) {
         const leaseId = opts.startFailed;
         if (heldLeaseId === leaseId) {
             stopHeartbeat();
             heldLeaseId = null;
         }
-        try {
-            const { data, error } = await rpc('abandon_recording_start_v1', { p_lease_id: leaseId });
-            if (!error && (data as { abandoned?: unknown } | null)?.abandoned === true) return;
-        } catch {
-            // Fall through to the ordinary release.
-        }
-        try {
-            await rpc('release_recording_lease', { p_lease_id: leaseId });
-        } catch {
-            // The server expires an unreleased lease after 15 s without heartbeats.
-        }
+        const outcome = await abandonStart(rpc, leaseId);
+        if (outcome === 'abandoned') return;
+        if (outcome === 'unreached') rememberUnreachedAbandon(leaseId, rpc);
+        await releaseLease(rpc, leaseId);
         return;
     }
     stopHeartbeat();
     const leaseId = heldLeaseId;
     heldLeaseId = null;
     if (leaseId === null) return;
+    await releaseLease(rpc, leaseId);
+}
+
+async function releaseLease(rpc: LeaseRpc, leaseId: string): Promise<void> {
     try {
         await rpc('release_recording_lease', { p_lease_id: leaseId });
     } catch {
@@ -183,9 +189,78 @@ export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: str
     }
 }
 
+type AbandonOutcome = 'abandoned' | 'refused' | 'unreached';
+
+/** One abandon call. `refused` only when the server itself answered without abandoning; anything else is `unreached`. */
+async function abandonStart(rpc: LeaseRpc, leaseId: string): Promise<AbandonOutcome> {
+    try {
+        const { data, error } = await rpc('abandon_recording_start_v1', { p_lease_id: leaseId });
+        if (error) return 'unreached';
+        const answer = data as { abandoned?: unknown; reason?: unknown } | null;
+        if (answer?.abandoned === true) return 'abandoned';
+        return answer?.abandoned === false && typeof answer.reason === 'string' ? 'refused' : 'unreached';
+    } catch {
+        return 'unreached';
+    }
+}
+
+/**
+ * Failed Starts whose abandon never reached the server, by exact lease, with the rpc that should settle them and the
+ * retries left. Bounded, so a server that never answers (an old one without the function) costs a few calls, not one per
+ * release forever; the obligation then stays for the existing cleanup, exactly as before this retry existed.
+ */
+const ABANDON_RETRIES = 5;
+const unreachedAbandons = new Map<string, { rpc: LeaseRpc; left: number }>();
+let retrying: Promise<void> | null = null;
+let onlineListening = false;
+
+function rememberUnreachedAbandon(leaseId: string, rpc: LeaseRpc): void {
+    unreachedAbandons.set(leaseId, { rpc, left: ABANDON_RETRIES });
+    if (!onlineListening && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('online', onOnline);
+        onlineListening = true;
+    }
+}
+
+function onOnline(): void {
+    void retryUnreachedAbandons();
+}
+
+/** Retry each unreached abandon once; keep only those still unreached. Never throws; one retry pass at a time. */
+export function retryUnreachedAbandons(): Promise<void> {
+    if (unreachedAbandons.size === 0) return Promise.resolve();
+    retrying ??= (async () => {
+        try {
+            for (const [leaseId, entry] of [...unreachedAbandons]) {
+                const { rpc } = entry;
+                const outcome = await abandonStart(rpc, leaseId);
+                if (outcome === 'unreached') {
+                    entry.left -= 1;
+                    if (entry.left <= 0) unreachedAbandons.delete(leaseId);
+                    continue;
+                }
+                unreachedAbandons.delete(leaseId);
+                if (outcome === 'refused') await releaseLease(rpc, leaseId);
+            }
+        } finally {
+            retrying = null;
+        }
+    })();
+    return retrying;
+}
+
+/** Test seam: the exact leases still waiting for an abandon the server never received. */
+export function __unreachedAbandonsForTests(): string[] {
+    return [...unreachedAbandons.keys()];
+}
+
 /** Test seam: forget any held lease and timer without calling the server. */
 export function __resetTakeLeaseForTests(): void {
     stopHeartbeat();
     heldLeaseId = null;
     revoked = false;
+    unreachedAbandons.clear();
+    retrying = null;
+    if (onlineListening && typeof window !== 'undefined') window.removeEventListener('online', onOnline);
+    onlineListening = false;
 }
