@@ -304,8 +304,10 @@ class SandboxJourney {
     if (this.journey === 'conversion') this.checkpoint('existing_customer_fixture');
     const seeded = await this.admin.from('user_profiles').update({ stripe_customer_id: this.customer }).eq('id', this.uid);
     requireFact(!seeded.error, 'fixture_customer_binding_failed');
-    // restore_access signed in before the trial ended, to save its take.
-    if (this.journey !== 'restore_access') await this.login();
+    // restore_access (its take) and paid_account_kept (J9.a's real newest save) signed in before the trial ended. A second login
+    // on that page would land on /auth/signin with a live session, which redirects away before the email field ever shows
+    // (Elon on f3eadc1f, AuthPage's PostAuthRedirect).
+    if (this.journey !== 'restore_access' && this.journey !== 'paid_account_kept') await this.login();
   }
 
   /** Fills Stripe's hosted card form (Checkout or the portal) and submits. Never reads or reports its content. */
