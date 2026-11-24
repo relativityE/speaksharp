@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import manifest from '../fixtures/rwt/rwt-fixtures.manifest.json';
 import type { CoachingExchange, CoachingSuggestionPair } from '../live/helpers/coachingGenerationTap';
 import {
-    COACHING_CAPTURE_READ_TIMEOUT_MS, captureCoachingTake, capturedTakesDifferVerdict, coachingEvidenceOutcome, createCoachingTakeCapture,
-    readSavedPromptObservation, type AuthorityReadback, type SavedPromptInputs, type TakeIdentity,
+    COACHING_CAPTURE_READ_TIMEOUT_MS, SHOWN_WITNESS_RETRY_MS, captureCoachingTake, capturedTakesDifferVerdict, coachingEvidenceOutcome, createCoachingTakeCapture,
+    readSavedPromptObservation, witnessShownTake, type AuthorityReadback, type SavedPromptInputs, type TakeIdentity,
 } from '../live/helpers/rwtCoachingCollector';
 import { canonicalSuggestionSha256, coachingContract, coachingSessionBindingSha256, recomputeCoachingPromptSha256 } from '../live/helpers/rwtCoachingEvidence';
 import { switchIsolationVerdict, type SwitchIsolationObservation } from '../live/helpers/rwtOracles';
@@ -231,6 +231,140 @@ describe('Focus Points uses the same retention-safe capture and binding validato
         for (const f of fixtures) { db.rows.set(f.id.sessionId, { ...f.row, transcript: null, transcript_state: 'expired' }); await c.sample(f.id.sessionId); }
         expect(capturedTakesDifferVerdict(c.get(fixtures[0].id.sessionId), c.get(fixtures[1].id.sessionId), RELEASE).status).toBe('PASS');
         await c.dispose();
+    });
+});
+
+/**
+ * J1.b (run 45142628330: `bothPairsSaved=false`, repeat binding `saved_inputs_expired`). While the repeat records, the live page
+ * shows the repeat, not B, so the passive poll's live read has no rendered pair for B; the repeat's save then expires B's inputs.
+ * The fix witnesses B, inside the repeat's window, with the pair B's own reopened saved review showed.
+ */
+describe('J1.b: the interrupted take is witnessed from its own saved review before the repeat expires it', () => {
+    const expire = (db: ReturnType<typeof database>, f: Fixture) => db.rows.set(f.id.sessionId, { ...f.row, transcript_state: 'expired', transcript: null });
+    const clock = (start = 0) => { let t = start; return { now: () => t, sleep: async (ms: number) => { t += ms; }, at: () => t }; };
+    const CLOSES = 6_500;
+    it('reproduces run 45142628330: the poll sees B only while the page shows the repeat, so expiry leaves B unwitnessed', async () => {
+        const a = fixture(1, 100); const b = fixture(2, 30); const db = database([a, b]);
+        // The page is on the repeat's recording surface: whatever it shows is not B's pair.
+        const c = observer(db, [a, b], vi.fn(async () => null));
+        await c.sample(a.id.sessionId, a.rendered);
+        await c.sample(b.id.sessionId);
+        expect(c.get(b.id.sessionId)).toEqual({ hold: 'rendered_pair_unavailable' });
+        expire(db, b); await c.sample(b.id.sessionId);
+        expect(c.get(b.id.sessionId)).toEqual({ hold: 'saved_inputs_expired' });
+        expect(capturedTakesDifferVerdict(c.get(a.id.sessionId), c.get(b.id.sessionId), RELEASE).status).toBe('HOLD');
+        await c.dispose();
+    });
+    it('witnessed in the window from B\'s own saved review, B survives the repeat\'s expiry and the takes compare', async () => {
+        const a = fixture(1, 100); const b = fixture(2, 30); const db = database([a, b]);
+        const c = observer(db, [a, b], vi.fn(async () => null)); const k = clock();
+        await c.sample(a.id.sessionId, a.rendered);
+        await c.sample(b.id.sessionId);
+        await witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, k);
+        expect('take' in c.get(b.id.sessionId)).toBe(true);
+        expect(k.at()).toBe(0); // a witness on the first sample ends at once: no waiting inside the window
+        expire(db, b); await c.sample(b.id.sessionId);
+        expect('take' in c.get(b.id.sessionId)).toBe(true);
+        expect(capturedTakesDifferVerdict(c.get(a.id.sessionId), c.get(b.id.sessionId), RELEASE).status).toBe('PASS');
+        await c.dispose();
+    });
+    it('control (a): at or after the window\'s close nothing is sampled, so a post-window read with no prior witness stays HOLD', async () => {
+        const a = fixture(1, 100); const b = fixture(2, 30); const db = database([a, b]);
+        const c = observer(db, [a, b], vi.fn(async () => null));
+        await c.sample(a.id.sessionId, a.rendered);
+        const reads = db.read.mock.calls.length;
+        await witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, clock(CLOSES));
+        expect(db.read.mock.calls.length).toBe(reads);
+        expire(db, b); await c.sample(b.id.sessionId);
+        expect(c.get(b.id.sessionId)).toEqual({ hold: 'saved_inputs_expired' });
+        // Inside the window but already expired: the witness cannot invent B either.
+        await witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, clock());
+        expect(c.get(b.id.sessionId)).toEqual({ hold: 'saved_inputs_expired' });
+        expect(capturedTakesDifferVerdict(c.get(a.id.sessionId), c.get(b.id.sessionId), RELEASE).status).toBe('HOLD');
+        await c.dispose();
+    });
+    it('control (b): a pair shown for another session never makes B pass', async () => {
+        const a = fixture(1, 100); const b = fixture(2, 30); const other = fixture(3, 50); const db = database([a, b]);
+        const c = observer(db, [a, b]);
+        await c.sample(a.id.sessionId, a.rendered);
+        await witnessShownTake(c, b.id.sessionId, other.rendered, CLOSES, clock());
+        expect(capturedTakesDifferVerdict(c.get(a.id.sessionId), c.get(b.id.sessionId), RELEASE).status).toBe('FAIL');
+        await c.dispose();
+    });
+    it('a sample skipped by an in-flight poll read is retried until the witness lands, never past the close', async () => {
+        const a = fixture(1, 100); const b = fixture(2, 30); const db = database([a, b]);
+        const real = observer(db, [a, b]); const k = clock();
+        let busy = 2;
+        // The first two samples find B already being read by the poll and return without reading (the collector's own guard).
+        const c = { get: real.get, sample: async (id: string, p?: CoachingSuggestionPair | null) => { if (busy > 0) { busy -= 1; return; } await real.sample(id, p); } };
+        await witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, k);
+        expect('take' in real.get(b.id.sessionId)).toBe(true);
+        expect(k.at()).toBe(2 * SHOWN_WITNESS_RETRY_MS);
+        await real.dispose();
+    });
+    it('a HOLD that never clears is retried only until the close; no sample starts at or after it', async () => {
+        const b = fixture(2, 30); const k = clock();
+        const starts: number[] = [];
+        const c = { get: () => ({ hold: 'server_authority_readback_unavailable' }) as const, sample: async () => { starts.push(k.at()); } };
+        await witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, k);
+        expect(starts.length).toBe(Math.ceil(CLOSES / SHOWN_WITNESS_RETRY_MS));
+        expect(Math.max(...starts)).toBeLessThan(CLOSES);
+        expect(k.at()).toBe(CLOSES);
+    });
+    // Sam on #1961: a read that STARTS inside the window but RESOLVES at or after its close must not publish a new positive witness.
+    // The real collector read is held open at the database, the clock is moved, then the read is released.
+    const heldRead = (db: ReturnType<typeof database>) => {
+        let release!: () => void; let started!: () => void;
+        const gate = new Promise<void>((r) => { release = r; });
+        const begun = new Promise<void>((r) => { started = r; });
+        const original = db.read.getMockImplementation()!;
+        db.read.mockImplementationOnce(async (id: string) => { started(); await gate; return original(id); });
+        return { begun, release };
+    };
+    const movable = (start = 0) => { let t = start; return { now: () => t, sleep: async (ms: number) => { t += ms; }, set: (v: number) => { t = v; } }; };
+    it.each([CLOSES, CLOSES + 1])('a hold-window read started before the close and resolved at %i ms exposes no new witness for B', async (resolvedAt) => {
+        const a = fixture(1, 100); const b = fixture(2, 30); const db = database([a, b]);
+        const c = observer(db, [a, b], vi.fn(async () => null)); const k = movable(CLOSES - 1);
+        await c.sample(a.id.sessionId, a.rendered);
+        const held = heldRead(db);
+        const witnessing = witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, k);
+        await held.begun; // the read started at CLOSES - 1, inside the window
+        expect('take' in c.get(b.id.sessionId)).toBe(false);
+        k.set(resolvedAt); held.release(); await witnessing;
+        expect(c.get(b.id.sessionId)).toEqual({ hold: 'shown_witness_after_hold_window' });
+        // The repeat's save then expires B: still no witness, and the takes cannot compare.
+        expire(db, b); await c.sample(b.id.sessionId);
+        expect(c.get(b.id.sessionId)).toEqual({ hold: 'saved_inputs_expired' });
+        expect(capturedTakesDifferVerdict(c.get(a.id.sessionId), c.get(b.id.sessionId), RELEASE).status).toBe('HOLD');
+        await c.dispose();
+    });
+    it('the same held read resolved just before the close still witnesses B', async () => {
+        const a = fixture(1, 100); const b = fixture(2, 30); const db = database([a, b]);
+        const c = observer(db, [a, b], vi.fn(async () => null)); const k = movable(CLOSES - 2);
+        const held = heldRead(db);
+        const witnessing = witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, k);
+        await held.begun; k.set(CLOSES - 1); held.release(); await witnessing;
+        expect('take' in c.get(b.id.sessionId)).toBe(true);
+        await c.dispose();
+    });
+    it('a late hold-window read keeps an earlier timely witness, and the passive poll is not windowed', async () => {
+        const a = fixture(1, 100); const b = fixture(2, 30); const db = database([a, b]);
+        const c = observer(db, [a, b], vi.fn(async () => null));
+        await witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, movable());
+        const timely = c.get(b.id.sessionId);
+        expect('take' in timely).toBe(true);
+        await c.sample(b.id.sessionId, b.rendered, { closesAt: CLOSES, now: () => CLOSES + 1 });
+        expect(c.get(b.id.sessionId)).toBe(timely);
+        // The passive poll has no window: its read witnesses A whenever it resolves.
+        await c.sample(a.id.sessionId, a.rendered);
+        expect('take' in c.get(a.id.sessionId)).toBe(true);
+        await c.dispose();
+    });
+    it('a FAIL ends the witness at once', async () => {
+        const b = fixture(2, 30); const k = clock(); let n = 0;
+        const c = { get: () => ({ fail: 'saved_evidence_changed' }) as const, sample: async () => { n += 1; } };
+        await witnessShownTake(c, b.id.sessionId, b.rendered, CLOSES, k);
+        expect([n, k.at()]).toEqual([1, 0]);
     });
 });
 

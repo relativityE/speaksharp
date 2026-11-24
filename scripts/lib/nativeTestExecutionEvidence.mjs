@@ -99,6 +99,81 @@ function regular(root,file) {
   return target;
 }
 export const nativeHelper=file=>NATIVE_HELPERS.find(item=>item.file===file);
+// #1937 (Sam, option A): the real billing qualification suite runs natively under its own pinned profile.
+// Its config and lock are pinned by digest, so a changed or added dependency needs review and re-pinning;
+// every import resolves only through that frozen lock; the test may read only the checked-in SQL that its
+// ephemeral PGlite applies and the locked PGlite package's own data in the owned cache; environment,
+// network, writes and subprocesses stay denied. The import cache is prepared first, by the no-run warmup.
+export const BILLING_DENO_PROFILE=Object.freeze({
+  id:'billing-qualification-1937',
+  config:'scripts/billing-qualification/deno.json',configSha256:'f9e269d53f538e5f4377dd463b4acf4baeb11b81bb528a872b831d9e9f791c08',
+  lock:'scripts/billing-qualification/deno.lock',lockSha256:'a9c3c91a7172c2a2852c9ef0a9ec07fdc7fd66b35204865c232a3463b62f3b45',
+  sqlReads:Object.freeze([
+  'tests/db/webhook-lifecycle-bootstrap.sql',
+  'tests/db/trial-lifecycle-bootstrap.sql',
+  'backend/supabase/migrations/20260521100000_auto_trial_entitlements.sql',
+  'backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql',
+  'backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql',
+  'backend/supabase/migrations/20260812040000_thirty_day_trial_lifecycle_1282.sql',
+  'backend/supabase/migrations/20260812041000_trial_expiry_fail_closed_1282.sql',
+  'backend/supabase/migrations/20260812041500_flawless_launch_runtime_convergence_1290.sql',
+  'backend/supabase/migrations/20260812041600_trial_commercial_grant_on_conflict_1294.sql',
+  'backend/supabase/migrations/20261013180000_account_closure_tokens.sql',
+  ]),
+  // PGlite loads its own WASM data from its package directory. The version is the one the pinned lock resolves.
+  packageReads:Object.freeze(['.native-deno-cache/npm/registry.npmjs.org/@electric-sql/pglite/0.5.5']),
+});
+export const isBillingDenoTest=file=>typeof file==='string'&&/^scripts\/billing-qualification\/[^/]+\.test\.ts$/.test(file);
+const FUNCTIONS_DENO=Object.freeze({config:'backend/supabase/functions/deno.json',lock:'backend/supabase/functions/deno.lock'});
+const denoConfig=file=>isBillingDenoTest(file)?BILLING_DENO_PROFILE:FUNCTIONS_DENO;
+const lockKey=specifier=>{
+  const npm=/^npm:(@[^/@]+\/[^/@]+|[^/@]+)(?:@([^/]+))?(?:\/.*)?$/.exec(specifier);
+  return npm?`npm:${npm[1]}@${npm[2]??'*'}`:specifier;
+};
+// Static closure of the billing test: every local import is followed; every other import must be a node:
+// builtin or an entry the pinned lock already resolves. A computed import cannot be checked and is refused.
+export function billingImportClosure(root,file) {
+  const require=createRequire(path.join(root,'package.json')),ts=require('typescript');
+  const local=new Set(),external=new Set(),queue=[file];
+  while(queue.length) {
+    const entry=queue.shift();
+    if(local.has(entry))continue;
+    local.add(entry);
+    const source=ts.createSourceFile(entry,fs.readFileSync(regular(root,entry),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+    if(source.parseDiagnostics.length)fail(`Invalid billing qualification source: ${entry}`);
+    const visit=node=>{
+      let specifier=null;
+      if((ts.isImportDeclaration(node)||ts.isExportDeclaration(node))&&node.moduleSpecifier)specifier=node.moduleSpecifier;
+      else if(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword) {
+        specifier=node.arguments[0];
+        if(node.arguments.length!==1||!ts.isStringLiteral(specifier))fail(`Computed billing qualification import: ${entry}`);
+      }
+      if(specifier) {
+        const text=specifier.text;
+        if(text.startsWith('./')||text.startsWith('../')) {
+          const target=path.posix.normalize(path.posix.join(path.posix.dirname(entry),text));
+          if(target.startsWith('../'))fail(`Billing qualification import escapes checkout: ${entry}: ${text}`);
+          queue.push(target);
+        } else external.add(text);
+      }
+      ts.forEachChild(node,visit);
+    };visit(source);
+  }
+  return {local:[...local].sort(),external:[...external].sort()};
+}
+export function nativeDependencyPin(root,file) {
+  if(!isBillingDenoTest(file))return null;
+  const profile=BILLING_DENO_PROFILE,digest=entry=>hash(fs.readFileSync(regular(root,entry)));
+  if(digest(profile.config)!==profile.configSha256||digest(profile.lock)!==profile.lockSha256)
+    fail('Billing qualification Deno config/lock is not the pinned profile');
+  const lock=JSON.parse(fs.readFileSync(regular(root,profile.lock),'utf8'));
+  const resolved=new Set([...Object.keys(lock.specifiers??{}),...Object.keys(lock.remote??{})]);
+  const closure=billingImportClosure(root,file);
+  for(const specifier of closure.external)
+    if(!/^node:[a-z_/]+$/.test(specifier)&&!resolved.has(lockKey(specifier)))fail(`Unpinned billing qualification import: ${specifier}`);
+  return {profile:profile.id,configSha256:profile.configSha256,lockSha256:profile.lockSha256,
+    imports:closure.external,reads:profile.sqlReads.map(entry=>({file:entry,sha256:digest(entry)}))};
+}
 export function nativeTestRoute(file,root) {
   const helper=nativeHelper(file);
   if(helper)return {runner:'node-test-helper',consumer:helper.consumer,claim:helper.claim};
@@ -106,6 +181,7 @@ export function nativeTestRoute(file,root) {
   if(file==='tests/db/account-coaching-local-fence.realpg.mjs'&&fs.existsSync(path.join(root,file))
     &&/\bfrom\s+['"]node:test['"]/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
   if(/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file))return {runner:'deno',consumer:file};
+  if(isBillingDenoTest(file))return {runner:'deno',consumer:file};
   if(/\.test\.mjs$/.test(file)&&fs.existsSync(path.join(root,file))&&/\bfrom\s+['"]node:test['"]/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
   // The reviewed cloud-test package only: its CommonJS controls run under node:test. A .cjs that never
   // requires node:test has no runner and stays UNCOVERED rather than being credited by its filename.
@@ -193,18 +269,19 @@ export function nativeCommand(binding) {
   const file=binding.testFile;
   const typedHelper=NATIVE_HELPERS.some(item=>item.consumer===file&&item.file.endsWith('.ts')
     &&Array.isArray(binding.helpers)&&binding.helpers.includes(item.file));
+  const policy=binding.runtime.runner==='deno'?nativeDenoPolicy(file):null,config=denoConfig(file);
   return binding.runtime.runner==='deno'
-    ?[binding.runtime.execPath,'test','--config','backend/supabase/functions/deno.json','--cached-only','--frozen',
-      '--lock=backend/supabase/functions/deno.lock','--node-modules-dir=none','--no-prompt','--deny-net',
-      ...(nativeDenoPolicy(file).environment.names.length?[`--allow-env=${nativeDenoPolicy(file).environment.names.join(',')}`]:['--deny-env']),
-      '--deny-read','--deny-write','--deny-run',
+    ?[binding.runtime.execPath,'test','--config',config.config,'--cached-only','--frozen',
+      `--lock=${config.lock}`,'--node-modules-dir=none','--no-prompt','--deny-net',
+      ...(policy.environment.names.length?[`--allow-env=${policy.environment.names.join(',')}`]:['--deny-env']),
+      ...(policy.read==='denied'?['--deny-read']:[`--allow-read=${policy.read.allow.join(',')}`]),'--deny-write','--deny-run',
       '--reporter=junit',file]
     :[binding.runtime.execPath,...(typedHelper?['--experimental-strip-types']:[]),
       '--test','--test-concurrency=1',`--test-reporter=./${NATIVE_REPORTER}`,file];
 }
 export function nativeWarmupCommand(binding) {
   if(binding.runtime.runner!=='deno')fail('Only Deno has an import warmup');
-  return nativeCommand(binding).map(arg=>arg.startsWith('--allow-env=')?'--deny-env':arg)
+  return nativeCommand(binding).map(arg=>arg.startsWith('--allow-env=')?'--deny-env':arg.startsWith('--allow-read=')?'--deny-read':arg)
     .filter(arg=>arg!=='--cached-only').toSpliced(2,0,'--no-run');
 }
 // Checkout reads this name at import time. The rebuilt child environment never
@@ -406,9 +483,12 @@ const coachingEfficacyProfiles=coachingProfiles.filter(item=>item.id==='coaching
   },
 }));
 export function nativeDenoPolicy(file) {
+  const billing=isBillingDenoTest(file);
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
     initial:'absent',inherit:false,syntheticValue:file===coachingTest?'test-key':null,reinject:false},
-    network:'denied',read:'denied',write:'denied',run:'denied',prompt:'denied',warmupEnvironment:'denied'};
+    network:'denied',read:billing?{allow:[...BILLING_DENO_PROFILE.sqlReads,...BILLING_DENO_PROFILE.packageReads]}:'denied',
+    write:'denied',run:'denied',prompt:'denied',warmupEnvironment:'denied',
+    ...(billing?{profile:BILLING_DENO_PROFILE.id,config:BILLING_DENO_PROFILE.config,lock:BILLING_DENO_PROFILE.lock}:{})};
 }
 export function validateSyntheticSource(root,file) {
   if(file!==coachingTest)return null;
@@ -729,6 +809,7 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
   if(contract.runner==='deno') {
     binding.syntheticSource=validateSyntheticSource(root,contract.testFile);
     binding.permissionPolicy=nativeDenoPolicy(contract.testFile);
+    binding.dependencyPin=nativeDependencyPin(root,contract.testFile);
   }
   const proofCases=phaseProofCasesBinding(contract,environment,binding.phaseId,root);if(proofCases)binding.proofCases=proofCases;
   const browser=nativeBrowserBinding(contract,environment);if(browser)binding.browser=browser;
@@ -783,6 +864,7 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
   if(contract.runner==='deno') {
     if(JSON.stringify(b.permissionPolicy)!==JSON.stringify(nativeDenoPolicy(contract.testFile)))fail('Wrong native test permission policy');
     if(JSON.stringify(b.syntheticSource)!==JSON.stringify(validateSyntheticSource(root,contract.testFile)))fail('Wrong native synthetic source profile');
+    if(JSON.stringify(b.dependencyPin)!==JSON.stringify(nativeDependencyPin(root,contract.testFile)))fail('Wrong or unpinned native Deno dependency profile');
     validateWarmup(phase.warmup,b);
   }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');

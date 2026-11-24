@@ -83,11 +83,15 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/billing/user-journey/contract.ts',testFile:'tests/billing/user-journey/contract.test.ts',
   callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice',
-    'isCorrelatedDelivery','assertSandboxConfiguration'],
+    'isCorrelatedDelivery','assertSandboxConfiguration','keptHistoryVerdict'],
 }, {
   // Run 44203911253: the hosted-Checkout email step the conversion journey calls (browser counterpart: tests/e2e spec).
   helperFile:'tests/billing/user-journey/hostedEmail.ts',testFile:'tests/billing/user-journey/hostedEmail.test.ts',
   callables:['fillHostedEmail'],
+}, {
+  // J9.b restore_access: the walled-then-restored history, the single $10 test-mode charge and the portal plan checks (visible text only).
+  helperFile:'tests/billing/user-journey/restoreAccess.ts',testFile:'tests/billing/user-journey/restoreAccess.test.ts',
+  callables:['assertTakeReadable','assertHistoryWalled','assertHistoryRestored','assertSingleCharge','portalShowsPlan','visiblePlanChains'],
 }, {helperFile:"tests/billing/user-journey/paidValueLoop.ts",testFile:"tests/billing/user-journey/paidValueLoop.test.ts",callables:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]}, {helperFile:"tests/billing/user-journey/localStackResources.mjs",testFile:"tests/billing/user-journey/localStackResources.test.ts",callables:["captureStackIdentity", "assertIdentityShape", "stackIdentitySha256", "verifyStackDestroyed"]}, {helperFile:"tests/billing/user-journey/localStackReceipt.mjs",testFile:"tests/billing/user-journey/contract.test.ts",callables:["journeyReceiptDefects", "destructionDefects", "finaliseLocalStackReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPlan.mjs",testFile:"tests/billing/user-journey/fullMode.test.ts",callables:["workflowDispatch", "planRun", "finaliseModeReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPreflight.mjs",testFile:"tests/billing/user-journey/runnerPreflight.test.ts",callables:["fingerprint", "assertTestKeys", "assertKeysMatchStack", "assertLocalSupabaseKeys", "probeLocalBackend", "runnerPreflight"]}, {
   // #1760 model comparison harness and evaluator helpers, each through its own unit consumer.
   helperFile:'tests/model-dropin/comparisonBounds.ts',testFile:'tests/model-dropin/comparisonBounds.test.ts',
@@ -144,6 +148,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
   callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter','deferredLateCoachingSink','reopenWithinCutoff'],
 }, {
+  // J1.b (#1961): the coaching collector's hold-window witness, through the unit consumer that drives a real capture.
+  helperFile:'tests/live/helpers/rwtCoachingCollector.ts',testFile:'tests/unit/rwtCoachingRetentionEvidence1593.test.ts',
+  callables:['createCoachingTakeCapture','witnessShownTake'],
+}, {
   helperFile:'tests/live/helpers/rwtWatchdog.ts',testFile:'tests/unit/rwtCleanupExecution1812.test.ts',
   callables:['OwnedCleanup#run','OwnedCleanup#settle','finalizeOwnedCleanup'],
 }, {
@@ -186,9 +194,14 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   // J8 (#1870): the same-account feedback journey's pure rules, through their own unit consumer.
   helperFile:'tests/live/helpers/rwtJ8Journey.ts',testFile:'tests/unit/rwtJ8Journey.test.ts',
-  callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission",
+  callables:["legSink","legReceipt","legReadback","mergeLegReadback","takeDigest","readTakeDigests","takesReadComplete","takesUnchangedVerdict","writerDrainedVerdict","j8RunnerAdmission","j8ParentPreflight","j8BackendApiKey","j8OwnerToken","j8OwnerChoiceClient",
     "startPressSnapshot","legStartPressVerdict","j8bFinalSentFeedbackVerdict",
     "J8WriteGate#open","J8WriteGate#close","J8WriteGate#enter","J8WriteGate#settle","J8WriteGate#keysOf"],
+}, {
+  // J8 (Sam, 23 Nov): the spec's client for the parent's four named operations (the spec holds no key), through its own unit consumer
+  // against the real served operations.
+  helperFile:'tests/live/helpers/j8ParentOpsClient.ts',testFile:'tests/unit/rwtJ8ParentOps.test.ts',
+  callables:["j8ParentOpsFromEnv","parentIdentityAndClaim","parentFenceClient","parentReportReader","parentReportsByKeys","parentTakeRows"],
 }, {
   // J1.d (#1883): the returning sign-out leg's pure rules, its sign-out recorder, and the browser leg (driven offline, fail-closed).
   helperFile:'tests/live/helpers/rwtJ1dJourney.ts',testFile:'tests/unit/rwtJ1dJourney.test.ts',
