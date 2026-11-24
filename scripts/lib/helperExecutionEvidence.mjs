@@ -83,7 +83,8 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/billing/user-journey/contract.ts',testFile:'tests/billing/user-journey/contract.test.ts',
   callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice',
-    'isCorrelatedDelivery','assertSandboxConfiguration','keptHistoryVerdict','historySeedFailure'],
+    'isCorrelatedDelivery','assertSandboxConfiguration','historySeedFailure','retentionActive','retentionActivationFailure',
+    'retentionRowsFailure','retentionViewFailure'],
 }, {
   // Run 44203911253: the hosted-Checkout email step the conversion journey calls (browser counterpart: tests/e2e spec).
   helperFile:'tests/billing/user-journey/hostedEmail.ts',testFile:'tests/billing/user-journey/hostedEmail.test.ts',
