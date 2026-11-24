@@ -3,6 +3,7 @@
  * J8 parent operations (Sam, 23 Nov): the only way the J8 browser spec reaches production data, held by the parent with the key.
  * Four named operations, each bound to the one admitted account and this run. Every control below is a refusal or a binding check.
  */
+import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
 import { createJ8ParentOps, FENCE_FUNCTIONS, serveJ8ParentOps } from '../../scripts/rwt-j8-parent-ops.mts';
 import { j8ParentOpsFromEnv, parentFenceClient, parentIdentityAndClaim, parentReportReader, parentReportsByKeys, parentTakeRows } from '../live/helpers/j8ParentOpsClient';
@@ -290,5 +291,59 @@ describe('the spec-side client (tests/live/helpers/j8ParentOpsClient.ts) against
             const wrongToken = j8ParentOpsFromEnv({ RWT_J8_OPS_URL: s.url, RWT_J8_OPS_TOKEN: 'c'.repeat(64) })!;
             expect((await parentTakeRows(wrongToken, [UID])).error).toEqual({ code: 'parent_refused', message: 'unauthorized' });
         } finally { s.close(); }
+    });
+});
+
+describe('unknown write outcomes reach the entry\'s real settlement gate (Sam on 40e1a5a6)', () => {
+    const entryGate = () => (createRequire(import.meta.url)('../../tools/cloud-test/nightly/j8-nightly-entry.cjs') as {
+        parentOperations: () => { port: { run<T>(fn: () => Promise<T>): Promise<T> }; close(): void; settle(ms: number): Promise<boolean>; outcomeUnknown: boolean };
+    }).parentOperations();
+    async function served(setup: (f: ReturnType<typeof fixture>) => void) {
+        const f = fixture(); setup(f);
+        const ops = entryGate();
+        const s = await serveJ8ParentOps({ admin: f.admin as never, email: EMAIL, binding: BINDING, token: TOKEN, gate: ops.port, helpers: f.helpers as never });
+        return { f, s, ops };
+    }
+    const closeFence = { op: 'fence', args: { fn: 'close_rwt_feedback_fence_v1', args: { p_run_key: RUN_KEY } } };
+    const post = (url: string, body: unknown) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: AUTH }, body: JSON.stringify(body) })
+        .then(async (r) => ({ status: r.status, body: await r.json() }));
+    it('a fence write that throws, or fails with no error code, marks the outcome unknown; the spec still gets a fail-closed answer', async () => {
+        const fails = {
+            throws: () => Promise.reject(new Error('socket hang up')),
+            noCode: async () => ({ data: null, error: { message: 'fetch failed', code: '' } }),
+        };
+        for (const [behaviour, rpcFail] of Object.entries(fails)) {
+            const t = await served((f) => { f.rpc.mockImplementation(rpcFail as never); });
+            try {
+                await post(t.s.url, { op: 'identity_and_claim', args: { uid: UID } });
+                expect(t.ops.outcomeUnknown).toBe(false);
+                const r = await post(t.s.url, closeFence);
+                expect({ behaviour, failClosed: r.status === 502 || r.body.error !== null }).toEqual({ behaviour, failClosed: true });
+                t.ops.close();
+                expect({ behaviour, settled: await t.ops.settle(500), unknown: t.ops.outcomeUnknown }).toEqual({ behaviour, settled: true, unknown: true });
+            } finally { t.s.close(); }
+        }
+    });
+    it('a definite database refusal of a write, a failed read and a clean run leave the outcome known', async () => {
+        const refused = await served((f) => { f.rpc.mockImplementation((async (fn: string) => (fn === 'verify_rwt_feedback_fence_v1'
+            ? Promise.reject(new Error('read failed')) : { data: null, error: { message: 'fence closed', code: 'P0001' } })) as never); });
+        try {
+            await post(refused.s.url, { op: 'identity_and_claim', args: { uid: UID } });
+            expect((await post(refused.s.url, closeFence)).body).toEqual({ data: null, error: { code: 'P0001' } });
+            expect((await post(refused.s.url, { op: 'fence', args: { fn: 'verify_rwt_feedback_fence_v1', args: { p_run_key: RUN_KEY } } })).body).toEqual({ refused: 'operation_failed' });
+            refused.ops.close();
+            expect({ settled: await refused.ops.settle(500), unknown: refused.ops.outcomeUnknown }).toEqual({ settled: true, unknown: false });
+        } finally { refused.s.close(); }
+    });
+    it('an identity check that fails, or a canary claim that is not confirmed, marks the outcome unknown', async () => {
+        for (const [failures, claim] of [[['profile missing'], true], [[], false]] as const) {
+            const t = await served((f) => { f.helpers.runOwnedIdentityFailures.mockResolvedValue([...failures] as never); f.helpers.markRunOwnedAccountCanary.mockResolvedValue(claim as never); });
+            try {
+                const r = await post(t.s.url, { op: 'identity_and_claim', args: { uid: UID } });
+                expect(r.body.claimed).toBe(false);
+                t.ops.close();
+                expect({ unknown: t.ops.outcomeUnknown, settled: await t.ops.settle(500) }).toEqual({ unknown: true, settled: true });
+            } finally { t.s.close(); }
+        }
     });
 });

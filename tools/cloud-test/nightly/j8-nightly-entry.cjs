@@ -108,12 +108,15 @@ class ParentOperationRefused extends Error {}
  */
 function parentOperations() {
     let open = true;
+    // Sam, 23 Nov (independent review of 40e1a5a6): an operation that ended in a rejection has ENDED, but its outcome is not known
+    // (a write may have landed). Ended is not the same as confirmed; cleanup then leaves the account for protected recovery.
+    let outcomeUnknown = false;
     const inFlight = new Set();
     const port = Object.freeze({
         run(fn) {
             if (!open) return Promise.reject(new ParentOperationRefused('admission to parent operations is closed: the spec has ended'));
             const call = Promise.resolve().then(fn);
-            const ended = call.then(() => undefined, () => undefined);
+            const ended = call.then(() => undefined, () => { outcomeUnknown = true; });
             inFlight.add(ended);
             ended.then(() => inFlight.delete(ended));
             return call;
@@ -124,6 +127,7 @@ function parentOperations() {
         close() { open = false; },
         get open() { return open; },
         get inFlight() { return inFlight.size; },
+        get outcomeUnknown() { return outcomeUnknown; },
         async settle(ms) {
             if (inFlight.size === 0) return true;
             if (!(ms > 0)) return false;
@@ -300,18 +304,24 @@ async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, dea
     return out;
 }
 
+/** The only variables the evaluation child receives: what node and tsx need to start and to find a temp directory. */
+const EVALUATION_ENV = Object.freeze(['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'SystemRoot']);
+const evaluationEnv = (env) => Object.fromEntries(EVALUATION_ENV.filter((k) => typeof env[k] === 'string').map((k) => [k, env[k]]));
+
 /**
  * The reviewed finalizer's automated half, run as its own process (scripts/rwt-automated-evaluation.mts): the receipt and readback
  * are written to `workDir` and read back by the same validation `pnpm rwt:finalize` applies. Anything unreadable is null (HOLD).
  */
-function finalizerEvaluate(receipt, readback, { workDir, repoRoot = path.join(__dirname, '..', '..', '..'), timeoutMs = 60_000 }) {
+function finalizerEvaluate(receipt, readback, { workDir, repoRoot = path.join(__dirname, '..', '..', '..'), timeoutMs = 60_000, baseEnv = process.env }) {
     const { spawnSync } = require('node:child_process');
     const receiptPath = path.join(workDir, 'j8-evaluation.receipt.json');
     const readbackPath = path.join(workDir, 'j8-evaluation.readback.json');
     fs.writeFileSync(receiptPath, JSON.stringify(receipt));
     fs.writeFileSync(readbackPath, JSON.stringify(readback));
+    // Sam, 23 Nov (independent review of 40e1a5a6): the evaluation reads only its two files, so it gets an explicit allowlisted env and
+    // never inherits the parent's credentials.
     const r = spawnSync(path.join(repoRoot, 'node_modules', '.bin', 'tsx'), [path.join(repoRoot, 'scripts', 'rwt-automated-evaluation.mts'), receiptPath, readbackPath],
-        { cwd: repoRoot, encoding: 'utf8', timeout: timeoutMs });
+        { cwd: repoRoot, encoding: 'utf8', timeout: timeoutMs, env: evaluationEnv(baseEnv) });
     // Sam on f07fea31: a run cut off by its timeout (or that could not be waited on) has no proof its process tree stopped; only a
     // terminal exit status is a stop. The entry then leaves the account for protected recovery.
     if (r.error || r.signal || !Number.isInteger(r.status)) return { unconfirmed: true };
@@ -467,7 +477,9 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
         specExited = !!outcome && outcome !== TIMED_OUT && outcome.timedOut !== true && outcome.drained === true && Number.isInteger(outcome.exitCode);
         const specFault = specOutcomeFault(outcome, { admission, runId, runAttempt });
         if (!opsSettled) readbackState.unconfirmed = 'a parent operation was still in flight when the spec ended and did not settle';
+        else if (operations.outcomeUnknown) readbackState.unconfirmed = 'a parent operation ended with an unknown outcome (a write may have landed)';
         const read = !opsSettled ? { fault: 'a parent operation did not settle after the spec ended' }
+            : operations.outcomeUnknown ? { fault: 'a parent operation ended with an unknown outcome' }
             : specFault ? { fault: specFault } : readBoundReceipt(receiptFile, { attemptId: admission.attemptId, expectedRelease, notBeforeMs: specStart });
         if (read.fault) caseResult = holdAll(read.fault);
         // A failed spec must show its failing row. Keyed on FAIL, not on every row PASS: the J8 receipt always carries the deferred
@@ -593,6 +605,6 @@ function j8RunSummary(r) {
 }
 
 module.exports = {
-    DEADLINES, J8_STEP_MS, STEP_MARGIN_MS, STEP_CUT_OFF, ParentOperationRefused, parentOperations, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
+    DEADLINES, EVALUATION_ENV, J8_STEP_MS, STEP_MARGIN_MS, STEP_CUT_OFF, ParentOperationRefused, parentOperations, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
     J8_LOOKUP_PAGES, J8_PARENT_OP_REQUESTS, cliArgs, j8AdminTransport, j8OpsTransport, j8RunSummary, main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
 };

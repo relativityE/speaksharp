@@ -818,6 +818,12 @@ describe('J8 nightly entry', () => {
             { workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'j8-fin-w-')), repoRoot: fakeRoot(script), timeoutMs });
         expect({ timedOut: fin('sleep 5', 200), signalled: fin('kill -TERM $$'), failed: fin('exit 2'), settled: fin(`echo '{"errors":[],"rows":[]}'`) })
             .toEqual({ timedOut: { unconfirmed: true }, signalled: { unconfirmed: true }, failed: null, settled: { errors: [], rows: [] } });
+        // Sam on 40e1a5a6: the evaluation child gets only the allowlisted variables, never a credential the parent holds.
+        const probe = { J8_FIN_PROBE_CREDENTIAL: 'held-in-parent', POSTHOG_PERSONAL_API_KEY: 'posthog-in-parent', PATH: process.env.PATH, HOME: '/home/probe' };
+        const names = entry.finalizerEvaluate({ suite: J8_SUITE, release: RELEASE, rows: [] }, { journeys: [] },
+            { workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'j8-fin-w-')), repoRoot: fakeRoot(`printf '{"names":"%s"}\\n' "$(env | cut -d= -f1 | sort | tr '\\n' ' ')"`), baseEnv: probe });
+        const seen = names.names.trim().split(' ').filter((n) => !['PWD', 'SHLVL', '_', 'OLDPWD'].includes(n));
+        expect({ seen, allowed: seen.every((n) => entry.EVALUATION_ENV.includes(n)) }).toEqual({ seen: ['HOME', 'PATH'], allowed: true });
         // A late readback that ends inside the grace is confirmed stopped: HOLD, but the account is recovered as usual.
         const g = dirs();
         const late = fixtures(g.runDir);
@@ -1076,6 +1082,19 @@ describe('J8 step deadline and cleanup window (Sam, 23 Nov): admission closes in
                 cleanup: 'incomplete', left: true, journal: 'unresolved' });
     });
 
+    it('a parent operation that ended with an unknown outcome (rejected): HOLD, nothing is read back, looked up or deleted, and the account is left for protected recovery (Sam on 40e1a5a6)', async () => {
+        const d = dirs();
+        const f = fixtures(d.runDir);
+        const runSpec = f.deps.runSpec;
+        f.deps.runSpec = async (a) => { await a.operations.run(async () => { throw new Error('write outcome unknown'); }).catch(() => null); return runSpec(a); };
+        const out = await run(d, f.deps, { deadlines: { ...D, parentOpSettleMs: 40 } });
+        expect({ exitCode: out.exitCode, readbacks: f.calls.qualify.length, evaluated: f.calls.evaluate, lookups: f.store.calls.lookup.length,
+            deletes: f.store.calls.scopedDelete.length, held: out.caseResult.assertions.every((a) => a.result === 'HOLD'), source: out.caseResult.assertions[0].sources,
+            cleanup: out.cleanup.result, journal: out.createJournal })
+            .toEqual({ exitCode: 78, readbacks: 0, evaluated: 0, lookups: 0, deletes: 0, held: true, source: ['a parent operation ended with an unknown outcome'],
+                cleanup: 'incomplete', journal: 'unresolved' });
+    });
+
     it('the gate: an operation that fails still settles; closing refuses new ones without cancelling those in flight', async () => {
         const ops = entry.parentOperations();
         let finished = false;
@@ -1083,8 +1102,14 @@ describe('J8 step deadline and cleanup window (Sam, 23 Nov): admission closes in
         const failed = ops.port.run(() => { throw new Error('boom'); }).catch(() => 'rejected');
         ops.close();
         const late = await ops.port.run(() => 'ran').catch((e) => e instanceof entry.ParentOperationRefused);
-        expect({ open: ops.open, late, settled: await ops.settle(1_000), finished, slow: await slow, failed: await failed, inFlight: ops.inFlight })
-            .toEqual({ open: false, late: true, settled: true, finished: true, slow: 'done', failed: 'rejected', inFlight: 0 });
+        expect({ open: ops.open, late, settled: await ops.settle(1_000), finished, slow: await slow, failed: await failed, inFlight: ops.inFlight, unknown: ops.outcomeUnknown })
+            .toEqual({ open: false, late: true, settled: true, finished: true, slow: 'done', failed: 'rejected', inFlight: 0, unknown: true });
+        // Ended is not confirmed: only a rejection marks the outcome unknown; fulfilled operations and refusals after close do not.
+        const clean = entry.parentOperations();
+        await clean.port.run(() => 'ok');
+        clean.close();
+        await clean.port.run(() => 'late').catch(() => null);
+        expect({ settled: await clean.settle(100), unknown: clean.outcomeUnknown }).toEqual({ settled: true, unknown: false });
         const stuck = entry.parentOperations();
         stuck.port.run(() => new Promise(() => {}));
         stuck.close();

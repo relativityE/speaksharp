@@ -30,7 +30,15 @@ const KEY = /^[A-Za-z0-9:_-]{1,200}$/;
 const MAX_BODY = 8192;
 
 export interface ParentOpsBinding { repository: string; workflow: string; runId: string; runAttempt: string }
-type Reply = { status: number; body: Record<string, unknown> };
+/**
+ * `outcomeUnknown` (Sam, 23 Nov, review of 40e1a5a6): a WRITE whose result is not a confirmed success or a definite database refusal
+ * (it threw, or failed with no error code, e.g. the transport) may have landed. The server rejects that operation through the entry's
+ * settlement gate, so the entry holds cleanup for protected recovery instead of deleting. Reads are never marked.
+ */
+type Reply = { status: number; body: Record<string, unknown>; outcomeUnknown?: boolean };
+const UNKNOWN: Reply = { status: 502, body: { refused: 'outcome_unknown' }, outcomeUnknown: true };
+/** A definite refusal names a database or API code; an error without one (transport, abort) leaves the write's outcome unknown. */
+const definiteRefusal = (error: { code?: string | null } | null | undefined) => !!error && typeof error.code === 'string' && error.code.length > 0;
 type Admin = {
     auth: { admin: { getUserById(uid: string): PromiseLike<{ data: { user: { email?: string | null } | null } | null; error: unknown }> } };
     from(table: string): any;
@@ -59,11 +67,15 @@ export function createJ8ParentOps({ admin, email, binding, token, helpers = { ru
         if (boundUid && boundUid !== uid) return refuse('another_account');
         const user = await admin.auth.admin.getUserById(uid);
         if (user.error || (user.data?.user?.email ?? '').toLowerCase() !== admitted) return refuse('not_the_admitted_account');
-        const failures = await helpers.runOwnedIdentityFailures(admin as never, uid, admitted);
-        if (failures.length > 0) return { status: 200, body: { failures: failures.length, claimed: false } };
+        // The identity check writes this run's binding and the claim writes the canary flag: anything short of a clean pass is a
+        // write whose outcome is not confirmed.
+        let failures: string[];
+        try { failures = await helpers.runOwnedIdentityFailures(admin as never, uid, admitted); } catch { return UNKNOWN; }
+        if (failures.length > 0) return { status: 200, body: { failures: failures.length, claimed: false }, outcomeUnknown: true };
         boundUid = uid;
-        const claimed = await helpers.markRunOwnedAccountCanary(admin as never, uid, admitted);
-        return { status: 200, body: { failures: 0, claimed: claimed === true } };
+        let claimed: boolean;
+        try { claimed = await helpers.markRunOwnedAccountCanary(admin as never, uid, admitted); } catch { return UNKNOWN; }
+        return { status: 200, body: { failures: 0, claimed: claimed === true }, ...(claimed === true ? {} : { outcomeUnknown: true }) };
     }
 
     async function fence(args: Record<string, unknown>): Promise<Reply> {
@@ -79,8 +91,11 @@ export function createJ8ParentOps({ admin, email, binding, token, helpers = { ru
                 || b.repository !== binding.repository || b.workflow !== binding.workflow || a.p_case !== J8_FENCE_CASE) return refuse('another_run');
             if (!Number.isInteger(a.p_key_cap) || (a.p_key_cap as number) < 1 || (a.p_key_cap as number) > 8) return refuse('bad_arguments', 400);
         } else if (a.p_run_key !== runKey || Object.keys(a).length !== 1) return refuse('another_run');
-        const r = await admin.rpc(fn, a);
-        return { status: 200, body: { data: r.data ?? null, error: r.error ? { code: r.error.code ?? null } : null } };
+        const write = fn !== 'verify_rwt_feedback_fence_v1';
+        let r: { data: unknown; error: { code?: string; message?: string } | null };
+        try { r = await admin.rpc(fn, a); } catch { return write ? UNKNOWN : refuse('operation_failed', 502); }
+        const reply: Reply = { status: 200, body: { data: r.data ?? null, error: r.error ? { code: r.error.code ?? null } : null } };
+        return write && r.error && !definiteRefusal(r.error) ? { ...reply, outcomeUnknown: true } : reply;
     }
 
     async function issueReports(args: Record<string, unknown>): Promise<Reply> {
@@ -160,8 +175,14 @@ export async function serveJ8ParentOps({ admin, email, binding, token, gate, hel
             try { body = await readJson(req); } catch { body = undefined; }
             if (body === undefined) reply = refuse('bad_request', 400);
             else {
-                try { reply = await gate.run(() => handle(req.headers.authorization, body)); }
-                catch { reply = refuse('closed', 409); }
+                try {
+                    reply = await gate.run(async () => {
+                        const r = await handle(req.headers.authorization, body);
+                        // Rejecting through the gate is how the entry learns a write's outcome is unknown (it then holds cleanup).
+                        if (r.outcomeUnknown) throw Object.assign(new Error('j8_parent_write_outcome_unknown'), { reply: r });
+                        return r;
+                    });
+                } catch (e) { reply = (e as { reply?: Reply })?.reply ?? refuse('closed', 409); }
             }
         }
         res.writeHead(reply.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Connection: 'close' });

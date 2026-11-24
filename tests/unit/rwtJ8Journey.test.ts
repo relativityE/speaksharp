@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    J8_ADMISSION_ENV, J8_LEGACY_REFUSAL, j8AdmissionPresent, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8RunnerAdmission, legReadback,
+    J8_ADMISSION_ENV, J8_LEGACY_REFUSAL, j8AdmissionPresent, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8ParentPreflight, j8RunnerAdmission, legReadback,
     legReceipt, legSink, mergeLegReadback, readTakeDigests, takeDigest, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     j8bFinalSentFeedbackVerdict, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
 } from '../live/helpers/rwtJ8Journey';
@@ -598,5 +598,25 @@ describe('J8 receipt leak guard: the run-owned account id is registered (upload-
         const clean = new RwtReceipt(J8_SUITE);
         clean.row('evidence without the id', 'PASS', 'detail', { userIdSha256: 'a'.repeat(64) });
         expect(receiptContentLeaks(clean, [uid])).toEqual([]);
+    });
+});
+
+describe('J8 preflight on the parent-backed path (Codex on 40e1a5a6)', () => {
+    const OTHER = ['ORIGIN GATE: x', 'SHA GATE: y', 'AUTHORIZATION GATE: z'];
+    const SHARED_CAPABILITY = 'CAPABILITY GATE: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are required for server rows and UID-scoped cleanup';
+    const OPS = { RWT_J8_OPS_URL: 'http://127.0.0.1:41234/op', RWT_J8_OPS_TOKEN: 'a'.repeat(64) };
+    it('with the parent operations and no key, the shared key requirement does not stop J8; every other gate is kept', () => {
+        expect(j8ParentPreflight([SHARED_CAPABILITY], OPS)).toEqual([]);
+        expect(j8ParentPreflight([...OTHER, SHARED_CAPABILITY], OPS)).toEqual(OTHER);
+    });
+    it('the key in the browser process, or no parent operations, is still a capability failure', () => {
+        expect(j8ParentPreflight([], { ...OPS, SUPABASE_SERVICE_ROLE_KEY: 'k' })).toEqual(['CAPABILITY GATE: the J8 browser process must not hold the production key; the parent runs its operations']);
+        for (const env of [{}, { RWT_J8_OPS_URL: OPS.RWT_J8_OPS_URL }, { RWT_J8_OPS_TOKEN: OPS.RWT_J8_OPS_TOKEN }]) {
+            expect(j8ParentPreflight([SHARED_CAPABILITY], env)).toEqual(['CAPABILITY GATE: the parent operations address and run token are required (J8 runs only through its parent runner)']);
+        }
+    });
+    it('the J8 spec applies it on the runner\'s path only (the reserved email), and the shared preflight elsewhere', () => {
+        const spec = readFileSync(path.join(__dirname, '..', 'live', 'rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+        expect(spec).toContain('const missing = runnerEmail !== undefined ? j8ParentPreflight(rwtPreconditionFailures(), process.env) : rwtPreconditionFailures();');
     });
 });

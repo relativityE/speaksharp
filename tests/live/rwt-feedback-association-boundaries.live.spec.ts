@@ -37,7 +37,7 @@ import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
 import { j8ParentOpsFromEnv, parentFenceClient, parentIdentityAndClaim, parentReportReader, parentReportsByKeys, parentTakeRows } from './helpers/j8ParentOpsClient';
 import {
-    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8RunnerAdmission,
+    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8ParentPreflight, j8RunnerAdmission,
     j8bFinalSentFeedbackVerdict, legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     type StartPressCounts, legStartPressVerdict, startPressSnapshot,
 } from './helpers/rwtJ8Journey';
@@ -82,7 +82,8 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, 
         receipt.halt('preflight', `HOLD before Production writes: ${J8_LEGACY_REFUSAL}`);
         return false;
     }
-    const missing = rwtPreconditionFailures();
+    // J8 (the runner's reserved email) runs through the parent: no production key here, the parent's operations instead.
+    const missing = runnerEmail !== undefined ? j8ParentPreflight(rwtPreconditionFailures(), process.env) : rwtPreconditionFailures();
     if (!canaryClaimAuthorized() || process.env.RWT_CANARY_CLAIM_ACK !== RWT_CANARY_CLAIM_ACK_VALUE) {
         missing.push('AUTHORIZATION GATE: the separate run-owned canary-claim acknowledgement is absent');
     }

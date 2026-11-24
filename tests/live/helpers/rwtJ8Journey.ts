@@ -144,6 +144,19 @@ export class J8WriteGate {
 export type J8Admission = { admitted: true; lookupRef: string; attemptId: string } | { admitted: false; reason: string };
 export const J8_ADMISSION_ENV = 'RWT_J8_RUNNER_ADMISSION';
 const LOOKUP_REF = /^rwt-journey-[a-z0-9-]{4,80}@[a-z0-9.-]+\.[a-z]{2,}$/;
+/**
+ * J8's preflight on the parent-backed path (Codex on 40e1a5a6). The shared preflight's capability gate asks for the production key,
+ * which the J8 browser process must never hold: the parent runs its server operations. So that one gate is replaced, not dropped:
+ * the key must be ABSENT and the parent's operations address and run token present. Every other gate (origin, release SHA, write
+ * acknowledgement) is kept as given.
+ */
+export function j8ParentPreflight(base: readonly string[], env: Readonly<Record<string, string | undefined>>): string[] {
+    const out = base.filter((f) => !f.startsWith('CAPABILITY GATE:'));
+    if (env.SUPABASE_SERVICE_ROLE_KEY) out.push('CAPABILITY GATE: the J8 browser process must not hold the production key; the parent runs its operations');
+    if (!env.RWT_J8_OPS_URL || !env.RWT_J8_OPS_TOKEN) out.push('CAPABILITY GATE: the parent operations address and run token are required (J8 runs only through its parent runner)');
+    return out;
+}
+
 export function j8RunnerAdmission(env: Readonly<Record<string, string | undefined>>, readFile: (p: string) => string): J8Admission {
     const file = env[J8_ADMISSION_ENV];
     if (!file) return { admitted: false, reason: `no named-runner admission (${J8_ADMISSION_ENV} is not set); J8 never runs standalone` };
