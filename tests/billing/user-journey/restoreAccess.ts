@@ -114,8 +114,9 @@ export function firstInvoiceCharge(invoice: InvoiceRow | null, f: { firstInvoice
 const PLAN_PRICE = /\$\s?10\.00(?!\d)/;
 const PLAN_CADENCE = /(\bper month|\/\s?month|\bmonthly|\bevery month)\b/i;
 /**
- * The heading of the block that names the plan. Stripe's portal has said both "Current plan" and "Current subscription"
- * (run 45361320828: the portal opened and the check never passed in 120 s). A closed list of the two, nothing looser.
+ * The heading of the block that names the plan: "Current plan" or "Current subscription", a closed list of two. Run
+ * 45361320828 opened the portal and never passed in 120 s; which heading it showed is unread (no page text leaves), so a
+ * timeout names its condition (`portalPlanMiss`) and the next run says whether the heading was the cause.
  */
 const PLAN_LABEL = /\bcurrent (?:plan|subscription)\b/i;
 const MONEY = /\$\s?\d[\d,]*(?:\.\d+)?/g;
