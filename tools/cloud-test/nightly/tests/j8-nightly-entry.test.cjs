@@ -818,6 +818,27 @@ describe('J8 nightly entry', () => {
             { workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'j8-fin-w-')), repoRoot: fakeRoot(script), timeoutMs });
         expect({ timedOut: fin('sleep 5', 200), signalled: fin('kill -TERM $$'), failed: fin('exit 2'), settled: fin(`echo '{"errors":[],"rows":[]}'`) })
             .toEqual({ timedOut: { unconfirmed: true }, signalled: { unconfirmed: true }, failed: null, settled: { errors: [], rows: [] } });
+        // Sam on 40e1a5a6: the evaluation child gets only the allowlisted variables, never a credential the parent holds.
+        // The parent's own env holds credentials; the default (baseEnv = process.env) is what the runner uses, so seed it there.
+        const seeded = { J8_FIN_PROBE_CREDENTIAL: 'held-in-parent', POSTHOG_PERSONAL_API_KEY: 'posthog-in-parent' };
+        const saved = Object.fromEntries(Object.keys(seeded).map((k) => [k, process.env[k]]));
+        Object.assign(process.env, seeded);
+        let got;
+        try {
+            // The stand-in reports the env it was given via node (no shell utilities), so the reading does not depend on the platform's sh.
+            const report = `exec "${process.execPath}" -e 'process.stdout.write(JSON.stringify({names:Object.keys(process.env)})+"\\n")'`;
+            got = entry.finalizerEvaluate({ suite: J8_SUITE, release: RELEASE, rows: [] }, { journeys: [] },
+                { workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'j8-fin-w-')), repoRoot: fakeRoot(report) });
+        } finally {
+            for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+        }
+        // The platform may add its own bookkeeping variables to any process; the parent's credentials must never arrive, and only
+        // allowlisted names are passed from the parent's env.
+        const names = Array.isArray(got?.names) ? got.names : null;
+        expect({ read: Array.isArray(names), credential: names?.includes('J8_FIN_PROBE_CREDENTIAL'), posthog: names?.includes('POSTHOG_PERSONAL_API_KEY'),
+            path: names?.includes('PATH') })
+            .toEqual({ read: true, credential: false, posthog: false, path: true });
+        expect(entry.EVALUATION_ENV.some((n) => /KEY|TOKEN|SECRET|PASSWORD|ROLE/i.test(n))).toBe(false);
         // A late readback that ends inside the grace is confirmed stopped: HOLD, but the account is recovered as usual.
         const g = dirs();
         const late = fixtures(g.runDir);
@@ -1076,6 +1097,19 @@ describe('J8 step deadline and cleanup window (Sam, 23 Nov): admission closes in
                 cleanup: 'incomplete', left: true, journal: 'unresolved' });
     });
 
+    it('a parent operation that ended with an unknown outcome (rejected): HOLD, nothing is read back, looked up or deleted, and the account is left for protected recovery (Sam on 40e1a5a6)', async () => {
+        const d = dirs();
+        const f = fixtures(d.runDir);
+        const runSpec = f.deps.runSpec;
+        f.deps.runSpec = async (a) => { await a.operations.run(async () => { throw new Error('write outcome unknown'); }).catch(() => null); return runSpec(a); };
+        const out = await run(d, f.deps, { deadlines: { ...D, parentOpSettleMs: 40 } });
+        expect({ exitCode: out.exitCode, readbacks: f.calls.qualify.length, evaluated: f.calls.evaluate, lookups: f.store.calls.lookup.length,
+            deletes: f.store.calls.scopedDelete.length, held: out.caseResult.assertions.every((a) => a.result === 'HOLD'), source: out.caseResult.assertions[0].sources,
+            cleanup: out.cleanup.result, journal: out.createJournal })
+            .toEqual({ exitCode: 78, readbacks: 0, evaluated: 0, lookups: 0, deletes: 0, held: true, source: ['a parent operation ended with an unknown outcome'],
+                cleanup: 'incomplete', journal: 'unresolved' });
+    });
+
     it('the gate: an operation that fails still settles; closing refuses new ones without cancelling those in flight', async () => {
         const ops = entry.parentOperations();
         let finished = false;
@@ -1083,8 +1117,14 @@ describe('J8 step deadline and cleanup window (Sam, 23 Nov): admission closes in
         const failed = ops.port.run(() => { throw new Error('boom'); }).catch(() => 'rejected');
         ops.close();
         const late = await ops.port.run(() => 'ran').catch((e) => e instanceof entry.ParentOperationRefused);
-        expect({ open: ops.open, late, settled: await ops.settle(1_000), finished, slow: await slow, failed: await failed, inFlight: ops.inFlight })
-            .toEqual({ open: false, late: true, settled: true, finished: true, slow: 'done', failed: 'rejected', inFlight: 0 });
+        expect({ open: ops.open, late, settled: await ops.settle(1_000), finished, slow: await slow, failed: await failed, inFlight: ops.inFlight, unknown: ops.outcomeUnknown })
+            .toEqual({ open: false, late: true, settled: true, finished: true, slow: 'done', failed: 'rejected', inFlight: 0, unknown: true });
+        // Ended is not confirmed: only a rejection marks the outcome unknown; fulfilled operations and refusals after close do not.
+        const clean = entry.parentOperations();
+        await clean.port.run(() => 'ok');
+        clean.close();
+        await clean.port.run(() => 'late').catch(() => null);
+        expect({ settled: await clean.settle(100), unknown: clean.outcomeUnknown }).toEqual({ settled: true, unknown: false });
         const stuck = entry.parentOperations();
         stuck.port.run(() => new Promise(() => {}));
         stuck.close();
@@ -1153,7 +1193,8 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
             const ev = evidenceFor(q, status);
             return { status, stdout: ev ? `noise\nTELEMETRY_READBACK_QUALIFICATION_EVIDENCE ${JSON.stringify({ gate: 'TELEMETRY-READBACK-COMPLETENESS', ...ev })}\n` : '' };
         };
-        const deps = { ...j8LiveAdapters({ repoRoot, baseEnv: {}, run: runner, sleep: async () => {}, admin: fakeAdmin(users, { counts }) }),
+        const deps = { ...j8LiveAdapters({ repoRoot, baseEnv: {}, run: runner, sleep: async () => {}, admin: fakeAdmin(users, { counts }), opsAdmin: { opsClient: true },
+            readAdmission: (f) => require('node:fs').readFileSync(f, 'utf8'), startOps: async () => ({ url: 'http://127.0.0.1:41234/op', stop: async () => {} }) }),
             evaluate: async (receipt) => ({ suite: receipt.suite, release: receipt.release, errors: [], rows: receipt.rows }) };
         return { deps, calls, users };
     }
@@ -1215,96 +1256,8 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
     });
 });
 
-describe('J8 live launcher (liveMain): the CLI the release-checks J8 job runs (Sam, 23 Nov, #1953)', () => {
+describe('J8 run summary and admin transport (the protected runner scripts/rwt-j8-parent-runner.cjs prints and uses these)', () => {
     const { cleanupReserve } = require('../cleanup-plan.cjs');
-    const HOST = `${'a'.repeat(20)}.supabase.co`;
-    const KEY = 'service-role-fixture';
-    const LIVE = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow, J8_STEP_STARTED_AT: String(Date.now()),
-        SUPABASE_URL: `https://${HOST}`, SUPABASE_SERVICE_ROLE_KEY: KEY, RWT_WRITES_ACK: 'RWT-DISPOSABLE-ACCOUNT-WRITES', RWT_CANARY_CLAIM_ACK: 'RWT-CANARY-CLAIM-RUN-OWNED' };
-    const argvFor = (d) => ['--evidence-dir', d.evidenceDir, '--run-dir', d.runDir, '--run-id', RUN_ID, '--run-attempt', '1', '--release-sha', RELEASE, '--execute', 'true'];
-    const dropArg = (argv, k) => argv.filter((_, i) => i !== argv.indexOf(k) && i !== argv.indexOf(k) + 1);
-    /** A supabase-js-shaped admin client (nothing it holds is ever called here) and a recorder of every createClient call. */
-    const adminShape = () => ({ auth: { admin: { listUsers: async () => ({}), getUserById: async () => ({}) } }, from: () => ({}), rpc: async () => ({}) });
-    const recorder = () => { const calls = []; return { calls, createClient: (...a) => { calls.push(a); return adminShape(); } }; };
-    const LIVE_DEPS = ['runSpec', 'qualify', 'coaching', 'evaluate', 'lookup', 'readAccount', 'scopedDelete', 'readResidue'];
-
-    it('refuses before anything is built, recorded or sent: arguments, domain, run binding, acknowledgements, credentials, project', async () => {
-        const d = dirs();
-        const argv = argvFor(d);
-        const cases = [
-            [dropArg(argv, '--release-sha'), LIVE, /--release-sha/],
-            [argv.map((v) => (v === 'true' ? 'false' : v)), LIVE, /--execute true/],
-            [[...argv, '--plan', 'x'], LIVE, /unknown or repeated argument/],
-            [argv, { ...LIVE, LIVE_TEST_EMAIL_DOMAIN: '' }, /LIVE_TEST_EMAIL_DOMAIN/],
-            [argv, { ...LIVE, GITHUB_REPOSITORY: '' }, /no run binding/],
-            [argv, { ...LIVE, GITHUB_WORKFLOW_REF: '' }, /no run binding/],
-            [argv, { ...LIVE, RWT_WRITES_ACK: '' }, /acknowledgements/],
-            [argv, { ...LIVE, RWT_WRITES_ACK: 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE' }, /acknowledgements/],
-            [argv, { ...LIVE, RWT_CANARY_CLAIM_ACK: '' }, /acknowledgements/],
-            [argv, { ...LIVE, RWT_CANARY_CLAIM_ACK: 'yes' }, /acknowledgements/],
-            [argv, { ...LIVE, SUPABASE_SERVICE_ROLE_KEY: '' }, /SUPABASE_SERVICE_ROLE_KEY/],
-            [argv, { ...LIVE, SUPABASE_URL: '' }, /SUPABASE_URL/],
-        ];
-        for (const url of [`http://${HOST}`, `https://${'b'.repeat(20)}.supabase.co`, `https://${HOST}/rest/v1`, `https://u:p@${HOST}`, `https://${HOST}?x=1`, `https://${HOST}:8443`])
-            cases.push([argv, { ...LIVE, SUPABASE_URL: url }, /not the approved project/]);
-        for (const [args, env, why] of cases) {
-            const rec = recorder();
-            let ran = 0;
-            const out = await entry.liveMain(args, env, { createClient: rec.createClient, approvedHost: HOST, run: async () => { ran += 1; return { exitCode: 0 }; } });
-            expect({ exit: out.exitCode, why: why.test(out.reason), built: rec.calls.length, ran }).toEqual({ exit: 78, why: true, built: 0, ran: 0 });
-        }
-        // With no approved host injected, the reviewed save oracle's own readback host decides; any other project is refused.
-        const rec = recorder();
-        const other = await entry.liveMain(argv, { ...LIVE, SUPABASE_URL: `https://${'c'.repeat(20)}.supabase.co` }, { createClient: rec.createClient });
-        expect({ exit: other.exitCode, why: /not the approved project/.test(other.reason), built: rec.calls.length }).toEqual({ exit: 78, why: true, built: 0 });
-        expect(fs.readdirSync(d.evidenceDir)).toEqual([]);
-    });
-
-    it('builds the service-role client for the approved project only, over the bounded transport, and supplies every live part', async () => {
-        const d = dirs();
-        const rec = recorder();
-        let seen = null;
-        const out = await entry.liveMain(argvFor(d), LIVE, { createClient: rec.createClient, approvedHost: HOST,
-            run: async (argv, env, deps) => { seen = { argv, env, deps }; return { exitCode: 0 }; } });
-        expect(out.exitCode).toBe(0);
-        expect(rec.calls.length).toBe(1);
-        const [origin, key, opts] = rec.calls[0];
-        expect({ origin, key, persist: opts.auth.persistSession, refresh: opts.auth.autoRefreshToken, fetch: typeof opts.global.fetch })
-            .toEqual({ origin: `https://${HOST}`, key: KEY, persist: false, refresh: false, fetch: 'function' });
-        expect(seen.argv).toEqual(argvFor(d));
-        expect(seen.env).toBe(LIVE);
-        expect(LIVE_DEPS.filter((k) => typeof seen.deps[k] !== 'function')).toEqual([]);
-        // The reviewed adapters write under the repository root, so the job's --run-dir must be the checkout ($GITHUB_WORKSPACE).
-        expect(entry.sameDirectory(seen.deps.artifactRoot, path.join(__dirname, '..', '..', '..', '..'))).toBe(true);
-    });
-
-    it('with the live parts, main passes its gate and still keeps runJ8Nightly\'s guards: a run dir that is not the checkout is HOLD, nothing sent', async () => {
-        const d = dirs();
-        const rec = recorder();
-        const out = await entry.liveMain(argvFor(d), LIVE, { createClient: rec.createClient, approvedHost: HOST });
-        expect(out.exitCode).toBe(78);
-        expect(/live gate is closed/.test(out.reason)).toBe(false);
-        expect(/run directory is not where the spec writes its receipt/.test(out.reason)).toBe(true);
-        expect(fs.readdirSync(d.evidenceDir)).toEqual([]);
-    });
-
-    it('the evaluation runs the finalizer in a fresh private directory that is removed when the run ends', async () => {
-        const d = dirs();
-        const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'j8-runner-temp-'));
-        let at = null;
-        const out = await entry.liveMain(argvFor(d), { ...LIVE, RUNNER_TEMP: temp }, { createClient: recorder().createClient, approvedHost: HOST,
-            finalize: (receipt, readback, { workDir }) => { at = { workDir, mode: fs.statSync(workDir).mode & 0o777, inTemp: path.dirname(workDir) === temp, receipt, readback }; return { rows: [] }; },
-            run: async (argv, env, deps) => ({ exitCode: 0, evaluated: await deps.evaluate({ r: 1 }, { b: 2 }) }) });
-        expect(out.evaluated).toEqual({ rows: [] });
-        expect({ mode: at.mode, inTemp: at.inTemp, receipt: at.receipt, readback: at.readback }).toEqual({ mode: 0o700, inTemp: true, receipt: { r: 1 }, readback: { b: 2 } });
-        expect(fs.existsSync(at.workDir)).toBe(false);
-        // A run that throws still removes it.
-        let thrownAt = null;
-        await expect(entry.liveMain(argvFor(d), { ...LIVE, RUNNER_TEMP: temp }, { createClient: recorder().createClient, approvedHost: HOST,
-            finalize: (r, b, { workDir }) => { thrownAt = workDir; return null; },
-            run: async (argv, env, deps) => { await deps.evaluate({}, {}); throw new Error('boom'); } })).rejects.toBeInstanceOf(Error);
-        expect(fs.existsSync(thrownAt)).toBe(false);
-    });
 
     it('the summary line names each leg\'s result, cleanup, the create journal and the step deadline, and nothing else', async () => {
         const d = dirs();
@@ -1328,5 +1281,22 @@ describe('J8 live launcher (liveMain): the CLI the release-checks J8 job runs (S
         try { await t.fetch('one-more'); } catch (e) { refused = e.code; }
         expect(refused).toBe('ADMIN_ALLOWANCE');
         expect(fetched.length).toBe(allowance);
+    });
+});
+
+describe('J8 parent operations transport (Sam, 23 Nov): the operations can never spend cleanup\'s allowance', () => {
+    it('the operations transport has its own cap; spending it leaves teardown\'s allowance whole', async () => {
+        let sent = 0;
+        const fetchImpl = async () => { sent += 1; return { ok: true }; };
+        const ops = entry.j8OpsTransport(fetchImpl);
+        const teardown = entry.j8AdminTransport(fetchImpl);
+        const teardownBefore = teardown.remaining('teardown');
+        for (let i = 0; i < entry.J8_PARENT_OP_REQUESTS; i++) await ops.fetch('https://x.supabase.co/rest/v1/x');
+        let refused = null;
+        try { await ops.fetch('https://x.supabase.co/rest/v1/x'); } catch (e) { refused = e.code; }
+        expect(refused).toBe('ADMIN_ALLOWANCE');
+        expect(sent).toBe(entry.J8_PARENT_OP_REQUESTS);
+        expect(teardown.remaining('teardown')).toBe(teardownBefore);
+        expect(teardownBefore > 0).toBe(true);
     });
 });

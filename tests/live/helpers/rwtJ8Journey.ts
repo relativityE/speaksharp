@@ -15,6 +15,8 @@ import { noSessionWriteDecision } from './feedbackNoSessionCleanup';
 import type { ReadbackActionBinding } from './rwtAcceptance';
 import { START_CONTROLS, type StartControl, type StartPressBudget } from './rwtHarnessParity';
 import { type ActionCaptureAttempt, type BindingMissReason, type ReadbackPlan, bindReadbackJourneys } from './rwtOracles';
+import { accessTokenFromAuthStorage, tokenSubject } from './rwtLateCoaching';
+import type { ChoiceClient, ConsentMode } from './rwtPracticeConsent';
 
 export const J8_SUITE = 'feedback-association-boundaries-j8';
 export const J8_LEGS = ['J8.a', 'J8.b', 'J8.c'] as const;
@@ -144,6 +146,88 @@ export class J8WriteGate {
 export type J8Admission = { admitted: true; lookupRef: string; attemptId: string } | { admitted: false; reason: string };
 export const J8_ADMISSION_ENV = 'RWT_J8_RUNNER_ADMISSION';
 const LOOKUP_REF = /^rwt-journey-[a-z0-9-]{4,80}@[a-z0-9.-]+\.[a-z]{2,}$/;
+/**
+ * J8.b needs AI coaching on both saved takes (its older take's coaching request is a mapped AHT-07 row), and since #1835 an owner
+ * with no recorded choice has coaching OFF. So the run's own fresh account answers the Practice prompt as a user would, Save: Yes,
+ * Coaching: Yes. Fixed, never read from the environment (Jack's preflight on b3d09f6b; Sam, 23 Nov).
+ */
+export const J8_CONSENT_MODE: ConsentMode = 'save_on_coaching_on';
+
+/** The page's own Supabase `apikey` (the public anon key it already sends), taken only from a request to the backend origin. */
+export function j8BackendApiKey(requestUrl: string, headers: Readonly<Record<string, string>>, backendUrl: string): string | null {
+    try {
+        if (new URL(requestUrl).origin !== new URL(backendUrl).origin) return null;
+    } catch { return null; }
+    const key = headers.apikey;
+    return typeof key === 'string' && key.length > 0 ? key : null;
+}
+
+/** The signed-in owner's own access token from the page's auth storage, only when it belongs to `expectedUid`. Never logged. */
+export function j8OwnerToken(entries: ReadonlyArray<{ key: string; value: string }>, expectedUid: string): string | null {
+    const token = accessTokenFromAuthStorage(entries);
+    return token && expectedUid && tokenSubject(token) === expectedUid ? token : null;
+}
+
+type OwnerRead = { data: unknown; error: { code?: string } | null };
+/**
+ * The consent readback as the SIGNED-IN OWNER (Sam, 23 Nov: `practice_privacy_choices` grants SELECT to authenticated and
+ * `practice_privacy_owner_read` limits it to user_id = auth.uid()). The public key plus the owner's own token; no privileged
+ * operation and no service key. It answers the two reads rwtPracticeConsent makes, on `practice_privacy_choices` only. A missing
+ * key or token, a transport failure or a non-array answer is an error, so the caller's readback is unreadable (HOLD).
+ */
+export function j8OwnerChoiceClient(o: { url: string; anonKey: string | null; token: string | null; fetchImpl?: typeof fetch }): ChoiceClient {
+    const doFetch = o.fetchImpl ?? fetch;
+    const get = async (query: URLSearchParams): Promise<OwnerRead> => {
+        if (!o.url || !o.anonKey || !o.token) return { data: null, error: { code: 'owner_session_missing' } };
+        try {
+            const r = await doFetch(`${new URL('/rest/v1/practice_privacy_choices', o.url).href}?${query.toString()}`,
+                { headers: { apikey: o.anonKey, Authorization: `Bearer ${o.token}`, Accept: 'application/json' } });
+            const body = await r.json().catch(() => null) as unknown;
+            if (!r.ok) {
+                const code = body && typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string' ? (body as { code: string }).code : `http_${r.status}`;
+                return { data: null, error: { code } };
+            }
+            return Array.isArray(body) ? { data: body, error: null } : { data: null, error: { code: 'malformed' } };
+        } catch { return { data: null, error: { code: 'transport' } }; }
+    };
+    return {
+        from(table: string) {
+            if (table !== 'practice_privacy_choices') throw new Error('j8 owner readback: only practice_privacy_choices');
+            return {
+                select(cols: string) {
+                    return {
+                        eq(col: string, v: string) {
+                            return {
+                                async maybeSingle(): Promise<OwnerRead> {
+                                    const r = await get(new URLSearchParams({ select: cols, [col]: `eq.${v}` }));
+                                    if (r.error) return r;
+                                    const rows = r.data as unknown[];
+                                    if (rows.length === 0) return { data: null, error: null };
+                                    return rows.length === 1 ? { data: rows[0], error: null } : { data: null, error: { code: 'PGRST116' } };
+                                },
+                            };
+                        },
+                        limit(n: number) { return get(new URLSearchParams({ select: cols, limit: String(n) })); },
+                    };
+                },
+            };
+        },
+    };
+}
+
+/**
+ * J8's preflight on the parent-backed path (Codex on 40e1a5a6). The shared preflight's capability gate asks for the production key,
+ * which the J8 browser process must never hold: the parent runs its server operations. So that one gate is replaced, not dropped:
+ * the key must be ABSENT and the parent's operations address and run token present. Every other gate (origin, release SHA, write
+ * acknowledgement) is kept as given.
+ */
+export function j8ParentPreflight(base: readonly string[], env: Readonly<Record<string, string | undefined>>): string[] {
+    const out = base.filter((f) => !f.startsWith('CAPABILITY GATE:'));
+    if (env.SUPABASE_SERVICE_ROLE_KEY) out.push('CAPABILITY GATE: the J8 browser process must not hold the production key; the parent runs its operations');
+    if (!env.RWT_J8_OPS_URL || !env.RWT_J8_OPS_TOKEN) out.push('CAPABILITY GATE: the parent operations address and run token are required (J8 runs only through its parent runner)');
+    return out;
+}
+
 export function j8RunnerAdmission(env: Readonly<Record<string, string | undefined>>, readFile: (p: string) => string): J8Admission {
     const file = env[J8_ADMISSION_ENV];
     if (!file) return { admitted: false, reason: `no named-runner admission (${J8_ADMISSION_ENV} is not set); J8 never runs standalone` };

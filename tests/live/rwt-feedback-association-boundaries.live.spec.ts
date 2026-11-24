@@ -35,12 +35,15 @@ import { ZERO_RESIDUE_ROW } from './helpers/feedbackReportCleanup';
 import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision } from './helpers/feedbackNoSessionCleanup';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
+import { j8ParentOpsFromEnv, parentFenceClient, parentIdentityAndClaim, parentReportReader, parentReportsByKeys, parentTakeRows } from './helpers/j8ParentOpsClient';
 import {
-    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8RunnerAdmission,
+    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8ParentPreflight, j8RunnerAdmission, J8_CONSENT_MODE, j8BackendApiKey, j8OwnerChoiceClient, j8OwnerToken,
     j8bFinalSentFeedbackVerdict, legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     type StartPressCounts, legStartPressVerdict, startPressSnapshot,
 } from './helpers/rwtJ8Journey';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
+import { captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate } from './helpers/rwtPracticeConsent';
 import { currentRunBinding } from './helpers/runBinding';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
@@ -57,6 +60,9 @@ const admin = SUPABASE_URL && SERVICE_ROLE
     ? createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } })
     : null;
 const fixture = loadRwtFixture('open_mic_tts');
+// J8 runner (Sam, 23 Nov): the browser spec holds no service-role key; production reads and writes go through the parent's named,
+// account-bound operations. Null outside the J8 runner, where the legacy tests keep their own admin client.
+const parentOps = j8ParentOpsFromEnv();
 
 // The two deployed checks each bind exactly one share_feedback action, matching the current readback contract.
 test.use({
@@ -78,7 +84,8 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, 
         receipt.halt('preflight', `HOLD before Production writes: ${J8_LEGACY_REFUSAL}`);
         return false;
     }
-    const missing = rwtPreconditionFailures();
+    // J8 (the runner's reserved email) runs through the parent: no production key here, the parent's operations instead.
+    const missing = runnerEmail !== undefined ? j8ParentPreflight(rwtPreconditionFailures(), process.env) : rwtPreconditionFailures();
     if (!canaryClaimAuthorized() || process.env.RWT_CANARY_CLAIM_ACK !== RWT_CANARY_CLAIM_ACK_VALUE) {
         missing.push('AUTHORIZATION GATE: the separate run-owned canary-claim acknowledgement is absent');
     }
@@ -91,13 +98,17 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, 
     await requireApprovedSurface(page, receipt);
     // J8: the email is the lookup reference the named runner recorded for this account-create BEFORE the signup (Sam on 94fe88d7).
     owner.email = runnerEmail ?? newDisposableEmail('feedback-boundary');
-    receipt.forbid(owner.email, SERVICE_ROLE);
+    receipt.forbid(...[owner.email, SERVICE_ROLE].filter(Boolean));
     const account = await signUpDisposableAccount(page, owner.email);
     owner.uid = account.uid;
-    const identity = await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);
+    // The account id reaches receipt evidence through the fence, feedback and readback helpers: the leak guard must know it, so an
+    // uploaded receipt that carries it is replaced by the redacted failure receipt. (The password never leaves the signup closure.)
+    receipt.forbid(owner.uid);
+    const parentResult = parentOps ? await parentIdentityAndClaim(parentOps, owner.uid) : null;
+    const identity = parentResult ? parentResult.failures : await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);
     if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
     receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');
-    const claimed = await markRunOwnedAccountCanary(admin as never, owner.uid, owner.email);
+    const claimed = parentResult ? parentResult.claimed : await markRunOwnedAccountCanary(admin as never, owner.uid, owner.email);
     if (!claimed) {
         receipt.halt('canary claim', 'HOLD before qualifying traffic: the run-owned canary claim was not applied');
         return false;
@@ -115,6 +126,26 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, 
         return false;
     }
     return true;
+}
+
+/**
+ * J8.b's explicit opt-in (Jack's preflight on b3d09f6b; Sam, 23 Nov): the run's own fresh account answers the real Practice prompt
+ * (Save: Yes, Coaching: Yes), and the choice is read back as the SIGNED-IN OWNER (public key + the owner's own token, owner-only
+ * RLS), never with a service key and never seeded. -> the capture gate to confirm immediately before the first take, or the
+ * content-free reason it is held.
+ */
+async function settleJ8PracticeConsent(page: Page, ownerUid: string, anonKey: string | null): Promise<{ gate: CaptureConsentGate } | { held: string }> {
+    const entries = await page.evaluate(() => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })));
+    const client = j8OwnerChoiceClient({ url: SUPABASE_URL, anonKey, token: j8OwnerToken(entries, ownerUid) });
+    const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+    let reason = 'not_settled';
+    const note = (_status: 'PASS' | 'FAIL' | 'HOLD', _detail: string, evidence: Record<string, string>) => { reason = evidence.reason ?? reason; };
+    try {
+        const consent = await settleFixedConsentOnPractice({ page, client, ownerId: ownerUid, migrationFiles, mode: J8_CONSENT_MODE, record: note });
+        return { gate: captureConsentGate({ consent, client, ownerId: ownerUid, mode: J8_CONSENT_MODE, record: note }) };
+    } catch (error) {
+        return { held: /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? reason };
+    }
 }
 
 async function createSavedOpenMicTake(
@@ -248,8 +279,8 @@ async function submitOpenDialog(
     const keys = [...inserts.keys];
     let rows: Array<{ id: unknown; session_id: unknown; metadata: unknown }> = [];
     if (keys.length > 0) {
-        const { data, error } = await admin!.from('user_issue_reports')
-            .select('id,session_id,metadata').eq('user_id', uid).in('idempotency_key', keys);
+        const { data, error } = parentOps ? await parentReportsByKeys(parentOps, keys) as { data: typeof rows | null; error: { code?: string } | null }
+            : await admin!.from('user_issue_reports').select('id,session_id,metadata').eq('user_id', uid).in('idempotency_key', keys);
         if (error) throw new Error(`feedback row read failed (fail closed): ${error.code ?? 'unknown'}`);
         rows = data ?? [];
     }
@@ -490,7 +521,8 @@ async function runFeedbackFaultLeg(
     let storedRows: number | null = null;
     let storedSessionMatches: boolean | null = null;
     if (key) {
-        const { data, error } = await admin!.from('user_issue_reports').select('id,session_id').eq('user_id', uid).eq('idempotency_key', key);
+        const { data, error } = parentOps ? await parentReportsByKeys(parentOps, [key]) as { data: Array<{ id: unknown; session_id: unknown }> | null; error: { code?: string } | null }
+            : await admin!.from('user_issue_reports').select('id,session_id').eq('user_id', uid).eq('idempotency_key', key);
         if (!error && Array.isArray(data)) {
             storedRows = data.length;
             storedSessionMatches = data.length === 1 ? data[0].session_id === olderId : null;
@@ -764,6 +796,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const admission = j8RunnerAdmission(process.env, (f) => readFileSync(f, 'utf8'));
         test.skip(!admission.admitted, admission.admitted ? '' : admission.reason);
         if (!admission.admitted) return;
+        // Sam, 23 Nov: under the runner the browser spec never holds the production key, and reaches data only through the parent.
+        if (SERVICE_ROLE || !parentOps) {
+            throw new Error('J8 runner: the spec must run without the service-role key and with the parent operations (fail closed, nothing sent)');
+        }
         test.setTimeout(2_400_000);
         const owner: Owner = { email: '', uid: '' };
         const receipt = new RwtReceipt(J8_SUITE);
@@ -773,6 +809,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        // The page's own public backend key, from its own requests (nothing injected), for the owner's consent readback.
+        let backendApiKey: string | null = null;
+        page.on('request', (request) => { backendApiKey ??= j8BackendApiKey(request.url(), request.headers(), SUPABASE_URL); });
         const parity = new HarnessParityTap();
         const watch = armWatchdog({ page, tap, profile: watchProfileFor(J8_SUITE), label: J8_SUITE });
         let claimed = false;
@@ -872,7 +911,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             const ready = await prepareDisposable(page, receipt, owner, admission.lookupRef);
             claimed = ready;
             if (!ready) return;
-            feedbackFence = new JourneyFeedbackFence(admin as never, J8_FENCE_CASE, J8_FENCE_KEY_CAP);
+            feedbackFence = new JourneyFeedbackFence((parentOps ? parentFenceClient(parentOps) : admin) as never, J8_FENCE_CASE, J8_FENCE_KEY_CAP);
             await feedbackFence.open(owner.uid, currentRunBinding());
             if (!feedbackFence.writable) {
                 receipt.halt('feedback fence open', `HOLD before any feedback write: ${feedbackFence.heldReason ?? 'not opened'}`);
@@ -905,8 +944,16 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // J8.b — two saved takes, the AHT-07 fault legs, then the older-take submit.
             const b = legSink(receipt, 'J8.b');
             await page.goto('/practice');
+            await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
+            // #1835: coaching stays off until the owner opts in, so this run's own fresh account opts in through the real prompt,
+            // and the owner's own saved choice is read back immediately before the first take. Anything else holds the run here.
+            const settled = await settleJ8PracticeConsent(page, owner.uid, backendApiKey);
+            if ('held' in settled) { receipt.halt('practice privacy choice', `HOLD before the first take: ${settled.held}`); return; }
             await openProductsItem(page, 'open-mic');
             await page.waitForURL(/\/session/, { timeout: 45_000 });
+            const confirmed = await settled.gate.confirm().then(() => null, (e: unknown) =>
+                /^HOLD practice consent: ([a-z0-9_]+)/.exec(e instanceof Error ? e.message : '')?.[1] ?? 'not_confirmed');
+            if (confirmed) { receipt.halt('practice privacy choice', `HOLD before the first take: ${confirmed}`); return; }
             const olderId = await createSavedOpenMicTake(page, 1, true);
             const newerId = await createSavedOpenMicTake(page, 2, false);
             takes.push(olderId, newerId);
@@ -942,7 +989,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 writeOlderTakeReportRows(b, storedB, olderId);
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
-                    receipt: legReceipt(receipt, 'J8.b'), admin: admin as never, userId: owner.uid, reportId: storedB.id, currentSessionId: newerId,
+                    receipt: legReceipt(receipt, 'J8.b'), admin: (parentOps ? parentReportReader(parentOps) : admin) as never, userId: owner.uid, reportId: storedB.id, currentSessionId: newerId,
                     reportedSessionId: olderId, acknowledgementVisible: storedB.acknowledged,
                     exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'open_mic',
                 });
@@ -961,7 +1008,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // RUN; after it, HOLD. Only a successful read that lacks a take FAILs.
             const readTakes = async (): Promise<ReadonlyMap<string, string | null> | null> => {
                 try {
-                    return readTakeDigests(await admin!.from('sessions').select(TAKE_PROJECTION_FIELDS.join(',')).eq('user_id', owner.uid).in('id', [olderId, newerId]), owner.uid);
+                    return readTakeDigests((parentOps ? await parentTakeRows(parentOps, [olderId, newerId])
+                        : await admin!.from('sessions').select(TAKE_PROJECTION_FIELDS.join(',')).eq('user_id', owner.uid).in('id', [olderId, newerId])) as never, owner.uid);
                 } catch { return null; }
             };
             const linkedToOlder = Boolean(storedB && storedB.storedRows === 1 && storedB.sessionId === olderId);

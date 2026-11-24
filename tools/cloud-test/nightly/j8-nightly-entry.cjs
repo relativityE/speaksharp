@@ -27,7 +27,7 @@
 //   (4) the spec, readback, coaching, evaluation and lookup calls each have a deadline, and teardown gets the real cleanup
 //       budget (its lookup is cut off at it and the evidence records it as exhausted).
 // The sealed packet is unchanged: the plan keeps J8 behind `no-j8-harness-adapter` (limits.cjs NEVER_SATISFIED), and `main` refuses
-// unless its caller supplies the spec, readback, evaluation and recovery. Its one live caller is `liveMain` (Sam, 23 Nov, #1953), the
+// unless its caller supplies the spec, readback, evaluation and recovery. Its one live caller is scripts/rwt-j8-parent-runner.cjs (Sam, 23 Nov), the
 // CLI the release-checks J8 job runs: it reads the service-role key only to build the approved project's bounded admin client.
 // Sam, 23 Nov (the J8 deadline and cleanup fix): the whole run fits inside the runner step. The step's end (`stepEndAt`, its 88-minute
 // limit from the step's own start, less a margin) is fixed before admission. Admission itself, and each spec, readback, coaching and
@@ -108,12 +108,15 @@ class ParentOperationRefused extends Error {}
  */
 function parentOperations() {
     let open = true;
+    // Sam, 23 Nov (independent review of 40e1a5a6): an operation that ended in a rejection has ENDED, but its outcome is not known
+    // (a write may have landed). Ended is not the same as confirmed; cleanup then leaves the account for protected recovery.
+    let outcomeUnknown = false;
     const inFlight = new Set();
     const port = Object.freeze({
         run(fn) {
             if (!open) return Promise.reject(new ParentOperationRefused('admission to parent operations is closed: the spec has ended'));
             const call = Promise.resolve().then(fn);
-            const ended = call.then(() => undefined, () => undefined);
+            const ended = call.then(() => undefined, () => { outcomeUnknown = true; });
             inFlight.add(ended);
             ended.then(() => inFlight.delete(ended));
             return call;
@@ -124,6 +127,7 @@ function parentOperations() {
         close() { open = false; },
         get open() { return open; },
         get inFlight() { return inFlight.size; },
+        get outcomeUnknown() { return outcomeUnknown; },
         async settle(ms) {
             if (inFlight.size === 0) return true;
             if (!(ms > 0)) return false;
@@ -300,18 +304,24 @@ async function j8ReadbackVerdicts(receipt, { qualify, coaching }, { binding, dea
     return out;
 }
 
+/** The only variables the evaluation child receives: what node and tsx need to start and to find a temp directory. */
+const EVALUATION_ENV = Object.freeze(['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'SystemRoot']);
+const evaluationEnv = (env) => Object.fromEntries(EVALUATION_ENV.filter((k) => typeof env[k] === 'string').map((k) => [k, env[k]]));
+
 /**
  * The reviewed finalizer's automated half, run as its own process (scripts/rwt-automated-evaluation.mts): the receipt and readback
  * are written to `workDir` and read back by the same validation `pnpm rwt:finalize` applies. Anything unreadable is null (HOLD).
  */
-function finalizerEvaluate(receipt, readback, { workDir, repoRoot = path.join(__dirname, '..', '..', '..'), timeoutMs = 60_000 }) {
+function finalizerEvaluate(receipt, readback, { workDir, repoRoot = path.join(__dirname, '..', '..', '..'), timeoutMs = 60_000, baseEnv = process.env }) {
     const { spawnSync } = require('node:child_process');
     const receiptPath = path.join(workDir, 'j8-evaluation.receipt.json');
     const readbackPath = path.join(workDir, 'j8-evaluation.readback.json');
     fs.writeFileSync(receiptPath, JSON.stringify(receipt));
     fs.writeFileSync(readbackPath, JSON.stringify(readback));
+    // Sam, 23 Nov (independent review of 40e1a5a6): the evaluation reads only its two files, so it gets an explicit allowlisted env and
+    // never inherits the parent's credentials.
     const r = spawnSync(path.join(repoRoot, 'node_modules', '.bin', 'tsx'), [path.join(repoRoot, 'scripts', 'rwt-automated-evaluation.mts'), receiptPath, readbackPath],
-        { cwd: repoRoot, encoding: 'utf8', timeout: timeoutMs });
+        { cwd: repoRoot, encoding: 'utf8', timeout: timeoutMs, env: evaluationEnv(baseEnv) });
     // Sam on f07fea31: a run cut off by its timeout (or that could not be waited on) has no proof its process tree stopped; only a
     // terminal exit status is a stop. The entry then leaves the account for protected recovery.
     if (r.error || r.signal || !Number.isInteger(r.status)) return { unconfirmed: true };
@@ -467,7 +477,9 @@ async function runJ8Nightly({ evidenceDir, runDir, runId, runAttempt, configured
         specExited = !!outcome && outcome !== TIMED_OUT && outcome.timedOut !== true && outcome.drained === true && Number.isInteger(outcome.exitCode);
         const specFault = specOutcomeFault(outcome, { admission, runId, runAttempt });
         if (!opsSettled) readbackState.unconfirmed = 'a parent operation was still in flight when the spec ended and did not settle';
+        else if (operations.outcomeUnknown) readbackState.unconfirmed = 'a parent operation ended with an unknown outcome (a write may have landed)';
         const read = !opsSettled ? { fault: 'a parent operation did not settle after the spec ended' }
+            : operations.outcomeUnknown ? { fault: 'a parent operation ended with an unknown outcome' }
             : specFault ? { fault: specFault } : readBoundReceipt(receiptFile, { attemptId: admission.attemptId, expectedRelease, notBeforeMs: specStart });
         if (read.fault) caseResult = holdAll(read.fault);
         // A failed spec must show its failing row. Keyed on FAIL, not on every row PASS: the J8 receipt always carries the deferred
@@ -531,7 +543,7 @@ function cliArgs(argv, env, clock = Date.now) {
 
 /**
  * CLI. Explicit key/value arguments only; LIVE_TEST_EMAIL_DOMAIN from the parent. Without the spec, readback, evaluation and recovery
- * it refuses (78) before admission, so nothing is recorded or sent. `liveMain` is the only caller that supplies the live ones.
+ * it refuses (78) before admission, so nothing is recorded or sent. scripts/rwt-j8-parent-runner.cjs is the only caller that supplies the live ones.
  */
 async function main(argv, env = process.env, deps = {}) {
     const cli = cliArgs(argv, env);
@@ -544,9 +556,6 @@ async function main(argv, env = process.env, deps = {}) {
         stepEndAt: cli.stepEndAt, deps });
 }
 
-/** The rc-gates acknowledgements a J8 run needs (rwt_writes_ack, rwt_canary_claim_ack). */
-const J8_WRITES_ACK = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
-const J8_CANARY_ACK = 'RWT-CANARY-CLAIM-RUN-OWNED';
 /** Account-lookup enumerateUsers' page cap: each of the parent recovery's two lookups (before and after the delete) may page this far. */
 const J8_LOOKUP_PAGES = 50;
 /**
@@ -565,36 +574,20 @@ function j8AdminTransport(fetchImpl = globalThis.fetch) {
 }
 
 /**
- * The live parent (Sam, 23 Nov: the J8 runner fix, #1953). The workflow's J8 job runs this file; nothing else supplies live parts.
- * The CLI's own checks run first, then the service-role client is built only for the approved project (J4.a's approvedAdminOrigin:
- * the reviewed save oracle's readback host, exact https origin) over the bounded transport, and the reviewed live adapters
- * (j8-live-adapters.cjs) plus the finalizer's automated half are handed to `main`, which still refuses without any of them and keeps
- * every guard in runJ8Nightly. Every refusal is 78 with nothing built, recorded or sent, and content-free. The evaluation's two files go
- * to a fresh private directory (outside the checkout and every upload path), removed when the run ends.
- * `inject` is for offline proofs only: createClient, fetchImpl, approvedHost, liveAdapters, finalize and run (default `main`).
+ * The parent operations' own client transport (Sam, 23 Nov: the spec never holds the key; the parent runs four named operations for
+ * the admitted account). A separate instance from teardown's, so an operation can never spend cleanup's allowance: the same per-request
+ * deadline and the same approved origin, with its own cap. One J8 run makes about 30 operation requests (identity check and canary
+ * claim about 8, fence open/close/clean/verify 4-5, one report read per feedback submit and per leg, one take-digest read); the cap
+ * is twice that. Past it an operation is refused before anything is sent, and the spec fails closed.
  */
-async function liveMain(argv, env = process.env, inject = {}) {
-    const cli = cliArgs(argv, env);
-    if (!cli.args) return cli;
-    // Explicit disposable canary scope (Sam, 23 Nov): the dispatch's own write and canary-claim acknowledgements, exactly, or nothing
-    // is built. The spec checks them again before its signup; the readback reads canary traffic only.
-    if (env.RWT_WRITES_ACK !== J8_WRITES_ACK || env.RWT_CANARY_CLAIM_ACK !== J8_CANARY_ACK)
-        return { exitCode: 78, reason: 'BLOCKED_SETUP: J8 needs the exact disposable-account write and canary-claim acknowledgements' };
-    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY)
-        return { exitCode: 78, reason: 'BLOCKED_SETUP: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in the parent' };
-    let origin;
-    try { origin = require('./j4a-nightly-entry.cjs').approvedAdminOrigin(env.SUPABASE_URL, inject.approvedHost); }
-    catch (e) { return { exitCode: 78, reason: e.message }; }
-    const createClient = inject.createClient ?? require('@supabase/supabase-js').createClient;
-    const transport = j8AdminTransport(inject.fetchImpl);
-    const admin = createClient(origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: transport.fetch } });
-    const adapters = (inject.liveAdapters ?? require('./j8-live-adapters.cjs').j8LiveAdapters)({ admin, baseEnv: env });
-    const finalize = inject.finalize ?? finalizerEvaluate;
-    const workDir = fs.mkdtempSync(path.join(env.RUNNER_TEMP || require('node:os').tmpdir(), 'j8-evaluation-'));
-    try {
-        fs.chmodSync(workDir, 0o700);
-        return await (inject.run ?? main)(argv, env, { ...adapters, evaluate: (receipt, readback) => finalize(receipt, readback, { workDir }) });
-    } finally { fs.rmSync(workDir, { recursive: true, force: true }); }
+const J8_PARENT_OP_REQUESTS = 64;
+function j8OpsTransport(fetchImpl = globalThis.fetch) {
+    const { CLEANUP_REQUEST_DEADLINE_S } = require('./cleanup-plan.cjs');
+    const { boundedAdminTransport } = require('./admin-transport.cjs');
+    // This instance's single phase is its own allowance; it shares nothing with the teardown transport's counts.
+    const transport = boundedAdminTransport({ fetchImpl, deadlineMs: CLEANUP_REQUEST_DEADLINE_S * 1000, allowances: { bind: 0, teardown: J8_PARENT_OP_REQUESTS } });
+    transport.setPhase('teardown');
+    return transport;
 }
 
 /**
@@ -611,12 +604,7 @@ function j8RunSummary(r) {
     return { exitCode: r.exitCode, legs, cleanup: r.cleanup?.result ?? null, createJournal: r.createJournal ?? null, stepDeadline: r.stepDeadline ?? null };
 }
 
-if (require.main === module) liveMain(process.argv.slice(2)).then((r) => {
-    if (r.reason) console.error(r.reason);
-    console.log(`J8_RUNNER_RESULT ${JSON.stringify(j8RunSummary(r))}`);
-    process.exitCode = r.exitCode;
-});
 module.exports = {
-    DEADLINES, J8_STEP_MS, STEP_MARGIN_MS, STEP_CUT_OFF, ParentOperationRefused, parentOperations, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
-    J8_CANARY_ACK, J8_LOOKUP_PAGES, J8_WRITES_ACK, cliArgs, j8AdminTransport, j8RunSummary, liveMain, main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
+    DEADLINES, EVALUATION_ENV, J8_STEP_MS, STEP_MARGIN_MS, STEP_CUT_OFF, ParentOperationRefused, parentOperations, LOCAL_PREFIX, TIMED_OUT, withinSettled, RECOVERY_DEPS, READBACK_STAGES, RECEIPT_FILE, SIGNUP_DEADLINE_MS, SIGNUP_LEG, admitJ8, finalizerEvaluate, holdAll, j8CaseResult, j8ReadbackVerdicts, j8Reservation,
+    J8_LOOKUP_PAGES, J8_PARENT_OP_REQUESTS, cliArgs, j8AdminTransport, j8OpsTransport, j8RunSummary, main, ownBlocks, readBoundReceipt, recordRunIdFor, runJ8Nightly, sameDirectory, specOutcomeFault, teardownJ8,
 };

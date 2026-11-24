@@ -417,8 +417,14 @@ describe('#1432 PM decisions 5651830241 / 5651842972 — workflow contracts: one
       expect(job(other)).toMatch(new RegExp(`if: \\$\\{\\{ github\\.event\\.inputs\\.gate == 'all' \\|\\| github\\.event\\.inputs\\.gate == '${other}' \\}\\}`));
     }
     // Gate 3 steps aside only for the J8 runner selection, which runs in its own job (Sam, 23 Nov, #1953).
-    expect(job('gate-3-dast')).toContain("if: ${{ (github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast') && github.event.inputs.rwt_j8_runner == '' }}");
-    expect(job('j8-runner')).toContain("if: ${{ github.event.inputs.gate == 'gate-3-dast' && github.event.inputs.rwt_j8_runner != '' }}");
+    // Codex on 6975d161: Gate 3 steps aside ONLY for gate-3-dast with the J8 runner, and the J8 job runs whenever the runner is
+    // requested, so `gate=all` (or any other gate) with the runner set fails loudly in J8's selection step and never skips both.
+    expect(job('gate-3-dast')).toContain("if: ${{ (github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast') && !(github.event.inputs.gate == 'gate-3-dast' && github.event.inputs.rwt_j8_runner != '') }}");
+    expect(job('j8-runner')).toContain("if: ${{ github.event.inputs.rwt_j8_runner != '' }}");
+    const selection = step('Validate the J8 runner selection');
+    expect(selection).toContain('SELECTED_GATE: ${{ github.event.inputs.gate }}');
+    expect(selection).toContain('if (e.SELECTED_GATE !== "gate-3-dast") { console.error("::error::rwt_j8_runner is accepted only with gate gate-3-dast; nothing ran."); process.exit(1); }');
+    expect(selection.indexOf('e.SELECTED_GATE !== "gate-3-dast"')).toBeLessThan(selection.indexOf('require("./scripts/rwt-j8-parent-runner.cjs")'));
     // Sam, 23 Nov: the J8 entry fixes the step's end from the step's own start, taken first, and this step's limit.
     const j8Step = step('Run J8 through its parent runner');
     const { J8_STEP_MS } = createRequire(import.meta.url)('../../tools/cloud-test/nightly/j8-nightly-entry.cjs');

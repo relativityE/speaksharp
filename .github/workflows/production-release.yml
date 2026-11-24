@@ -14,7 +14,7 @@ on:
       operation:
         description: 'One separately authorized release operation'
         type: choice
-        options: [frontend, edge-functions]
+        options: [frontend, edge-functions, account-closure-only]
         required: true
       confirm:
         description: 'Type RELEASE <operation> AT <exact SHA>'
@@ -62,7 +62,7 @@ jobs:
           CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
-          case "$OPERATION" in frontend|edge-functions) ;; *) exit 1 ;; esac
+          case "$OPERATION" in frontend|edge-functions|account-closure-only) ;; *) exit 1 ;; esac
           [ "$CONFIRM" = "RELEASE $OPERATION AT $EXPECTED_HEAD_SHA" ]
 
   release-edge:
@@ -74,6 +74,19 @@ jobs:
       expected_head_sha: ${{ inputs.expected_head_sha }}
       deploy_edge_functions: true
       operation: edge-functions
+    secrets: inherit
+
+  # Deletion rollout step 5 (plan #1952): exactly the account-closure bundle; no other function and no authority
+  # invalidation. The ten-function edge-functions operation above is unchanged.
+  release-account-closure:
+    needs: [production-policy, validate-release]
+    if: ${{ inputs.deploy_production == true && needs.production-policy.outputs.allowed == 'true' && inputs.operation == 'account-closure-only' }}
+    uses: ./.github/workflows/deploy-supabase-migrations.yml
+    with:
+      deploy_production: true
+      expected_head_sha: ${{ inputs.expected_head_sha }}
+      deploy_edge_functions: false
+      operation: account-closure-only
     secrets: inherit
 
   release-frontend:
