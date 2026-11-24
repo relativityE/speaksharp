@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { evaluateCanaryActivity } from './lib/github-canary-activity.mjs';
+import { evaluateGeminiGeneration, evaluateHighestWorkingGemini } from './lib/gemini-ops-row.mjs';
 import { evaluateGithubRow } from './lib/github-ops-row.mjs';
 import { summarize, renderMarkdown, renderPublicSummary, exitCodeForRows } from './lib/ops-health-report.mjs';
 import { evaluateVercelRow } from './lib/vercel-ops-row.mjs';
@@ -47,6 +48,12 @@ await row('Gemini API', 'Can AI suggestions provider credentials reach Gemini?',
   const response = await http(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
   return simple(response.ok, `models=${response.status}`, 'https://aistudio.google.com/', response.ms);
 });
+
+await row('Gemini generation', 'Can the current coaching model generate a response to a synthetic prompt?', async () =>
+  evaluateGeminiGeneration(env('GEMINI_API_KEY', ['GOOGLE_API_KEY'])));
+
+await row('Gemini highest working model', 'Which listed eligible model passes a synthetic generation probe?', async () =>
+  evaluateHighestWorkingGemini(env('GEMINI_API_KEY', ['GOOGLE_API_KEY'])));
 
 await row('Stripe API', 'Can billing credentials reach Stripe and read product prices?', async () => {
   const secret = env('STRIPE_SECRET_KEY');
