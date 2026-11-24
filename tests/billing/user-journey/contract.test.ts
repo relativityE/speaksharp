@@ -1119,3 +1119,23 @@ test('J9.a wiring: active before seeding, one member-written older session, a re
     "this.steps.add('no_new_coaching');"]) assert.ok(kept.includes(step), step);
   assert.equal(kept.match(/this\.retentionHolds\(await this\.retentionRows\(\)\);/g)?.length, 2, 'rows re-read on the return');
 });
+
+// Elon on f3eadc1f: J9.a's seed now saves a real take (login, record) before the trial ends, so the post-expiry login must skip it
+// exactly as it skips restore_access; a second login on a signed-in page times out on /auth/signin. Every journey that signs in
+// before expiry (by a pre-expiry step that logs in) is excluded from the post-expiry login, and no other journey is.
+test('a journey that signed in before the trial ended never logs in again on the same page', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const setup = spec.slice(spec.indexOf('  async setup('), spec.indexOf('  async fillCard('));
+  const expiry = setup.indexOf('// Controlled expiry of ONLY this disposable sandbox fixture.');
+  assert.ok(setup.length > 0 && expiry > 0);
+  const method = (name: string) => spec.slice(spec.indexOf(`  async ${name}(`), spec.indexOf('\n  }\n', spec.indexOf(`  async ${name}(`)));
+  const signedInEarly = new Set<string>();
+  for (const [, journey, step] of setup.slice(0, expiry).matchAll(/if \(this\.journey === '([a-z_]+)'\) await this\.([A-Za-z]+)\(\);/g))
+    if (/await this\.login\(\);/.test(method(step))) signedInEarly.add(journey);
+  assert.deepEqual([...signedInEarly].sort(), ['paid_account_kept', 'restore_access']);
+  const late = [...setup.slice(expiry).matchAll(/^\s*if \(([^)]*)\) await this\.login\(\);$/gm)];
+  assert.equal(late.length, 1, 'one post-expiry login');
+  const excluded = [...late[0][1].matchAll(/this\.journey !== '([a-z_]+)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(excluded, [...signedInEarly].sort());
+  assert.doesNotMatch(setup.slice(expiry), /^\s*await this\.login\(\);$/m, 'no unconditional post-expiry login');
+});
