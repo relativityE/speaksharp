@@ -2,7 +2,7 @@
 /** J1.f / J7.d deletion journeys on the disposable billing stack: the link, the terminal message and the leg receipt. */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, legReceipt, scorerAccount, terminalMessage, type DeletionLegFacts } from '../billing/user-journey/accountDeletionJourney';
+import { ENTRY_ROUTE, STATUS_RECHECK_MS, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, scorerAccount, terminalMessage, type DeletionLegFacts } from '../billing/user-journey/accountDeletionJourney';
 import { finaliseDeletionReceipt } from '../billing/user-journey/deletionReceipt.mjs';
 
 const API = 'http://127.0.0.1:54321';
@@ -48,6 +48,32 @@ describe('terminalMessage: only the page\'s plain "deleted" counts', () => {
     });
     it('the cleanup-unverified message is never read as a clean deletion, even beside other status text', () => {
         expect(terminalMessage(['Your account has been deleted.', 'Your account was deleted, but complete cleanup could not be verified.'])).toBe('deleted_cleanup_unverified');
+    });
+});
+
+describe('deletionLoopStep: after confirming, act as the user would until the page\'s final message', () => {
+    const at = (over: Partial<Parameters<typeof deletionLoopStep>[0]> = {}) =>
+        deletionLoopStep({ terminal: 'pending', completeVisible: false, statusButtonVisible: true, msSinceStatusCheck: Infinity, ...over });
+    it('a pending confirmation is checked at once (the page starts completion only on "Check deletion status"), then at most every 10 s', () => {
+        // Codex on 43efed9a: without this the Complete button never appears and J1.f times out (then J7.d is skipped).
+        expect(at()).toBe('check_status');
+        expect(at({ msSinceStatusCheck: STATUS_RECHECK_MS - 1 })).toBe('wait');
+        expect(at({ msSinceStatusCheck: STATUS_RECHECK_MS })).toBe('check_status');
+        expect(at({ statusButtonVisible: false })).toBe('wait');
+    });
+    it('completes when the page offers it, before any further status check', () => {
+        expect(at({ completeVisible: true })).toBe('complete');
+    });
+    it('stops on every final message, and only on those', () => {
+        for (const t of ['deleted', 'deleted_cleanup_unverified', 'refused', 'unverified'] as const) expect(at({ terminal: t, completeVisible: true })).toBe('stop');
+        for (const t of ['pending', 'none'] as const) expect(at({ terminal: t })).not.toBe('stop');
+    });
+    it('the journey spec drives its loop through this step and clicks the status control', () => {
+        const spec = readFileSync('tests/billing/user-journey/account-deletion.billing.spec.ts', 'utf8');
+        const loop = spec.slice(spec.indexOf('async function confirmAndComplete'), spec.indexOf('async function runLeg'));
+        expect(loop).toContain('deletionLoopStep({');
+        expect(loop).toContain("page.getByRole('button', { name: 'Check deletion status' })");
+        expect(loop).toMatch(/step === 'check_status'\) \{[^}]*await check\.click\(\);/);
     });
 });
 

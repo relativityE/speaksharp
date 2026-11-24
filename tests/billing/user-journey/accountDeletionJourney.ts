@@ -40,6 +40,22 @@ export function terminalMessage(texts: readonly string[]): TerminalMessage {
     return 'none';
 }
 
+/** How often the journey re-checks status while the deletion is pending (the page never polls on its own). */
+export const STATUS_RECHECK_MS = 10_000;
+export type DeletionLoopStep = 'stop' | 'complete' | 'check_status' | 'wait';
+/**
+ * One step of the post-confirmation loop, as a user would act. A confirmation answered `pending` only shows the pending
+ * notice: the page starts completion (secured status, then the server's readiness decision) when the user presses
+ * "Check deletion status". So the journey presses it (at most every STATUS_RECHECK_MS), completes when the page offers
+ * it, and stops on the page's final message.
+ */
+export function deletionLoopStep(s: { terminal: TerminalMessage; completeVisible: boolean; statusButtonVisible: boolean; msSinceStatusCheck: number }): DeletionLoopStep {
+    if (s.terminal === 'deleted' || s.terminal === 'deleted_cleanup_unverified' || s.terminal === 'refused' || s.terminal === 'unverified') return 'stop';
+    if (s.completeVisible) return 'complete';
+    if (s.statusButtonVisible && s.msSinceStatusCheck >= STATUS_RECHECK_MS) return 'check_status';
+    return 'wait';
+}
+
 /** Facts one leg records before teardown. Content-free: hashes and fixed words, never an address, id, token or link. */
 export interface DeletionLegFacts {
     leg: DeletionLeg;

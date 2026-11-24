@@ -18,7 +18,7 @@ import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { loopbackTargets, receiptLeaks, smokeIdentity, type MailSummary } from '../../smoke/j1dSmokeChecks';
 import { openFromHomepage, sessionUid, signInThroughForm } from '../../smoke/smokePage';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
-import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, legReceipt, scorerAccount, terminalMessage, type DeletionLeg, type DeletionLegFacts } from './accountDeletionJourney';
+import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, scorerAccount, terminalMessage, type DeletionLeg, type DeletionLegFacts } from './accountDeletionJourney';
 
 const APP = process.env.BILLING_SANDBOX_APP_URL ?? '';
 const API = process.env.BILLING_SANDBOX_SUPABASE_URL ?? '';
@@ -77,13 +77,21 @@ async function confirmAndComplete(page: Page) {
     await page.getByLabel('I understand this is permanent, ends my access now, and provides no refund.').check();
     await page.getByRole('button', { name: 'Permanently delete my account' }).click();
     const deadline = Date.now() + 180_000;
+    let lastStatusCheck = -Infinity;
     while (Date.now() < deadline) {
         const terminal = terminalMessage(await statusTexts(page));
-        if (terminal === 'deleted' || terminal === 'deleted_cleanup_unverified' || terminal === 'refused' || terminal === 'unverified') return terminal;
         const complete = page.getByRole('button', { name: 'Complete permanent account deletion' });
-        if (await complete.isVisible().catch(() => false)) {
+        const check = page.getByRole('button', { name: 'Check deletion status' });
+        const step = deletionLoopStep({ terminal, completeVisible: await complete.isVisible().catch(() => false),
+            statusButtonVisible: await check.isVisible().catch(() => false), msSinceStatusCheck: Date.now() - lastStatusCheck });
+        if (step === 'stop') return terminal;
+        if (step === 'complete') {
             await page.getByLabel('I confirm permanent account deletion now, with no refund.').check();
             await complete.click();
+        } else if (step === 'check_status') {
+            // A pending confirmation starts completion only when the user checks status (AccountDeletionPage).
+            await check.click();
+            lastStatusCheck = Date.now();
         }
         await new Promise((r) => setTimeout(r, 2_000));
     }

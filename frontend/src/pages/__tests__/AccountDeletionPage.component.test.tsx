@@ -776,6 +776,24 @@ describe('J1.f/J7.d step 6: the server readiness decision (no injected readiness
     expect(calls('completion_readiness')).toHaveLength(1);
     expect(button()).not.toBeInTheDocument();
   });
+  it('a confirmation answered pending starts completion work only when the user checks status (the J1.f/J7.d path)', async () => {
+    mocks.status = { outcome: 'not_pending', destructiveEnabled: false };
+    mocks.token = 'a'.repeat(64);
+    mocks.invoke.mockResolvedValue({ data: pending, error: null });
+    page();
+    fireEvent.click(await screen.findByLabelText('I understand this is permanent, ends my access now, and provides no refund.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    await screen.findByText(/No deletion will be retried from this page/);
+    mocks.status = pending;
+    await new Promise(resolve => setTimeout(resolve, 300));
+    // The confirmation's own pending answer secures no completion status and asks for no readiness by itself.
+    expect(calls('completion_status_issue')).toHaveLength(0);
+    expect(calls('completion_readiness')).toHaveLength(0);
+    expect(button()).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    expect(await screen.findByRole('button', { name: 'Complete permanent account deletion' })).toBeInTheDocument();
+    expect(calls('completion_readiness').length).toBeGreaterThan(0);
+  });
   it('a session for a different user is never used to ask for readiness', async () => {
     const original = transport.getMockImplementation()!;
     transport.mockImplementation(async (url, options) => {
