@@ -2,7 +2,8 @@
 /** J1.f / J7.d deletion journeys on the disposable billing stack: the link, the terminal message and the leg receipt. */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ENTRY_ROUTE, deletionLink, legReceipt, terminalMessage, type DeletionLegFacts } from '../billing/user-journey/accountDeletionJourney';
+import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, legReceipt, scorerAccount, terminalMessage, type DeletionLegFacts } from '../billing/user-journey/accountDeletionJourney';
+import { finaliseDeletionReceipt } from '../billing/user-journey/deletionReceipt.mjs';
 
 const API = 'http://127.0.0.1:54321';
 const APP = 'http://localhost:5173';
@@ -58,5 +59,26 @@ describe('leg receipt', () => {
         const r = legReceipt(facts, { release: 'f'.repeat(40), stackRun: 'billing-local-stack-1-1', startedAt: 1, finishedAt: 11 });
         expect(r).toMatchObject({ kind: 'account-deletion-local-stack-leg', disposable: true, productionAcceptance: false, leg: 'J7.d', route: 'account_page', durationMs: 10 });
         expect(JSON.stringify(r)).not.toMatch(/@|eyJ|access_token|\/auth\/v1\/verify/);
+    });
+});
+
+describe('the journeys\' combined receipt is exactly what the scorer (deletionReceipt.mjs) reads', () => {
+    const leg = (l: 'J1.f' | 'J7.d', over: Partial<DeletionLegFacts> = {}): DeletionLegFacts => ({ leg: l, route: ENTRY_ROUTE[l], accountSha: 'a'.repeat(16),
+        entryReached: true, verificationRequested: true, verificationLinkFound: true, terminal: 'deleted', closurePhase: 'completed', authUser: 'absent',
+        residueClear: true, fallbackCleanup: 'not_run', ...over });
+    const run = { release: 'f'.repeat(40), stackRun: 'billing-local-stack-45355779902-1' };
+    const score = (a: DeletionLegFacts, b: DeletionLegFacts) =>
+        finaliseDeletionReceipt(combinedDeletionReceipt([scorerAccount(a, '1'.repeat(64)), scorerAccount(b, '2'.repeat(64))], run),
+            { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' }, { release: run.release, stackRun: run.stackRun });
+    it('two clean legs carry no receipt or leg defect (only the destruction proof, which this unit test does not supply)', () => {
+        const r = score(leg('J1.f'), leg('J7.d'));
+        expect(r.defects['J1.f']).toEqual([]);
+        expect(r.defects['J7.d']).toEqual([]);
+        expect(r.defects.run.filter((d: string) => !/destruction|identity|stack_/.test(d))).toEqual([]);
+    });
+    it('a leg that needed the fallback cleanup, or whose deletion did not finish, carries its defect', () => {
+        expect(score(leg('J1.f', { fallbackCleanup: 'ran_deleted' }), leg('J7.d')).defects['J1.f']).toContain('fallback_cleanup_ran');
+        expect(score(leg('J1.f'), leg('J7.d', { closurePhase: 'processing', authUser: 'present', residueClear: false })).defects['J7.d'])
+            .toEqual(['deletion_not_terminal', 'auth_user_present', 'residue_not_zero']);
     });
 });

@@ -63,3 +63,19 @@ export function legReceipt(facts: DeletionLegFacts, run: { release: string; stac
     return { kind: 'account-deletion-local-stack-leg', disposable: true, productionAcceptance: false, release: run.release, stackRun: run.stackRun,
         ...facts, durationMs: run.finishedAt - run.startedAt };
 }
+
+/**
+ * The scorer's per-account record (deletionReceipt.mjs DELETION_ACCOUNT_KEYS). `accountRef` is the sha256 of the run's user id,
+ * so the two legs can be told apart without the id. Any fallback cleanup is recorded as such and can never pass.
+ */
+export function scorerAccount(facts: DeletionLegFacts, accountRefSha256: string) {
+    if (!/^[0-9a-f]{64}$/.test(accountRefSha256)) throw new Error('account ref must be a sha256');
+    return { accountRef: accountRefSha256, authUserAbsent: facts.authUser === 'absent', closurePhase: facts.closurePhase,
+        fallbackCleanup: facts.fallbackCleanup === 'not_run' ? 'NOT_RUN' : 'RAN', leg: facts.leg,
+        residueVerified: facts.residueClear === true, route: facts.route };
+}
+
+/** The scorer's combined receipt for the run (deletionReceipt.mjs DELETION_RECEIPT_KEYS), written before teardown. */
+export function combinedDeletionReceipt(accounts: ReadonlyArray<ReturnType<typeof scorerAccount>>, run: { release: string; stackRun: string }) {
+    return { accounts: [...accounts], schema: 'account-deletion-local/v1', stackRun: run.stackRun, stripeMode: 'test', testedRelease: run.release };
+}

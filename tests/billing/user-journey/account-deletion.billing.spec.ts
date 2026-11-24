@@ -18,7 +18,7 @@ import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { loopbackTargets, receiptLeaks, smokeIdentity, type MailSummary } from '../../smoke/j1dSmokeChecks';
 import { openFromHomepage, sessionUid, signInThroughForm } from '../../smoke/smokePage';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
-import { ENTRY_ROUTE, deletionLink, legReceipt, terminalMessage, type DeletionLeg, type DeletionLegFacts } from './accountDeletionJourney';
+import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, legReceipt, scorerAccount, terminalMessage, type DeletionLeg, type DeletionLegFacts } from './accountDeletionJourney';
 
 const APP = process.env.BILLING_SANDBOX_APP_URL ?? '';
 const API = process.env.BILLING_SANDBOX_SUPABASE_URL ?? '';
@@ -31,6 +31,9 @@ const OUT = process.env.ACCOUNT_DELETION_RECEIPT_DIR ?? 'test-results/account-de
 const RUN = /^\d+$/.test(process.env.GITHUB_RUN_ID ?? '') ? process.env.GITHUB_RUN_ID! : 'local';
 const WALL = 'trial-payment-wall';
 const sha = (v: string) => createHash('sha256').update(v).digest('hex').slice(0, 16);
+const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
+/** Both legs' scorer records, combined into the one receipt deletionReceipt.mjs scores (written after both, before teardown). */
+const scored: Array<ReturnType<typeof scorerAccount>> = [];
 
 function guards(): SupabaseClient {
     expect(process.env.BILLING_SANDBOX_TARGET, 'the disposable local stack only').toBe('local-disposable-stack');
@@ -143,6 +146,7 @@ async function runLeg(leg: DeletionLeg, browser: import('@playwright/test').Brow
                 facts.fallbackCleanup = (await admin.auth.admin.getUserById(account.uid)).data?.user ? 'ran_residue' : 'ran_deleted';
             } catch { facts.fallbackCleanup = 'ran_failed'; }
         }
+        scored.push(scorerAccount(facts, sha256(account.uid)));
         const receipt = legReceipt(facts, { release: RELEASE, stackRun: STACK_RUN, startedAt: started, finishedAt: Date.now() });
         const text = JSON.stringify(receipt, null, 2);
         const leaks = receiptLeaks(text, [account.email, account.password, account.uid, SERVICE, ANON]);
@@ -155,6 +159,15 @@ async function runLeg(leg: DeletionLeg, browser: import('@playwright/test').Brow
 }
 
 test.describe.configure({ mode: 'serial' });
+
+test.afterAll(() => {
+    const text = JSON.stringify(combinedDeletionReceipt(scored, { release: RELEASE, stackRun: STACK_RUN }), null, 2);
+    // The combined receipt carries hashes and fixed words only; the per-leg leak check already ran on each leg's facts.
+    if (!/@|eyJ|access_token|\/auth\/v1\/verify/.test(text)) {
+        mkdirSync(OUT, { recursive: true });
+        writeFileSync(join(OUT, 'account-deletion-receipt.json'), text, { mode: 0o600 });
+    }
+});
 
 for (const leg of ['J1.f', 'J7.d'] as const) {
     test(`billing account_deletion: ${leg} deletes its own account from ${ENTRY_ROUTE[leg] === 'trial_wall' ? 'the trial wall' : 'the Account page'}, leaving no residue`, async ({ browser }) => {
