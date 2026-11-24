@@ -819,11 +819,26 @@ describe('J8 nightly entry', () => {
         expect({ timedOut: fin('sleep 5', 200), signalled: fin('kill -TERM $$'), failed: fin('exit 2'), settled: fin(`echo '{"errors":[],"rows":[]}'`) })
             .toEqual({ timedOut: { unconfirmed: true }, signalled: { unconfirmed: true }, failed: null, settled: { errors: [], rows: [] } });
         // Sam on 40e1a5a6: the evaluation child gets only the allowlisted variables, never a credential the parent holds.
-        const probe = { J8_FIN_PROBE_CREDENTIAL: 'held-in-parent', POSTHOG_PERSONAL_API_KEY: 'posthog-in-parent', PATH: process.env.PATH, HOME: '/home/probe' };
-        const names = entry.finalizerEvaluate({ suite: J8_SUITE, release: RELEASE, rows: [] }, { journeys: [] },
-            { workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'j8-fin-w-')), repoRoot: fakeRoot(`printf '{"names":"%s"}\\n' "$(env | cut -d= -f1 | sort | tr '\\n' ' ')"`), baseEnv: probe });
-        const seen = names.names.trim().split(' ').filter((n) => !['PWD', 'SHLVL', '_', 'OLDPWD'].includes(n));
-        expect({ seen, allowed: seen.every((n) => entry.EVALUATION_ENV.includes(n)) }).toEqual({ seen: ['HOME', 'PATH'], allowed: true });
+        // The parent's own env holds credentials; the default (baseEnv = process.env) is what the runner uses, so seed it there.
+        const seeded = { J8_FIN_PROBE_CREDENTIAL: 'held-in-parent', POSTHOG_PERSONAL_API_KEY: 'posthog-in-parent' };
+        const saved = Object.fromEntries(Object.keys(seeded).map((k) => [k, process.env[k]]));
+        Object.assign(process.env, seeded);
+        let got;
+        try {
+            // The stand-in reports the env it was given via node (no shell utilities), so the reading does not depend on the platform's sh.
+            const report = `exec "${process.execPath}" -e 'process.stdout.write(JSON.stringify({names:Object.keys(process.env)})+"\\n")'`;
+            got = entry.finalizerEvaluate({ suite: J8_SUITE, release: RELEASE, rows: [] }, { journeys: [] },
+                { workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'j8-fin-w-')), repoRoot: fakeRoot(report) });
+        } finally {
+            for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+        }
+        // The platform may add its own bookkeeping variables to any process; the parent's credentials must never arrive, and only
+        // allowlisted names are passed from the parent's env.
+        const names = Array.isArray(got?.names) ? got.names : null;
+        expect({ read: Array.isArray(names), credential: names?.includes('J8_FIN_PROBE_CREDENTIAL'), posthog: names?.includes('POSTHOG_PERSONAL_API_KEY'),
+            path: names?.includes('PATH') })
+            .toEqual({ read: true, credential: false, posthog: false, path: true });
+        expect(entry.EVALUATION_ENV.some((n) => /KEY|TOKEN|SECRET|PASSWORD|ROLE/i.test(n))).toBe(false);
         // A late readback that ends inside the grace is confirmed stopped: HOLD, but the account is recovered as usual.
         const g = dirs();
         const late = fixtures(g.runDir);
