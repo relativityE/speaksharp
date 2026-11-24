@@ -42,10 +42,11 @@ await expect(link).toHaveAttribute('href', '/account/delete');
 expect(closureCalls, 'opening Account issues no account-closure request').toEqual([]);`;
 const ROUTES=[[SOURCE_CONTRACTS[3],products,1],[SOURCE_CONTRACTS[4],recording,2],[SOURCE_CONTRACTS[5],pageContext,3],[SOURCE_CONTRACTS[6],deleteEntry,8]];
 
-test('billing registrations require the actual helper consumer and eight executed callable bodies',()=>{
+test('billing registrations require the actual helper consumer and every registered callable body',()=>{
   const helper='tests/billing/user-journey/contract.ts';
   assert.deepEqual(registeredHelper(helper),{helperFile:helper,testFile:'tests/billing/user-journey/contract.test.ts',
-    callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice','isCorrelatedDelivery','assertSandboxConfiguration','keptHistoryVerdict']});
+    callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice','isCorrelatedDelivery','assertSandboxConfiguration',
+      'historySeedFailure','retentionActive','retentionActivationFailure','retentionRowsFailure','retentionViewFailure']});
   assert.equal(executionRoute(helper,root).runner,'vitest-helper');
   assert.equal(executionRoute(helper,root).applicable,true);
   assert.equal(executionRoute('tests/billing/user-journey/unregistered.ts',root),null);
