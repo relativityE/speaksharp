@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    J8_ADMISSION_ENV, J8_LEGACY_REFUSAL, j8AdmissionPresent, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8ParentPreflight, j8RunnerAdmission, legReadback,
+    J8_ADMISSION_ENV, J8_LEGACY_REFUSAL, j8AdmissionPresent, J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_KEY_CAPS, J8_SUITE, J8WriteGate, TAKE_PROJECTION_FIELDS, j8ParentPreflight, j8RunnerAdmission, J8_CONSENT_MODE, j8BackendApiKey, j8OwnerChoiceClient, j8OwnerToken, legReadback,
     legReceipt, legSink, mergeLegReadback, readTakeDigests, takeDigest, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     j8bFinalSentFeedbackVerdict, legStartPressVerdict, startPressSnapshot, type J8Leg, type StartPressCounts,
 } from '../live/helpers/rwtJ8Journey';
@@ -618,5 +618,94 @@ describe('J8 preflight on the parent-backed path (Codex on 40e1a5a6)', () => {
     it('the J8 spec applies it on the runner\'s path only (the reserved email), and the shared preflight elsewhere', () => {
         const spec = readFileSync(path.join(__dirname, '..', 'live', 'rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
         expect(spec).toContain('const missing = runnerEmail !== undefined ? j8ParentPreflight(rwtPreconditionFailures(), process.env) : rwtPreconditionFailures();');
+    });
+});
+
+describe('J8.b explicit privacy opt-in, read back as the signed-in owner (Jack on b3d09f6b; Sam, 23 Nov)', () => {
+    const UIDX = '33333333-3333-4333-8333-333333333333';
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const tokenFor = (sub: string) => `${b64({ alg: 'HS256' })}.${b64({ sub })}.sig`;
+    const BACKEND = 'https://abcdefghijklmnopqrst.supabase.co';
+    const ANON = 'public-anon-key';
+    const rowFor = (o: Partial<{ user_id: string; transcript_save: boolean; ai_coaching: boolean; consent_version: number }> = {}) =>
+        ({ user_id: UIDX, transcript_save: true, ai_coaching: true, consent_version: 1, ...o });
+    /** A PostgREST stand-in: returns `rows` for the owner-filtered read, [] for the table probe; records every request. */
+    function backend(rows: unknown[] | 'fail' | 'transport', seen: Array<{ url: string; headers: Record<string, string> }> = []) {
+        const fetchImpl = (async (url: string, init: { headers: Record<string, string> }) => {
+            seen.push({ url, headers: init.headers });
+            if (rows === 'transport') throw new Error('socket hang up');
+            if (rows === 'fail') return { ok: false, status: 401, json: async () => ({ code: 'PGRST301' }) };
+            const u = new URL(url);
+            return { ok: true, status: 200, json: async () => (u.searchParams.has('limit') ? [] : rows) };
+        }) as unknown as typeof fetch;
+        return { fetchImpl, seen };
+    }
+    const settle = async (rows: unknown[] | 'fail' | 'transport', o: { token?: string | null; anonKey?: string | null } = {}) => {
+        const { readPracticeChoice, fixedConsentBeforeStartVerdict } = await import('../live/helpers/rwtPracticeConsent');
+        const b = backend(rows);
+        const client = j8OwnerChoiceClient({ url: BACKEND, anonKey: o.anonKey === undefined ? ANON : o.anonKey,
+            token: o.token === undefined ? tokenFor(UIDX) : o.token, fetchImpl: b.fetchImpl });
+        const readback = await readPracticeChoice(client, UIDX);
+        return { verdict: fixedConsentBeforeStartVerdict({ build: 'includes_1835', mode: J8_CONSENT_MODE, expected: J8_CONSENT_MODE, readback, ownerId: UIDX }), seen: b.seen };
+    };
+
+    it('the fixed mode is Save: Yes, Coaching: Yes (J8.b needs coaching on both takes)', () => {
+        expect(J8_CONSENT_MODE).toBe('save_on_coaching_on');
+    });
+    it('PASS only when the owner\'s own saved choice is exactly Save: Yes, Coaching: Yes', async () => {
+        const { verdict, seen } = await settle([rowFor()]);
+        expect(verdict.status).toBe('PASS');
+        // The owner's read: practice_privacy_choices only, filtered to the owner, with the public key and the owner's own token.
+        expect(seen).toHaveLength(1);
+        const u = new URL(seen[0].url);
+        expect({ origin: u.origin, path: u.pathname, filter: u.searchParams.get('user_id') }).toEqual({ origin: BACKEND, path: '/rest/v1/practice_privacy_choices', filter: `eq.${UIDX}` });
+        expect(seen[0].headers).toMatchObject({ apikey: ANON, Authorization: `Bearer ${tokenFor(UIDX)}` });
+    });
+    it('without the choice (no row), or with any other choice, the take never starts: FAIL/HOLD, never PASS', async () => {
+        expect((await settle([])).verdict).toMatchObject({ status: 'FAIL', reason: 'readback_missing' });
+        expect((await settle([rowFor({ ai_coaching: false })])).verdict).toMatchObject({ status: 'FAIL', reason: 'readback_differs' });
+        expect((await settle([rowFor({ transcript_save: false, ai_coaching: false })])).verdict).toMatchObject({ status: 'FAIL', reason: 'readback_differs' });
+        expect((await settle([rowFor({ user_id: '44444444-4444-4444-8444-444444444444' })])).verdict).toMatchObject({ status: 'FAIL', reason: 'readback_wrong_owner' });
+        expect((await settle([rowFor(), rowFor()])).verdict.status).not.toBe('PASS');
+    });
+    it('no owner token, no public key, a refused read or a transport failure is unreadable (HOLD), and nothing is sent without both', async () => {
+        for (const [rows, o, sends] of [[[rowFor()], { token: null }, 0], [[rowFor()], { anonKey: null }, 0], ['fail', {}, 1], ['transport', {}, 1]] as const) {
+            const { verdict, seen } = await settle(rows as never, o);
+            expect({ status: verdict.status === 'PASS' ? 'PASS' : 'not PASS', sends: seen.length }).toEqual({ status: 'not PASS', sends });
+        }
+    });
+    it('the owner client serves practice_privacy_choices only', () => {
+        const client = j8OwnerChoiceClient({ url: BACKEND, anonKey: ANON, token: tokenFor(UIDX), fetchImpl: backend([]).fetchImpl });
+        expect(() => client.from('sessions')).toThrow(/only practice_privacy_choices/);
+    });
+    it('the owner token is the page\'s own, and only when it belongs to the run\'s account', () => {
+        const entries = [{ key: 'sb-abc-auth-token', value: JSON.stringify({ access_token: tokenFor(UIDX) }) }];
+        expect(j8OwnerToken(entries, UIDX)).toBe(tokenFor(UIDX));
+        expect(j8OwnerToken(entries, '44444444-4444-4444-8444-444444444444')).toBe(null);
+        expect(j8OwnerToken([], UIDX)).toBe(null);
+        expect(j8OwnerToken(entries, '')).toBe(null);
+    });
+    it('the public key is taken only from the page\'s own requests to the backend origin', () => {
+        expect(j8BackendApiKey(`${BACKEND}/rest/v1/x`, { apikey: ANON }, BACKEND)).toBe(ANON);
+        expect(j8BackendApiKey('https://evil.example.com/rest/v1/x', { apikey: 'other' }, BACKEND)).toBe(null);
+        expect(j8BackendApiKey(`${BACKEND}/rest/v1/x`, {}, BACKEND)).toBe(null);
+        expect(j8BackendApiKey('not a url', { apikey: ANON }, BACKEND)).toBe(null);
+    });
+    it('the J8 spec opts in through the real prompt and confirms the owner readback before the first take, and halts otherwise', () => {
+        const spec = readFileSync(path.join(__dirname, '..', 'live', 'rwt-feedback-association-boundaries.live.spec.ts'), 'utf8');
+        const j8 = spec.slice(spec.indexOf("const b = legSink(receipt, 'J8.b');"));
+        const at = (needle: string) => j8.indexOf(needle);
+        const settleAt = at('settleJ8PracticeConsent(page, owner.uid, backendApiKey)');
+        const confirmAt = at('settled.gate.confirm()');
+        const firstTake = at('createSavedOpenMicTake(page, 1, true)');
+        expect(settleAt).toBeGreaterThan(-1);
+        expect(confirmAt).toBeGreaterThan(settleAt);
+        expect(firstTake).toBeGreaterThan(confirmAt);
+        expect(j8.slice(settleAt, firstTake).match(/receipt\.halt\('practice privacy choice'/g)).toHaveLength(2);
+        // The readback uses the owner's own session and the page's own public key: no service key, no seeded choice.
+        const helper = spec.slice(spec.indexOf('async function settleJ8PracticeConsent'), spec.indexOf('async function createSavedOpenMicTake'));
+        expect(helper).toContain('j8OwnerChoiceClient({ url: SUPABASE_URL, anonKey, token: j8OwnerToken(entries, ownerUid) })');
+        expect(helper).toContain('settleFixedConsentOnPractice(');
+        expect(helper).not.toMatch(/SERVICE_ROLE|admin|parentOps|upsert|insert/);
     });
 });

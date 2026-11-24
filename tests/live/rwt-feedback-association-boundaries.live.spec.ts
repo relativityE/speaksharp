@@ -37,11 +37,13 @@ import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
 import { j8ParentOpsFromEnv, parentFenceClient, parentIdentityAndClaim, parentReportReader, parentReportsByKeys, parentTakeRows } from './helpers/j8ParentOpsClient';
 import {
-    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8ParentPreflight, j8RunnerAdmission,
+    J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8ParentPreflight, j8RunnerAdmission, J8_CONSENT_MODE, j8BackendApiKey, j8OwnerChoiceClient, j8OwnerToken,
     j8bFinalSentFeedbackVerdict, legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     type StartPressCounts, legStartPressVerdict, startPressSnapshot,
 } from './helpers/rwtJ8Journey';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
+import { captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate } from './helpers/rwtPracticeConsent';
 import { currentRunBinding } from './helpers/runBinding';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
@@ -124,6 +126,26 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, 
         return false;
     }
     return true;
+}
+
+/**
+ * J8.b's explicit opt-in (Jack's preflight on b3d09f6b; Sam, 23 Nov): the run's own fresh account answers the real Practice prompt
+ * (Save: Yes, Coaching: Yes), and the choice is read back as the SIGNED-IN OWNER (public key + the owner's own token, owner-only
+ * RLS), never with a service key and never seeded. -> the capture gate to confirm immediately before the first take, or the
+ * content-free reason it is held.
+ */
+async function settleJ8PracticeConsent(page: Page, ownerUid: string, anonKey: string | null): Promise<{ gate: CaptureConsentGate } | { held: string }> {
+    const entries = await page.evaluate(() => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })));
+    const client = j8OwnerChoiceClient({ url: SUPABASE_URL, anonKey, token: j8OwnerToken(entries, ownerUid) });
+    const migrationFiles = (() => { try { return readdirSync(resolvePath(process.cwd(), 'backend/supabase/migrations')); } catch { return null; } })();
+    let reason = 'not_settled';
+    const note = (_status: 'PASS' | 'FAIL' | 'HOLD', _detail: string, evidence: Record<string, string>) => { reason = evidence.reason ?? reason; };
+    try {
+        const consent = await settleFixedConsentOnPractice({ page, client, ownerId: ownerUid, migrationFiles, mode: J8_CONSENT_MODE, record: note });
+        return { gate: captureConsentGate({ consent, client, ownerId: ownerUid, mode: J8_CONSENT_MODE, record: note }) };
+    } catch (error) {
+        return { held: /^HOLD practice consent: ([a-z0-9_]+)/.exec(error instanceof Error ? error.message : '')?.[1] ?? reason };
+    }
 }
 
 async function createSavedOpenMicTake(
@@ -787,6 +809,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        // The page's own public backend key, from its own requests (nothing injected), for the owner's consent readback.
+        let backendApiKey: string | null = null;
+        page.on('request', (request) => { backendApiKey ??= j8BackendApiKey(request.url(), request.headers(), SUPABASE_URL); });
         const parity = new HarnessParityTap();
         const watch = armWatchdog({ page, tap, profile: watchProfileFor(J8_SUITE), label: J8_SUITE });
         let claimed = false;
@@ -919,8 +944,16 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // J8.b — two saved takes, the AHT-07 fault legs, then the older-take submit.
             const b = legSink(receipt, 'J8.b');
             await page.goto('/practice');
+            await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 60_000 });
+            // #1835: coaching stays off until the owner opts in, so this run's own fresh account opts in through the real prompt,
+            // and the owner's own saved choice is read back immediately before the first take. Anything else holds the run here.
+            const settled = await settleJ8PracticeConsent(page, owner.uid, backendApiKey);
+            if ('held' in settled) { receipt.halt('practice privacy choice', `HOLD before the first take: ${settled.held}`); return; }
             await openProductsItem(page, 'open-mic');
             await page.waitForURL(/\/session/, { timeout: 45_000 });
+            const confirmed = await settled.gate.confirm().then(() => null, (e: unknown) =>
+                /^HOLD practice consent: ([a-z0-9_]+)/.exec(e instanceof Error ? e.message : '')?.[1] ?? 'not_confirmed');
+            if (confirmed) { receipt.halt('practice privacy choice', `HOLD before the first take: ${confirmed}`); return; }
             const olderId = await createSavedOpenMicTake(page, 1, true);
             const newerId = await createSavedOpenMicTake(page, 2, false);
             takes.push(olderId, newerId);
