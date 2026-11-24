@@ -246,12 +246,13 @@ const INVALID_FIELD_TOKENS: Readonly<Record<string, string>> = Object.freeze({
   cardCvc: 'cvc', 'payment-cvcInput': 'cvc', email: 'email',
 });
 /**
- * The disposable Stripe Customer the journey preassigns. Only CONVERSION gets the fixture's own run-owned email (Sam on #1892:
- * "existing-customer sandbox conversion"); every other journey's Customer request is exactly what it was before (clock + owner marker).
+ * The disposable Stripe Customer the journey preassigns. Only CONVERSION and J9.b's RESTORE_ACCESS, which pays through the same
+ * hosted Checkout, get the fixture's own run-owned email (Sam on #1892: "existing-customer sandbox conversion"); every other
+ * journey's Customer request is exactly what it was before (clock + owner marker).
  */
 export function fixtureCustomerFields(journey: string, f: { clock: string; email: string; marker: string }): Record<string, string> {
   const base: Record<string, string> = { test_clock: f.clock, 'metadata[speaksharp_test]': f.marker };
-  return journey === 'conversion' ? { ...base, email: f.email } : base;
+  return journey === 'conversion' || journey === 'restore_access' ? { ...base, email: f.email } : base;
 }
 
 /**
@@ -803,4 +804,21 @@ export function assertSandboxConfiguration(env: Record<string, string | undefine
     'sandbox_target_binding_mismatch');
   requireFact(app !== 'https://speaksharp-public.vercel.app' && api !== productionApi, 'production_target_refused');
   return { app, api };
+}
+
+/**
+ * J9.a: each seeded earlier session was opened by its OWN id and showed its OWN transcript, and no other seeded session's.
+ * Opening one session twice, a missing or foreign id, another session's text, an unread view, or seeds that are not two
+ * or more distinct ids with distinct phrases all fail, so a count of opens can never stand in for the sessions themselves.
+ */
+export function keptHistoryVerdict(seeded: readonly { id: string; phrase: string }[],
+  opened: readonly { id: string; text: string | null }[]): boolean {
+  if (seeded.length < 2 || new Set(seeded.map(s => s.id)).size !== seeded.length
+    || new Set(seeded.map(s => s.phrase)).size !== seeded.length || seeded.some(s => !s.id || !s.phrase)) return false;
+  if (opened.length !== seeded.length || new Set(opened.map(o => o.id)).size !== opened.length) return false;
+  return seeded.every((own) => {
+    const view = opened.find(o => o.id === own.id);
+    return typeof view?.text === 'string' && view.text.includes(own.phrase)
+      && seeded.every(other => other.id === own.id || !view.text!.includes(other.phrase));
+  });
 }

@@ -1,6 +1,6 @@
 export declare const BILLING_JOURNEYS: readonly ['conversion', 'renewal_recovery', 'portal_expiry'];
 export type BillingJourney = typeof BILLING_JOURNEYS[number];
-export declare const FULL_MODE_JOURNEYS: readonly ['failed_checkout', 'portal_recovery', 'refund_period_end'];
+export declare const FULL_MODE_JOURNEYS: readonly ['failed_checkout', 'portal_recovery', 'refund_period_end', 'restore_access', 'paid_account_kept'];
 export declare const RUNNER_JOURNEYS: readonly [...typeof BILLING_JOURNEYS, ...typeof FULL_MODE_JOURNEYS];
 export type RunnerJourney = typeof RUNNER_JOURNEYS[number];
 export declare const PAID_LOOP_JOURNEYS: readonly ['paid_value_loop'];

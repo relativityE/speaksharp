@@ -63,10 +63,21 @@ function parseBlock(block) {
 }
 
 describe('P0.3 — edge CORS requires gateway JWT pass-through so corsGuard runs first', () => {
-  const blocks = deployBlocks();
+  const all = deployBlocks();
+  // Deletion rollout step 5 (plan #1952) adds ONE narrow route that publishes only account-closure; every other block
+  // is the canonical ten-function deploy, which must stay unique.
+  const isNarrowAccountClosure = (block) => JSON.stringify(Object.keys(parseBlock(block))) === '["account-closure"]';
+  const blocks = all.filter((block) => !isNarrowAccountClosure(block));
+  const narrow = all.filter(isNarrowAccountClosure);
 
   it('centralizes publication in exactly one reusable deploy block', () => {
     expect(blocks).toHaveLength(1);
+  });
+
+  it('the only other deploy block is the narrow account-closure route, with --no-verify-jwt', () => {
+    expect(narrow).toHaveLength(1);
+    expect(parseBlock(narrow[0])).toEqual({ 'account-closure': true });
+    expect(all).toHaveLength(2);
   });
 
   it('every browser-callable function is deployed with --no-verify-jwt in the canonical block', () => {
@@ -94,7 +105,9 @@ describe('P0.3 — edge CORS requires gateway JWT pass-through so corsGuard runs
 
   it('includes account closure in both deploy and hosted verification inventories', () => {
     const config = readFileSync(resolve(ROOT, 'backend/supabase/config.toml'), 'utf8');
-    expect(workflow.match(/supabase functions deploy account-closure /g)).toHaveLength(1);
+    // Once in the canonical ten-function block and once in the narrow account-closure-only route.
+    expect(workflow.match(/supabase functions deploy account-closure /g)).toHaveLength(2);
+    expect(parseBlock(blocks[0])['account-closure']).toBe(true);
     expect(workflow).toMatch(/for function_name in[^\n]* account-closure; do/);
     expect(config).toMatch(/\[functions\.account-closure\][\s\S]*entrypoint = "\.\/functions\/account-closure\/index\.ts"/);
   });

@@ -403,6 +403,46 @@ describe('in-window mode: inside the next take\'s recording window, never delayi
     });
 });
 
+/**
+ * J1.b (run 45142628330): on PASS the row hands the pair its own reopened saved review showed to `onShown`, so the caller can
+ * witness the take before the next save expires it. Every non-PASS path hands over nothing, and the hook cannot change the row.
+ */
+describe('onShown: only a proven saved-and-shown pair is handed over, after the row', () => {
+    const CLOSES = 6_500;
+    const run = async (d: LateCoachingDeps, onShown: (p: { what_worked: string; what_to_try_next: string }) => Promise<void> = async () => undefined) => {
+        const s = sink();
+        const seen: Array<{ what_worked: string; what_to_try_next: string }> = [];
+        let rowsAtCall = -1;
+        await lateCoachingSavedRow(s, A, d, { waitMs: 75_000, pollMs: 250, closesAt: CLOSES,
+            onShown: async (p) => { rowsAtCall = s.rows.length; seen.push(p); await onShown(p); } });
+        expect(s.rows).toHaveLength(1);
+        return { row: s.rows[0], seen, rowsAtCall };
+    };
+    it('PASS hands over exactly the reopened review\'s pair, once, after the row is written', async () => {
+        const r = await run(deps({ savedAfter: 1_000 }));
+        expect(r.row).toMatchObject({ verdict: 'PASS', evidence: { reason: 'saved-and-shown' } });
+        expect(r.seen).toEqual([PAIR]);
+        expect(r.rowsAtCall).toBe(1);
+    });
+    it.each([
+        ['wrong-session-rendered', deps({ review: reopened({ renderedSessionId: 'session-C' }) })],
+        ['shown-differs', deps({ review: reopened({ pair: { what_worked: 'Another take\'s praise.', what_to_try_next: 'Another take\'s advice.' } }) })],
+        ['identity-unread', deps({ review: reopened({ renderedSessionId: null }) })],
+        ['transcript-differs', deps({ review: reopened({ transcriptDigest: sha256Hex('another transcript') }) })],
+        ['not-saved-in-window', deps({ savedAfter: 60_000 })],
+        ['target-expired', deps({ rows: [{ transcript_state: 'expired', transcript: null, ai_suggestions: null }] })],
+        ['window-changed', deps({ rows: [{}, { transcript_state: 'expired', transcript: null, ai_suggestions: null }] })],
+    ])('%s hands over nothing', async (reason, d) => {
+        const r = await run(d);
+        expect(r.row.evidence).toMatchObject({ reason });
+        expect(r.seen).toEqual([]);
+    });
+    it('a throwing hook changes no verdict and is not rethrown', async () => {
+        const r = await run(deps({ savedAfter: 0 }), async () => { throw new Error('witness failed'); });
+        expect(r.row).toMatchObject({ verdict: 'PASS', evidence: { reason: 'saved-and-shown' } });
+    });
+});
+
 describe('deferredLateCoachingSink: the row waits for the recorded order', () => {
     it('redaction passes through at once; the row is written only at flush, with the recorded order', () => {
         const s = sink();
@@ -441,7 +481,10 @@ describe('wiring: J1 checks the save take inside the repeat\'s hold and writes t
     it('the spec runs the row in the window and flushes it with the recorded order; no second late-coaching call', () => {
         const spec = src('tests/live/rwt-open-mic-first-session.live.spec.ts');
         expect(spec.match(/lateCoachingSavedRow\(/g)).toHaveLength(1);
-        expect(spec).toContain('lateCoachingDeps(savedSessionId ?? \'\'), { closesAt }) });');
+        expect(spec).toContain('lateCoachingDeps(savedSessionId ?? \'\'), { closesAt,');
+        // J1.b (run 45142628330): B is witnessed from its own reopened saved review, bounded by the same close.
+        expect(spec).toMatch(/onShown: \(shown\) => coachingCapture && savedSessionId\s*\n\s*\? witnessShownTake\(coachingCapture, savedSessionId, \{ version: 'gemini_coaching_v1', \.\.\.shown \}, closesAt\)/);
+        expect(spec.match(/witnessShownTake\(/g)).toHaveLength(1);
         expect(spec).toContain('lateCoaching.flush(answerOrder(latestAnsweredAt(aExchanges), repeatRecordingAt));');
         expect(spec.indexOf('duringRepeatHold:')).toBeLessThan(spec.indexOf('lateCoaching.flush('));
     });

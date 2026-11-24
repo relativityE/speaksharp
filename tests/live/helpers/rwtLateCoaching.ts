@@ -163,7 +163,10 @@ export async function lateCoachingSavedRow(
     sink: LateCoachingSink,
     sessionId: string | null,
     deps: LateCoachingDeps,
-    o: { waitMs?: number; pollMs?: number; order?: AnswerOrder; closesAt?: number } = {},
+    o: { waitMs?: number; pollMs?: number; order?: AnswerOrder; closesAt?: number;
+        /** J1.b: called only on PASS, with the pair the take's own reopened saved review showed (identity, transcript, pair and
+         *  re-read all proven). Awaited after the row is written; a throw is swallowed and changes no verdict. */
+        onShown?: (pair: { what_worked: string; what_to_try_next: string }) => Promise<void> } = {},
 ): Promise<void> {
     const inWindow = typeof o.closesAt === 'number' && Number.isFinite(o.closesAt);
     const order = o.order ?? 'unknown';
@@ -339,6 +342,7 @@ export async function lateCoachingSavedRow(
         equal ? 'the interrupted take\'s coaching is saved to its own session and its reopened saved review (its own route and session) shows exactly that pair'
             : 'the interrupted take\'s saved review shows coaching that differs from its saved pair',
         { reason: equal ? 'saved-and-shown' : 'shown-differs' });
+    if (equal && o.onShown) await o.onShown({ what_worked: reopened.pair.what_worked, what_to_try_next: reopened.pair.what_to_try_next }).catch(() => undefined);
 }
 
 /**
