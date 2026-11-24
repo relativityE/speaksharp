@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -418,6 +419,11 @@ describe('#1432 PM decisions 5651830241 / 5651842972 — workflow contracts: one
     // Gate 3 steps aside only for the J8 runner selection, which runs in its own job (Sam, 23 Nov, #1953).
     expect(job('gate-3-dast')).toContain("if: ${{ (github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast') && github.event.inputs.rwt_j8_runner == '' }}");
     expect(job('j8-runner')).toContain("if: ${{ github.event.inputs.gate == 'gate-3-dast' && github.event.inputs.rwt_j8_runner != '' }}");
+    // Sam, 23 Nov: the J8 entry fixes the step's end from the step's own start, taken first, and this step's limit.
+    const j8Step = step('Run J8 through its parent runner');
+    const { J8_STEP_MS } = createRequire(import.meta.url)('../../tools/cloud-test/nightly/j8-nightly-entry.cjs');
+    expect(j8Step).toContain(`timeout-minutes: ${J8_STEP_MS / 60_000}\n`);
+    expect(j8Step).toMatch(/run: \|\n {10}set -euo pipefail\n(?: {10}#[^\n]*\n)* {10}J8_STEP_STARTED_AT="\$\(date \+%s%3N\)"\n {10}export J8_STEP_STARTED_AT\n/);
     expect(job('gate-3-dast')).toContain(`name: ${DIAGNOSTIC_JOB_NAME}`);
   });
 

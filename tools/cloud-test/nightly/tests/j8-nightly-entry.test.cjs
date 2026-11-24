@@ -145,8 +145,10 @@ function fixtures(runDir, { spec = (adm) => receiptFor(adm.createAttempt.attempt
         },
     };
 }
+/** The runner step's end, a whole step from the run's own clock at its start unless a test names one. */
+const stepEndFrom = (over) => (over.now ?? (() => NOW))() + entry.J8_STEP_MS - entry.STEP_MARGIN_MS;
 const run = (d, deps, over = {}) => entry.runJ8Nightly({ evidenceDir: d.evidenceDir, runDir: d.runDir, runId: RUN_ID, runAttempt: '1',
-    configuredDomain: DOMAIN, expectedRelease: RELEASE, runBinding: RUN_BINDING, deps, now: () => NOW, ...over });
+    configuredDomain: DOMAIN, expectedRelease: RELEASE, runBinding: RUN_BINDING, deps, now: () => NOW, stepEndAt: stepEndFrom(over), ...over });
 const files = (dir, part) => fs.readdirSync(dir).filter((n) => n.includes(part));
 const resultOf = (out, leg, id) => out.caseResult.assertions.find((a) => a.leg === leg && a.id === id).result;
 
@@ -839,7 +841,7 @@ describe('J8 nightly entry', () => {
     });
     it('DEADLINES (Sam on b1f8323f): a spec, readback, coaching, evaluation or lookup that never answers is cut off, and cleanup still runs on its own budget', async () => {
         const never = () => new Promise(() => {});
-        const short = { specMs: 40, readbackMs: 40, coachingMs: 40, lateSettleMs: 40, evaluateMs: 40, cleanupMs: 60 };
+        const short = { specMs: 40, readbackMs: 40, coachingMs: 40, lateSettleMs: 40, evaluateMs: 40, cleanupMs: 60, parentOpSettleMs: 40 };
         // The spec hangs: HOLD, and teardown still writes its evidence (incomplete: no receipt to show zero residue).
         const d = dirs();
         const hang = fixtures(d.runDir);
@@ -912,7 +914,7 @@ describe('J8 nightly entry', () => {
     });
     it('LIVE GATE UNCHANGED: main refuses before admission without offline fixtures, and records nothing', async () => {
         const d = dirs();
-        const LIVE_ENV = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow };
+        const LIVE_ENV = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow, J8_STEP_STARTED_AT: String(Date.now()) };
         const argv = ['--evidence-dir', d.evidenceDir, '--run-dir', d.runDir, '--run-id', RUN_ID, '--run-attempt', '1', '--release-sha', RELEASE, '--execute', 'true'];
         const out = await entry.main(argv, LIVE_ENV, {});
         expect(out.exitCode).toBe(78);
@@ -939,6 +941,168 @@ describe('J8 nightly entry', () => {
         expect((await entry.main([...argv, '--plan', 'x'], LIVE_ENV, fixtures(d.runDir).deps)).exitCode).toBe(78);
         // With fixtures it runs the same composition.
         expect((await entry.main(argv, LIVE_ENV, fixtures(d.runDir).deps)).exitCode).toBe(0);
+    });
+});
+
+describe('J8 step deadline and cleanup window (Sam, 23 Nov): admission closes in time to finish cleanup before the runner step ends', () => {
+    const D = entry.DEADLINES;
+    const STEP_END = NOW + entry.J8_STEP_MS - entry.STEP_MARGIN_MS;
+    const CHAIN = { step: 'J8.b: feedback diagnostic chain', verdict: 'HOLD', detail: '', evidence: { reasons: 'telemetry_not_received',
+        expectedRequestSha256: 'r'.repeat(64), expectedAttemptSha256: 'a'.repeat(64), expectedProduct: 'p', expectedConfiguredModel: 'm', expectedOutcome: 'o' } };
+    /** A fake clock the fixtures move: `at` is read by the entry; `lookupAt` is the clock when cleanup's first lookup ran. */
+    function clocked(d, opts = {}, { spec = 0, qualify = (at) => at } = {}) {
+        const c = { at: NOW, lookupAt: null };
+        const f = fixtures(d.runDir, opts);
+        const runSpec = f.deps.runSpec;
+        f.deps.runSpec = async (a) => { const out = await runSpec(a); c.at = typeof spec === 'function' ? spec(c.at) : c.at + spec; return out; };
+        const qualifyInner = f.deps.qualify;
+        f.deps.qualify = async (q) => { const out = await qualifyInner(q); c.at = qualify(c.at, f.calls.qualify.length); return out; };
+        const lookup = f.deps.lookup;
+        f.deps.lookup = async (q) => { if (c.lookupAt === null) c.lookupAt = c.at; return lookup(q); };
+        return { c, f, over: { now: () => c.at, stepEndAt: STEP_END } };
+    }
+    /** The cleanup window: cleanup started with its whole budget still before the step's end, and finished clean. */
+    const cleanedInTime = (out, c, f) => ({ cleanup: out.cleanup.result, deleted: f.store.calls.scopedDelete.length, residueRead: f.store.calls.readResidue.length > 0,
+        windowLeft: STEP_END - c.lookupAt >= D.cleanupMs });
+
+    it('the initial budget is checked before the account is reserved: an early refusal leaves no create record, admission or receipt', async () => {
+        for (const stepEndAt of [undefined, Number.NaN, NOW + D.specMs + D.parentOpSettleMs + D.cleanupMs]) {
+            const d = dirs();
+            const f = fixtures(d.runDir);
+            const out = await run(d, f.deps, { stepEndAt });
+            expect({ exitCode: out.exitCode, sent: /nothing sent/.test(out.reason), spec: f.calls.runSpec.length, evidence: fs.readdirSync(d.evidenceDir),
+                receipts: fs.readdirSync(path.join(d.runDir, 'test-results', 'rwt')), lookups: f.store.calls.lookup.length })
+                .toEqual({ exitCode: 78, sent: true, spec: 0, evidence: [], receipts: [], lookups: 0 });
+        }
+        // One millisecond more and the run is admitted.
+        const d = dirs();
+        const f = fixtures(d.runDir);
+        const out = await run(d, f.deps, { stepEndAt: NOW + D.specMs + D.parentOpSettleMs + D.cleanupMs + 1 });
+        expect({ exitCode: out.exitCode, spec: f.calls.runSpec.length, stepDeadline: out.stepDeadline }).toEqual({ exitCode: 0, spec: 1, stepDeadline: 'clear' });
+    });
+
+    it('a slow spec: no readback starts unless it, its late settle, the evaluation and cleanup fit; the legs are a terminal HOLD and cleanup runs now', async () => {
+        const need = D.readbackMs + D.lateSettleMs + D.evaluateMs + D.cleanupMs;
+        const d = dirs();
+        const { c, f, over } = clocked(d, {}, { spec: () => STEP_END - need });
+        const out = await run(d, f.deps, over);
+        expect({ exitCode: out.exitCode, readbacks: f.calls.qualify.length, verdicts: out.readback.journeys.map((j) => j.verdict), cutOff: out.readback.cutOff,
+            stepDeadline: out.stepDeadline, legs: entry.j8RunSummary(out).legs })
+            .toEqual({ exitCode: 78, readbacks: 0, verdicts: ['HOLD', 'HOLD', 'HOLD'], cutOff: entry.STEP_CUT_OFF, stepDeadline: 'held',
+                legs: { 'J8.a': 'HOLD', 'J8.b': 'HOLD', 'J8.c': 'HOLD' } });
+        expect(cleanedInTime(out, c, f)).toEqual({ cleanup: 'complete', deleted: 1, residueRead: true, windowLeft: true });
+        // One millisecond earlier, every readback still fits.
+        const e = dirs();
+        const early = clocked(e, {}, { spec: () => STEP_END - need - 1 });
+        const ok = await run(e, early.f.deps, early.over);
+        expect({ exitCode: ok.exitCode, readbacks: early.f.calls.qualify.length, stepDeadline: ok.stepDeadline }).toEqual({ exitCode: 0, readbacks: 3, stepDeadline: 'clear' });
+    });
+
+    it('slow readbacks: the journeys read in time keep their answers, the rest are HOLD, and cleanup keeps its whole budget', async () => {
+        const d = dirs();
+        const { c, f, over } = clocked(d, {}, { spec: 20 * 60_000, qualify: (at) => at + D.readbackMs });
+        const out = await run(d, f.deps, over);
+        expect({ readbacks: f.calls.qualify.length, verdicts: out.readback.journeys.map((j) => j.verdict), cutOff: out.readback.cutOff, evaluated: f.calls.evaluate,
+            exitCode: out.exitCode, stepDeadline: out.stepDeadline })
+            .toEqual({ readbacks: 2, verdicts: ['QUALIFIED', 'QUALIFIED', 'HOLD'], cutOff: entry.STEP_CUT_OFF, evaluated: 1, exitCode: 78, stepDeadline: 'held' });
+        expect(cleanedInTime(out, c, f)).toEqual({ cleanup: 'complete', deleted: 1, residueRead: true, windowLeft: true });
+    });
+
+    it('a coaching call that would not fit is never started; its diagnostic is HOLD', async () => {
+        const d = dirs();
+        const { c, f, over } = clocked(d, { spec: (adm) => receiptFor(adm.createAttempt.attemptId, [CHAIN]), coaching: () => ({ verdict: 'PASS', reasons: [] }) },
+            { qualify: (at, n) => (n === 3 ? STEP_END - (D.coachingMs + D.lateSettleMs + D.evaluateMs + D.cleanupMs) : at) });
+        const out = await run(d, f.deps, over);
+        expect({ readbacks: f.calls.qualify.length, coaching: f.calls.coaching.length, diagnostic: out.readback.coachingDiagnostic, cutOff: out.readback.cutOff,
+            stepDeadline: out.stepDeadline, exitCode: out.exitCode })
+            .toEqual({ readbacks: 3, coaching: 0, diagnostic: { verdict: 'HOLD', reasons: ['diagnostic_not_received'] }, cutOff: entry.STEP_CUT_OFF,
+                stepDeadline: 'held', exitCode: 78 });
+        expect(cleanedInTime(out, c, f)).toEqual({ cleanup: 'complete', deleted: 1, residueRead: true, windowLeft: true });
+    });
+
+    it('an evaluation that would not fit is never started; every row is HOLD and cleanup still has its window', async () => {
+        const d = dirs();
+        const { c, f, over } = clocked(d, {}, { qualify: (at, n) => (n === 3 ? STEP_END - (D.evaluateMs + D.cleanupMs) : at) });
+        const out = await run(d, f.deps, over);
+        expect({ evaluated: f.calls.evaluate, held: out.caseResult.assertions.every((a) => a.result === 'HOLD'),
+            source: out.caseResult.assertions[0].sources, stepDeadline: out.stepDeadline, exitCode: out.exitCode })
+            .toEqual({ evaluated: 0, held: true, source: ['the runner step\'s end is too close to settle the receipt'], stepDeadline: 'held', exitCode: 78 });
+        expect(cleanedInTime(out, c, f)).toEqual({ cleanup: 'complete', deleted: 1, residueRead: true, windowLeft: true });
+    });
+
+    it('a parent operation still in flight when Playwright exits: admission closes, it settles, and only then do the readback and cleanup run', async () => {
+        const d = dirs();
+        const f = fixtures(d.runDir);
+        const order = [];
+        let port = null;
+        const runSpec = f.deps.runSpec;
+        f.deps.runSpec = async (a) => {
+            port = a.operations;
+            await port.run(() => { order.push('fence open'); });
+            const out = await runSpec(a);
+            // The fence close is still under way when the spec's process exits.
+            port.run(() => new Promise((resolve) => { setTimeout(() => { order.push('fence close settled'); resolve(); }, 30); }));
+            order.push('spec exited');
+            return out;
+        };
+        let refusedAfterExit = null;
+        const qualify = f.deps.qualify;
+        f.deps.qualify = async (q) => {
+            if (refusedAfterExit === null) {
+                order.push('readback');
+                refusedAfterExit = await port.run(() => { order.push('late operation ran'); }).then(() => false, (e) => e instanceof entry.ParentOperationRefused);
+            }
+            return qualify(q);
+        };
+        const lookup = f.deps.lookup;
+        f.deps.lookup = async (q) => { if (!order.includes('cleanup')) order.push('cleanup'); return lookup(q); };
+        const out = await run(d, f.deps);
+        expect(order).toEqual(['fence open', 'spec exited', 'fence close settled', 'readback', 'cleanup']);
+        expect({ refusedAfterExit, exitCode: out.exitCode, cleanup: out.cleanup.result, deleted: f.store.calls.scopedDelete.length,
+            residueRead: f.store.calls.readResidue.length > 0, journal: out.createJournal })
+            .toEqual({ refusedAfterExit: true, exitCode: 0, cleanup: 'complete', deleted: 1, residueRead: true, journal: 'resolved' });
+    });
+
+    it('a parent operation that does not settle after the spec ends: HOLD, nothing is read back, looked up or deleted, and the account is left for protected recovery', async () => {
+        const d = dirs();
+        const f = fixtures(d.runDir);
+        const runSpec = f.deps.runSpec;
+        f.deps.runSpec = async (a) => { const out = await runSpec(a); a.operations.run(() => new Promise(() => {})); return out; };
+        const out = await run(d, f.deps, { deadlines: { ...D, parentOpSettleMs: 40 } });
+        expect({ exitCode: out.exitCode, readbacks: f.calls.qualify.length, evaluated: f.calls.evaluate, lookups: f.store.calls.lookup.length,
+            deletes: f.store.calls.scopedDelete.length, held: out.caseResult.assertions.every((a) => a.result === 'HOLD'), source: out.caseResult.assertions[0].sources,
+            cleanup: out.cleanup.result, left: out.cleanup.reasons.J8.some((r) => /parent operation/.test(r) && /protected recovery/.test(r)), journal: out.createJournal })
+            .toEqual({ exitCode: 78, readbacks: 0, evaluated: 0, lookups: 0, deletes: 0, held: true, source: ['a parent operation did not settle after the spec ended'],
+                cleanup: 'incomplete', left: true, journal: 'unresolved' });
+    });
+
+    it('the gate: an operation that fails still settles; closing refuses new ones without cancelling those in flight', async () => {
+        const ops = entry.parentOperations();
+        let finished = false;
+        const slow = ops.port.run(() => new Promise((resolve) => { setTimeout(() => { finished = true; resolve('done'); }, 20); }));
+        const failed = ops.port.run(() => { throw new Error('boom'); }).catch(() => 'rejected');
+        ops.close();
+        const late = await ops.port.run(() => 'ran').catch((e) => e instanceof entry.ParentOperationRefused);
+        expect({ open: ops.open, late, settled: await ops.settle(1_000), finished, slow: await slow, failed: await failed, inFlight: ops.inFlight })
+            .toEqual({ open: false, late: true, settled: true, finished: true, slow: 'done', failed: 'rejected', inFlight: 0 });
+        const stuck = entry.parentOperations();
+        stuck.port.run(() => new Promise(() => {}));
+        stuck.close();
+        expect({ noTime: await stuck.settle(0), shortWait: await stuck.settle(20), none: await entry.parentOperations().settle(0) })
+            .toEqual({ noTime: false, shortWait: false, none: true });
+    });
+
+    it('the CLI fixes the step\'s end from the step\'s own start (J8_STEP_STARTED_AT), or refuses before anything is built', () => {
+        const argv = ['--evidence-dir', 'e', '--run-dir', 'r', '--run-id', RUN_ID, '--run-attempt', '1', '--release-sha', RELEASE, '--execute', 'true'];
+        const env = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow };
+        const at = () => NOW;
+        for (const started of [undefined, '', 'soon', String(NOW).slice(1), String(NOW + 60_000), String(NOW - entry.J8_STEP_MS)]) {
+            const out = entry.cliArgs(argv, { ...env, J8_STEP_STARTED_AT: started }, at);
+            expect({ exitCode: out.exitCode, args: out.args, why: /J8_STEP_STARTED_AT/.test(out.reason) }).toEqual({ exitCode: 78, args: undefined, why: true });
+        }
+        const ok = entry.cliArgs(argv, { ...env, J8_STEP_STARTED_AT: String(NOW - 120_000) }, at);
+        expect(ok.stepEndAt).toBe(NOW - 120_000 + 88 * 60_000 - 3 * 60_000);
+        expect({ step: entry.J8_STEP_MS, margin: entry.STEP_MARGIN_MS }).toEqual({ step: 88 * 60_000, margin: 3 * 60_000 });
     });
 });
 
@@ -1055,7 +1219,7 @@ describe('J8 live launcher (liveMain): the CLI the release-checks J8 job runs (S
     const { cleanupReserve } = require('../cleanup-plan.cjs');
     const HOST = `${'a'.repeat(20)}.supabase.co`;
     const KEY = 'service-role-fixture';
-    const LIVE = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow,
+    const LIVE = { LIVE_TEST_EMAIL_DOMAIN: DOMAIN, GITHUB_REPOSITORY: RUN_BINDING.repository, GITHUB_WORKFLOW_REF: RUN_BINDING.workflow, J8_STEP_STARTED_AT: String(Date.now()),
         SUPABASE_URL: `https://${HOST}`, SUPABASE_SERVICE_ROLE_KEY: KEY, RWT_WRITES_ACK: 'RWT-DISPOSABLE-ACCOUNT-WRITES', RWT_CANARY_CLAIM_ACK: 'RWT-CANARY-CLAIM-RUN-OWNED' };
     const argvFor = (d) => ['--evidence-dir', d.evidenceDir, '--run-dir', d.runDir, '--run-id', RUN_ID, '--run-attempt', '1', '--release-sha', RELEASE, '--execute', 'true'];
     const dropArg = (argv, k) => argv.filter((_, i) => i !== argv.indexOf(k) && i !== argv.indexOf(k) + 1);
@@ -1142,12 +1306,12 @@ describe('J8 live launcher (liveMain): the CLI the release-checks J8 job runs (S
         expect(fs.existsSync(thrownAt)).toBe(false);
     });
 
-    it('the summary line names each leg\'s result, cleanup and the create journal, and nothing else', async () => {
+    it('the summary line names each leg\'s result, cleanup, the create journal and the step deadline, and nothing else', async () => {
         const d = dirs();
         const ok = entry.j8RunSummary(await run(d, fixtures(d.runDir).deps));
-        expect(ok).toEqual({ exitCode: 0, legs: { 'J8.a': 'PASS', 'J8.b': 'PASS', 'J8.c': 'PASS' }, cleanup: 'complete', createJournal: 'resolved' });
-        const held = entry.j8RunSummary({ exitCode: 78, caseResult: entry.holdAll('x'), cleanup: { result: 'incomplete' }, createJournal: 'unresolved' });
-        expect(held).toEqual({ exitCode: 78, legs: { 'J8.a': 'HOLD', 'J8.b': 'HOLD', 'J8.c': 'HOLD' }, cleanup: 'incomplete', createJournal: 'unresolved' });
+        expect(ok).toEqual({ exitCode: 0, legs: { 'J8.a': 'PASS', 'J8.b': 'PASS', 'J8.c': 'PASS' }, cleanup: 'complete', createJournal: 'resolved', stepDeadline: 'clear' });
+        const held = entry.j8RunSummary({ exitCode: 78, caseResult: entry.holdAll('x'), cleanup: { result: 'incomplete' }, createJournal: 'unresolved', stepDeadline: 'held' });
+        expect(held).toEqual({ exitCode: 78, legs: { 'J8.a': 'HOLD', 'J8.b': 'HOLD', 'J8.c': 'HOLD' }, cleanup: 'incomplete', createJournal: 'unresolved', stepDeadline: 'held' });
         const failed = entry.holdAll('x');
         failed.assertions = failed.assertions.map((a, i) => ({ ...a, result: a.leg === 'J8.b' && i % 2 ? 'FAIL' : 'PASS' }));
         expect(entry.j8RunSummary({ exitCode: 1, caseResult: failed, cleanup: { result: 'complete' }, createJournal: 'resolved' }).legs['J8.b']).toBe('FAIL');
