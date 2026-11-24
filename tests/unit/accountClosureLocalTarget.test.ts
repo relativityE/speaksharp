@@ -12,8 +12,8 @@ describe('isLocalDisposableTarget', () => {
     'http://kong.example.test:8000', 'http://10.0.0.5:8000', 'https://127.0.0.1:54321', 'http://127.0.0.1.nip.io', 'http://localhost.example.test'])('refuses %s', (url) => {
     expect(isLocalDisposableTarget(new URL(url))).toBe(false);
   });
-  it('both runtime bindings use this one rule and define no local hosts of their own', () => {
-    for (const file of ['accountClosureRuntimeBinding.ts', 'accountClosureCompletionRuntimeBinding.ts']) {
+  it('every validator in the user deletion path (both runtime bindings, the closure/recovery adapter and the completion adapter) uses this one rule and defines no local hosts of its own', () => {
+    for (const file of ['accountClosureRuntimeBinding.ts', 'accountClosureCompletionRuntimeBinding.ts', 'accountClosureRecoveryAdapter.ts', 'accountClosureCompletionAdapter.ts']) {
       const src = readFileSync(`backend/supabase/functions/_shared/${file}`, 'utf8');
       expect(src).toContain("import { isLocalDisposableTarget } from './accountClosureLocalTarget.ts';");
       expect(src).not.toMatch(/127\.0\.0\.1|localhost|kong:8000/);

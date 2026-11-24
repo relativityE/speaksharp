@@ -1,4 +1,5 @@
 import type { ClosureRecoveryAuthority, ClosureRecoveryDependencies } from './accountClosureRecovery.ts';
+import { isLocalDisposableTarget } from './accountClosureLocalTarget.ts';
 
 export interface ClosureRecoveryTarget { projectId: string; environment: 'production' | 'disposable'; url: string }
 export interface ClosureRecoveryScope {
@@ -44,8 +45,8 @@ export function createAccountClosureRecoveryAdapter(targetInput: ClosureRecovery
   let url: URL;
   try { url = new URL(target.url); } catch { return stop(); }
   const cloud = url.protocol === 'https:' && url.hostname === `${target.projectId}.supabase.co` && !url.port;
-  const loopback = target.environment === 'disposable' && url.protocol === 'http:'
-    && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+  // The shared local rule (accountClosureLocalTarget.ts), for a disposable target only; the cloud rule is unchanged.
+  const loopback = target.environment === 'disposable' && isLocalDisposableTarget(url);
   if ((!cloud && !loopback) || url.username || url.password || url.search || url.hash || url.pathname !== '/') stop();
   const client = ports.createAdminClient(url.origin);
   if (!client || typeof client.rpc !== 'function' || typeof client.auth?.admin?.getUserById !== 'function') stop();
