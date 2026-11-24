@@ -12,3 +12,11 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 export function isLocalDisposableTarget(url: URL): boolean {
   return url.protocol === 'http:' && (url.origin === CLI_STACK_ORIGIN || LOOPBACK_HOSTS.has(url.hostname));
 }
+
+/**
+ * The local app origin a disposable stack may send its deletion verification link to: plain http on a loopback host. Only
+ * ever admitted by a caller that has already verified its own runtime target is a local disposable stack.
+ */
+export function isLoopbackHttpOrigin(url: URL): boolean {
+  return url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);
+}

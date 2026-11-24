@@ -69,7 +69,7 @@ describe('the journeys\' combined receipt is exactly what the scorer (deletionRe
     const run = { release: 'f'.repeat(40), stackRun: 'billing-local-stack-45355779902-1' };
     const score = (a: DeletionLegFacts, b: DeletionLegFacts) =>
         finaliseDeletionReceipt(combinedDeletionReceipt([scorerAccount(a, '1'.repeat(64)), scorerAccount(b, '2'.repeat(64))], run),
-            { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' }, { release: run.release, stackRun: run.stackRun });
+            { journeys: 'success', stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' }, { release: run.release, stackRun: run.stackRun });
     it('two clean legs carry no receipt or leg defect (only the destruction proof, which this unit test does not supply)', () => {
         const r = score(leg('J1.f'), leg('J7.d'));
         expect(r.defects['J1.f']).toEqual([]);
@@ -80,5 +80,10 @@ describe('the journeys\' combined receipt is exactly what the scorer (deletionRe
         expect(score(leg('J1.f', { fallbackCleanup: 'ran_deleted' }), leg('J7.d')).defects['J1.f']).toContain('fallback_cleanup_ran');
         expect(score(leg('J1.f'), leg('J7.d', { closurePhase: 'processing', authUser: 'present', residueClear: false })).defects['J7.d'])
             .toEqual(['deletion_not_terminal', 'auth_user_present', 'residue_not_zero']);
+    });
+    it('the browser facts reach the scorer: a failed entry, an unseen link or a non-deleted page fails that leg', () => {
+        expect(score(leg('J1.f', { entryReached: false }), leg('J7.d')).defects['J1.f']).toContain('entry_not_reached');
+        expect(score(leg('J1.f'), leg('J7.d', { verificationLinkFound: false })).defects['J7.d']).toContain('verification_not_observed');
+        expect(score(leg('J1.f', { terminal: 'deleted_cleanup_unverified' }), leg('J7.d')).defects['J1.f']).toContain('terminal_ui_not_deleted');
     });
 });

@@ -71,8 +71,10 @@ export function legReceipt(facts: DeletionLegFacts, run: { release: string; stac
 export function scorerAccount(facts: DeletionLegFacts, accountRefSha256: string) {
     if (!/^[0-9a-f]{64}$/.test(accountRefSha256)) throw new Error('account ref must be a sha256');
     return { accountRef: accountRefSha256, authUserAbsent: facts.authUser === 'absent', closurePhase: facts.closurePhase,
-        fallbackCleanup: facts.fallbackCleanup === 'not_run' ? 'NOT_RUN' : 'RAN', leg: facts.leg,
-        residueVerified: facts.residueClear === true, route: facts.route };
+        entryReached: facts.entryReached, fallbackCleanup: facts.fallbackCleanup === 'not_run' ? 'NOT_RUN' : 'RAN', leg: facts.leg,
+        residueVerified: facts.residueClear === true, route: facts.route, terminalUi: facts.terminal,
+        // The one deletion link arrived for this address and the leg opened it (the page then reached its terminal step).
+        verificationObserved: facts.verificationRequested && facts.verificationLinkFound };
 }
 
 /** The scorer's combined receipt for the run (deletionReceipt.mjs DELETION_RECEIPT_KEYS), written before teardown. */

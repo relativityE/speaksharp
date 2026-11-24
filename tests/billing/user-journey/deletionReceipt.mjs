@@ -24,9 +24,13 @@ export const DELETION_RECEIPT_KEYS = Object.freeze(['accounts', 'schema', 'stack
  * - residueVerified: the shipped `verify_account_closure_residue` answered true for that user;
  * - fallbackCleanup: 'NOT_RUN'. If the run's own cleanup helper touched this account, the zero is the helper's, not the
  *   product's, so the leg can never pass (Sam: fallback cleanup never earns a PASS).
+ * And what the BROWSER observed for that account (Sam on a718da25: backend deletion alone is not the journey):
+ * - entryReached: the leg's own entry (wall or Account page) opened /account/delete;
+ * - verificationObserved: the one deletion link arrived in Mailpit for this address and was opened;
+ * - terminalUi: the page's own final message; only 'deleted' passes.
  */
-export const DELETION_ACCOUNT_KEYS = Object.freeze(['accountRef', 'authUserAbsent', 'closurePhase', 'fallbackCleanup', 'leg',
-  'residueVerified', 'route']);
+export const DELETION_ACCOUNT_KEYS = Object.freeze(['accountRef', 'authUserAbsent', 'closurePhase', 'entryReached', 'fallbackCleanup', 'leg',
+  'residueVerified', 'route', 'terminalUi', 'verificationObserved']);
 const SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -42,12 +46,16 @@ function accountDefects(account, leg) {
   if (account.authUserAbsent !== true) defects.push('auth_user_present');
   if (account.residueVerified !== true) defects.push('residue_not_zero');
   if (account.fallbackCleanup !== 'NOT_RUN') defects.push('fallback_cleanup_ran');
+  if (account.entryReached !== true) defects.push('entry_not_reached');
+  if (account.verificationObserved !== true) defects.push('verification_not_observed');
+  if (account.terminalUi !== 'deleted') defects.push('terminal_ui_not_deleted');
   return defects;
 }
 
 /**
  * @param {unknown} receipt the spec's deletion receipt (written before teardown)
- * @param {{ stackStopped?: string, stackDestroyed?: string, stripeClean?: string }} checks GitHub step outcomes
+ * @param {{ journeys?: string, stackStopped?: string, stackDestroyed?: string, stripeClean?: string }} checks GitHub step outcomes;
+ *   `journeys` is the Playwright step's own outcome, which must be 'success' (a failed browser assertion is never a pass)
  * @param {{ release?: string, stackRun?: string, destruction?: unknown, identity?: unknown }} expected
  */
 export function finaliseDeletionReceipt(receipt, checks, expected = {}) {
@@ -61,6 +69,7 @@ export function finaliseDeletionReceipt(receipt, checks, expected = {}) {
   if (destruction.length) teardown.stackDestroyed = 'NOT_PROVEN';
 
   const run = [];
+  if (checks?.journeys !== 'success') run.push('journey_step_failed');
   if (!sameKeys(receipt, DELETION_RECEIPT_KEYS)) run.push('receipt_shape');
   if (receipt?.schema !== DELETION_RECEIPT_SCHEMA) run.push('receipt_schema');
   if (receipt?.stripeMode !== 'test') run.push('stripe_mode');
@@ -96,15 +105,15 @@ export function finaliseDeletionReceipt(receipt, checks, expected = {}) {
 const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
 
 // CLI: node deletionReceipt.mjs --receipt <f> --destruction <f> --identity <f> --release <sha> --run <project>
-//        --stack-stopped <outcome> --stack-destroyed <outcome> --stripe-clean <outcome>
+//        --journeys <outcome> --stack-stopped <outcome> --stack-destroyed <outcome> --stripe-clean <outcome>
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const names = ['receipt', 'destruction', 'identity', 'release', 'run', 'stack-stopped', 'stack-destroyed', 'stripe-clean'];
+  const names = ['receipt', 'destruction', 'identity', 'release', 'run', 'journeys', 'stack-stopped', 'stack-destroyed', 'stripe-clean'];
   let values = {};
   try {
     ({ values } = parseArgs({ options: Object.fromEntries(names.map(n => [n, { type: 'string' }])), strict: true }));
   } catch { values = {}; }
   const combined = finaliseDeletionReceipt(readJson(values.receipt ?? ''),
-    { stackStopped: values['stack-stopped'], stackDestroyed: values['stack-destroyed'], stripeClean: values['stripe-clean'] },
+    { journeys: values.journeys, stackStopped: values['stack-stopped'], stackDestroyed: values['stack-destroyed'], stripeClean: values['stripe-clean'] },
     { release: values.release, stackRun: values.run, destruction: readJson(values.destruction ?? ''),
       identity: readJson(values.identity ?? '') });
   process.stdout.write(`${JSON.stringify(combined, null, 2)}\n`);

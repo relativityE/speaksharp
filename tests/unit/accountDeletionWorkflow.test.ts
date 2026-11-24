@@ -38,6 +38,9 @@ describe('account deletion local-stack workflow', () => {
         expect([...order].sort((a, b) => a - b)).toEqual(order);
         expect(wf).toContain('node tests/billing/user-journey/deletionReceipt.mjs --receipt "$receipt"');
         expect(wf).not.toContain('localStackReceipt.mjs');
+        // Sam on a718da25: the browser journeys' own step outcome is scored, not just the backend deletion.
+        expect(wf).toContain('JOURNEYS: ${{ steps.journeys.outcome }}');
+        expect(wf).toContain('--journeys "$JOURNEYS"');
     });
     it('uploads content-free files only and removes the grant and the functions env on teardown', () => {
         const upload = wf.slice(at('actions/upload-artifact@v4'));

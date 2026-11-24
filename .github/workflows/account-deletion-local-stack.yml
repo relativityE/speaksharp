@@ -272,6 +272,8 @@ jobs:
         if: always() && steps.stack_start.outcome != 'skipped'
         env:
           RELEASE: ${{ inputs.commit_sha }}
+          # The browser journeys' own outcome: a failed Playwright assertion can never score as a deletion pass.
+          JOURNEYS: ${{ steps.journeys.outcome }}
           STACK_STOPPED: ${{ steps.stack_stop.outcome }}
           STACK_DESTROYED: ${{ steps.stack_destroyed.outcome }}
           STRIPE_CLEAN: ${{ steps.stripe_residue.outcome }}
@@ -281,7 +283,7 @@ jobs:
           [ -f "$receipt" ] || { mkdir -p test-results/account-deletion; echo 'null' > "$receipt"; }
           node tests/billing/user-journey/deletionReceipt.mjs --receipt "$receipt" \
             --destruction billing-local-stack-destroyed.json --identity billing-local-stack-identity.json \
-            --release "$RELEASE" --run "$LOCAL_STACK_PROJECT" \
+            --release "$RELEASE" --run "$LOCAL_STACK_PROJECT" --journeys "$JOURNEYS" \
             --stack-stopped "$STACK_STOPPED" --stack-destroyed "$STACK_DESTROYED" --stripe-clean "$STRIPE_CLEAN" \
             > account-deletion-combined.json && status=0 || status=$?
           cat account-deletion-combined.json

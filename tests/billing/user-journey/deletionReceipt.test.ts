@@ -17,10 +17,11 @@ const destruction = () => ({ schema: DESTROYED_SCHEMA, destroyed: true, project:
   databaseSystemIdentifier: SYSID, identitySha256: stackIdentitySha256(identity, PROJECT) });
 const ref = (id: string) => createHash('sha256').update(id, 'utf8').digest('hex');
 const account = (leg: string, route: string, id: string, over: Record<string, unknown> = {}) => ({ leg, route, accountRef: ref(id),
-  closurePhase: 'completed', authUserAbsent: true, residueVerified: true, fallbackCleanup: 'NOT_RUN', ...over });
+  closurePhase: 'completed', authUserAbsent: true, residueVerified: true, fallbackCleanup: 'NOT_RUN',
+  entryReached: true, verificationObserved: true, terminalUi: 'deleted', ...over });
 const receipt = (accounts = [account('J1.f', 'trial_wall', 'u1'), account('J7.d', 'account_page', 'u2')], over = {}) => ({
   schema: 'account-deletion-local/v1', testedRelease: RELEASE, stackRun: PROJECT, stripeMode: 'test', accounts, ...over });
-const CLEAN = { stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
+const CLEAN = { journeys: 'success', stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
 const expected = (over = {}) => ({ release: RELEASE, stackRun: PROJECT, destruction: destruction(), identity, ...over });
 const score = (r: unknown, checks = CLEAN, exp = expected()) => finaliseDeletionReceipt(r, checks, exp);
 
@@ -99,4 +100,22 @@ test('wrong release, wrong stack, live Stripe or a malformed receipt fails both 
     assert.equal(score(r).result, 'NOT_PROVEN');
   }
   assert.equal(score(receipt(), CLEAN, expected({ release: undefined })).result, 'NOT_PROVEN');
+});
+
+test('Sam on a718da25: DB deletion and cleanup green but the browser journey failed is NOT_PROVEN', () => {
+  for (const journeys of ['failure', 'cancelled', 'skipped', undefined]) {
+    const out = score(receipt(), { ...CLEAN, journeys } as never);
+    assert.equal(out.result, 'NOT_PROVEN', String(journeys));
+    assert.deepEqual(out.legs, { 'J1.f': 'NOT_PROVEN', 'J7.d': 'NOT_PROVEN' });
+    assert.ok(out.defects.run.includes('journey_step_failed'));
+  }
+});
+
+test('each leg needs its own observed entry, Mailpit verification and terminal "deleted" page, even with the backend green', () => {
+  for (const [field, value, defect] of [['entryReached', false, 'entry_not_reached'], ['verificationObserved', false, 'verification_not_observed'],
+    ['terminalUi', 'deleted_cleanup_unverified', 'terminal_ui_not_deleted'], ['terminalUi', 'none', 'terminal_ui_not_deleted']] as const) {
+    const out = score(receipt([account('J1.f', 'trial_wall', 'u1'), account('J7.d', 'account_page', 'u2', { [field]: value })]));
+    assert.deepEqual(out.legs, { 'J1.f': 'PASSED', 'J7.d': 'NOT_PROVEN' }, `${field}=${String(value)}`);
+    assert.deepEqual(out.defects['J7.d'], [defect]);
+  }
 });

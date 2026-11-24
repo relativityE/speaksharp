@@ -64,6 +64,18 @@ describe('account-closure authenticated request/confirmation contract', () => {
     expect(deps.issue).not.toHaveBeenCalled();
     expect(deps.sendLink).not.toHaveBeenCalled();
   });
+  it('a loopback http app origin is accepted only when this function runs on a verified local disposable stack', async () => {
+    for (const [local, siteUrl, ok] of [[true, 'http://localhost:5173', true], [true, 'http://127.0.0.1:5173', true],
+      [undefined, 'http://localhost:5173', false], [false, 'http://localhost:5173', false], [true, 'http://example.test', false],
+      [true, 'http://localhost.example.test', false], [true, 'http://localhost:5173/path', false], [true, 'https://example.test', true]] as const) {
+      const { deps, request } = fixture();
+      deps.siteUrl = siteUrl; deps.localDisposableStack = local;
+      const status = (await handleClosureRequest(request({ action: 'request' }), deps)).status;
+      const redirect = vi.mocked(deps.sendLink).mock.calls[0]?.[1] ?? null;
+      expect({ local, siteUrl, refused: status === 503, redirectedToSite: typeof redirect === 'string' && redirect.startsWith(`${siteUrl}/account/delete?account_deletion_token=`) })
+        .toEqual({ local, siteUrl, refused: !ok, redirectedToSite: ok });
+    }
+  });
   it('anonymous requests have no mail or deletion side effects', async () => {
     const { deps, request, adapters } = fixture();
     vi.mocked(deps.authenticate).mockResolvedValue(null);

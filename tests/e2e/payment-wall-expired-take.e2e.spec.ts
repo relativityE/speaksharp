@@ -201,7 +201,7 @@ const PENDING_SETTLED = { outcome: 'pending', requestId: PENDING_REQUEST_ID, pha
 /** Both URL forms: the bare closure function and every sub-path (completion-status, completion-execute, anything else). */
 const CLOSURE_ROUTE = /\/functions\/v1\/account-closure(?:[/?#]|$)/;
 type ClosureCall = { origin: string; path: string; action: unknown };
-type ClosureNetwork = { completion: () => ClosureCall[]; status: () => ClosureCall[]; refused: () => ClosureCall[] };
+type ClosureNetwork = { completion: () => ClosureCall[]; readiness: () => ClosureCall[]; status: () => ClosureCall[]; refused: () => ClosureCall[] };
 type ClosureWindow = Window & { __CLOSURE_ACTIONS_J7D__?: unknown[]; __CLOSURE_ANSWER_J7D__?: boolean };
 
 /**
@@ -236,6 +236,7 @@ async function answerSettledPendingDeletion(page: Page): Promise<ClosureNetwork>
     });
   }, PENDING_SETTLED);
   const completion: ClosureCall[] = [];
+  const readiness: ClosureCall[] = [];
   const status: ClosureCall[] = [];
   const refused: ClosureCall[] = [];
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-client-info', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -253,6 +254,12 @@ async function answerSettledPendingDeletion(page: Page): Promise<ClosureNetwork>
           : action === 'completion_status_read' ? { outcome: 'pending', requestId: PENDING_REQUEST_ID, reason: 'ready', canRetry: false }
             : null;
     if (completionReply) { completion.push(call); return route.fulfill({ status: 200, headers: cors, json: completionReply }); }
+    // #1903: a 'ready' pending read makes the page ask the server's readiness decision. That READ is answered here as
+    // unavailable (no execution grant), separately from any effect, so the page has no way to complete.
+    if (url.pathname.endsWith('/functions/v1/account-closure/completion-status') && action === 'completion_readiness') {
+      readiness.push(call);
+      return route.fulfill({ status: 200, headers: cors, json: { outcome: 'unavailable', canRetry: false } });
+    }
     if (url.pathname.endsWith('/functions/v1/account-closure') && action === 'status') {
       status.push(call);
       return route.fulfill({ status: 200, headers: cors, json: PENDING_SETTLED });
@@ -260,7 +267,7 @@ async function answerSettledPendingDeletion(page: Page): Promise<ClosureNetwork>
     refused.push(call);
     return route.fulfill({ status: 403, headers: cors, json: { outcome: 'refused_by_test' } });
   });
-  return { completion: () => [...completion], status: () => [...status], refused: () => [...refused] };
+  return { completion: () => [...completion], readiness: () => [...readiness], status: () => [...status], refused: () => [...refused] };
 }
 
 async function expectSettledButNotCompletable(page: Page, closure: ClosureNetwork) {
@@ -269,6 +276,9 @@ async function expectSettledButNotCompletable(page: Page, closure: ClosureNetwor
   // The secured status path ran to the end: the page shows the settled read it obtained.
   await expect(deletion.getByTestId('account-completion-status')).toContainText('Earlier work is settled. Deletion has not started.');
   expect(closure.completion().map((c) => c.action)).toEqual(['completion_status_issue', 'completion_status_ack', 'completion_status_read']);
+  // The page asked the server's readiness decision (a read) and was told unavailable; wait for that before judging effects.
+  await expect.poll(() => closure.readiness().length, { timeout: 10_000 }).toBeGreaterThan(0);
+  expect(closure.readiness().every((c) => c.path.endsWith('/functions/v1/account-closure/completion-status'))).toBe(true);
   // ...and still no way to complete: no confirmation, no button, no effect, and no closure request the test refused.
   await expect(deletion.getByRole('checkbox', { name: 'I confirm permanent account deletion now, with no refund.' })).toHaveCount(0);
   await expect(deletion.getByRole('button', { name: 'Complete permanent account deletion' })).toHaveCount(0);
