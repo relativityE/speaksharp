@@ -288,9 +288,18 @@ const unreachedAbandons = new Map<string, Unsettled>();
 /** The account that acquired each lease this page still knows about. */
 const leaseOwners = new Map<string, string | null>();
 let retrying: Promise<void> | null = null;
+/**
+ * A pass asked for while another was running: run once after it (coalesced), with the latest caller's rpc, over only the
+ * leases the running pass did not cover. A lease that pass just tried waits for the next trigger like any other.
+ */
+let rerunRequested: { rpc?: LeaseRpc; only: Set<string> } | null = null;
+/** The leases the running pass covers. */
+let runningBatch = new Set<string>();
 let onlineListening = false;
 
-const isLeaseIdList = (v: unknown): boolean => Array.isArray(v) && v.length <= 1000 && v.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 64);
+// No length cap (Codex on 6093a9ac): a failed validation DELETES the stored list, so a cap would erase every durable record
+// once an account passed it. Work stays bounded by MAX_ABANDONS_PER_PASS per pass instead.
+const isLeaseIdList = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 64);
 
 function storedFor(owner: string): string[] {
     return safeLocalStorageGetJSON<string[]>(UNSETTLED_STARTS_KEY_PREFIX + owner, [], isLeaseIdList);
@@ -353,7 +362,10 @@ export function keepUnsettledStartsAcross(clear: () => void): void {
         for (let i = 0; i < window.localStorage.length; i += 1) {
             const key = window.localStorage.key(i);
             const value = key !== null && key.startsWith(UNSETTLED_STARTS_KEY_PREFIX) ? window.localStorage.getItem(key) : null;
-            if (key !== null && value !== null) kept.push([key, value]);
+            // Only a well-formed list of lease ids is kept (Sam 12:41): anything else at that key is cleared like the rest.
+            let wellFormed = false;
+            try { wellFormed = value !== null && isLeaseIdList(JSON.parse(value)); } catch { wellFormed = false; }
+            if (key !== null && value !== null && wellFormed) kept.push([key, value]);
         }
     } catch { /* storage unreadable: nothing to keep */ }
     clear();
@@ -368,12 +380,29 @@ export function keepUnsettledStartsAcross(clear: () => void): void {
  * pass at a time.
  */
 export function retryUnreachedAbandons(opts: { rpc?: LeaseRpc } = {}): Promise<void> {
+    return runPass(opts, null);
+}
+
+function runPass(opts: { rpc?: LeaseRpc }, only: Set<string> | null): Promise<void> {
     const owner = currentOwnerId();
     loadStored(owner);
-    const batch = [...unreachedAbandons].filter(([, e]) => e.owner === owner && !e.inFlight).slice(0, MAX_ABANDONS_PER_PASS);
+    const batch = [...unreachedAbandons]
+        .filter(([leaseId, e]) => e.owner === owner && !e.inFlight && (only === null || only.has(leaseId)))
+        .slice(0, MAX_ABANDONS_PER_PASS);
     if (batch.length === 0) return retrying ?? Promise.resolve();
     listenForOnline();
-    retrying ??= (async () => {
+    // J7.c (Jack on 6093a9ac): a pass asked for while another runs is not dropped. It is coalesced into ONE more pass after the
+    // busy one ends. Only a caller asks for it, never the pass itself, so passes cannot schedule themselves without end.
+    // Only when this call has a lease the running pass does not cover: a repeat ask for the same leases adds no call.
+    if (retrying) {
+        const uncovered = batch.map(([leaseId]) => leaseId).filter((leaseId) => !runningBatch.has(leaseId));
+        if (uncovered.length > 0) {
+            rerunRequested = { rpc: opts.rpc ?? rerunRequested?.rpc, only: new Set([...(rerunRequested?.only ?? []), ...uncovered]) };
+        }
+        return retrying;
+    }
+    runningBatch = new Set(batch.map(([leaseId]) => leaseId));
+    retrying = (async () => {
         const epoch = authEpoch();
         try {
             await Promise.allSettled(batch.map(async ([leaseId, entry]) => {
@@ -387,6 +416,10 @@ export function retryUnreachedAbandons(opts: { rpc?: LeaseRpc } = {}): Promise<v
             }));
         } finally {
             retrying = null;
+            runningBatch = new Set();
+            const rerun = rerunRequested;
+            rerunRequested = null;
+            if (rerun) void runPass({ rpc: rerun.rpc }, rerun.only);
         }
     })();
     return retrying;
@@ -405,6 +438,12 @@ export function __resetTakeLeaseForTests(): void {
     unreachedAbandons.clear();
     leaseOwners.clear();
     retrying = null;
+    rerunRequested = null;
+    runningBatch = new Set();
     if (onlineListening && typeof window !== 'undefined') window.removeEventListener('online', onOnline);
     onlineListening = false;
 }
+
+// J7.c (Codex on 6093a9ac): armed when the module loads, so after a reload the browser coming back online alone resumes the
+// signed-in account's stored unsettled Starts (onOnline loads that account's list; another account's is never replayed).
+listenForOnline();
