@@ -7,6 +7,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const live = require('../j8-live-adapters.cjs');
 
+// The process runner finds its tagged processes through /proc/<pid>/environ, which exists only on Linux; the runner itself only runs
+// on GitHub's Linux runners. On another OS these five tests are reported as skipped, with this reason, never as passed.
+const LINUX_PROC = { skip: process.platform !== 'linux' && 'needs /proc (Linux-only process tagging; the J8 runner runs on Linux)' };
 const RELEASE = 'e'.repeat(40);
 const EXPECTATION = { requestSha256: 'a'.repeat(64), attemptSha256: 'b'.repeat(64), product: 'coaching', configuredModel: 'm', outcome: 'ok' };
 
@@ -15,8 +18,11 @@ function harness(answers, extra = {}) {
     const calls = [];
     const waits = [];
     const run = (command, args, opts) => { calls.push({ command, args, env: opts.env, cwd: opts.cwd, timeout: opts.timeout }); return { drained: true, ...(answers.shift() ?? { status: 1, stdout: '' }) }; };
-    const adapters = live.j8LiveAdapters({ repoRoot: '/repo', baseEnv: { PATH: '/bin', INHERITED: 'x' }, run, sleep: async (ms) => { waits.push(ms); }, ...extra });
-    return { adapters, calls, waits };
+    const ops = [];
+    const startOps = async (o) => { ops.push({ ...o, stopped: false }); const rec = ops[ops.length - 1]; return { url: 'http://127.0.0.1:41234/op', stop: async () => { rec.stopped = true; return rec.settled ?? true; } }; };
+    const readAdmission = () => JSON.stringify({ createAttempt: { attemptId: 'a1', lookupRef: 'rwt-journey-fixture@example.test', recordedBeforeSend: true } });
+    const adapters = live.j8LiveAdapters({ repoRoot: '/repo', baseEnv: { PATH: '/bin', INHERITED: 'x' }, run, sleep: async (ms) => { waits.push(ms); }, startOps, readAdmission, ...extra });
+    return { adapters, calls, waits, ops };
 }
 const evidenceLine = (o) => `noise\n${live.EVIDENCE_PREFIX}${JSON.stringify({ gate: 'TELEMETRY-READBACK-COMPLETENESS', release_sha: RELEASE, journey_id: 'journey-final-b',
     boot_id: 'boot-1', traffic_type: 'canary', stages_declared: ['share_feedback'], attempts_declared: [], ...o })}\n`;
@@ -255,7 +261,9 @@ describe('J8 live adapters', () => {
 
     it('the spec\'s admission env wins over an inherited value of the same name', async () => {
         const h = live.j8LiveAdapters({ baseEnv: { RWT_J8_RUNNER_ADMISSION: '/stale', GITHUB_RUN_ATTEMPT: '9' },
-            run: (c, a, o) => { h.seen = o.env; return a.includes('--list') ? LIST_OK : { status: 0 }; }, sleep: async () => {} });
+            run: (c, a, o) => { h.seen = o.env; return a.includes('--list') ? LIST_OK : { status: 0 }; }, sleep: async () => {},
+            readAdmission: (f) => (f === '/fresh' ? JSON.stringify({ createAttempt: { lookupRef: 'rwt-journey-x@example.test' } }) : '{}'),
+            startOps: async () => ({ url: 'http://127.0.0.1:41234/op', stop: async () => true }) });
         await h.runSpec({ env: { RWT_J8_RUNNER_ADMISSION: '/fresh', GITHUB_RUN_ATTEMPT: '1' } });
         expect(h.seen.RWT_J8_RUNNER_ADMISSION).toBe('/fresh');
         expect(h.seen.GITHUB_RUN_ATTEMPT).toBe('1');
@@ -281,7 +289,7 @@ describe('J8 live adapters', () => {
         expect((await threw.lookup({ email, runOwnedPrefix: 'rwt-journey-' })).lookup).toBe('unreadable');
     });
 
-    it('the process runner kills a process at its deadline and reports no exit code', async () => {
+    it('the process runner kills a process at its deadline and reports no exit code', LINUX_PROC, async () => {
         const run = live.spawnRunner();
         const r = await run(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { env: process.env, cwd: __dirname, timeout: 200 });
         expect({ status: r.status, timedOut: r.timedOut, drained: r.drained }).toEqual({ status: null, timedOut: true, drained: true });
@@ -295,14 +303,14 @@ describe('J8 live adapters', () => {
     const grandchildScript = (pidFile, then) => `const { spawn } = require('node:child_process');
         const g = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
         require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(g.pid)); g.unref(); ${then}`;
-    it('the process runner drains a grandchild in its own process group when the child is killed at its deadline', async () => {
+    it('the process runner drains a grandchild in its own process group when the child is killed at its deadline', LINUX_PROC, async () => {
         const pidFile = path.join(require('node:os').tmpdir(), `j8-drain-${process.pid}-a`);
         const r = await live.spawnRunner()(process.execPath, ['-e', grandchildScript(pidFile, 'setInterval(() => {}, 1000);')], { env: process.env, cwd: __dirname, timeout: 1500 });
         const pid = Number(fs.readFileSync(pidFile, 'utf8'));
         fs.rmSync(pidFile, { force: true });
         expect({ timedOut: r.timedOut, drained: r.drained, grandchildGone: gone(pid) }).toEqual({ timedOut: true, drained: true, grandchildGone: true });
     });
-    it('the process runner drains a grandchild left running after the child exits on its own', async () => {
+    it('the process runner drains a grandchild left running after the child exits on its own', LINUX_PROC, async () => {
         const pidFile = path.join(require('node:os').tmpdir(), `j8-drain-${process.pid}-b`);
         const r = await live.spawnRunner()(process.execPath, ['-e', grandchildScript(pidFile, 'process.exit(0);')], { env: process.env, cwd: __dirname, timeout: 10_000 });
         const pid = Number(fs.readFileSync(pidFile, 'utf8'));
@@ -314,7 +322,7 @@ describe('J8 live adapters', () => {
     const pipeHolderScript = (pidFile, then, env = 'process.env') => `const { spawn } = require('node:child_process');
         const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { detached: true, stdio: ['ignore', 'inherit', 'ignore'], env: ${env} });
         require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(g.pid)); g.unref(); console.log('started'); ${then}`;
-    it('the drain starts when the child exits, not when a grandchild that inherited stdout lets the pipe close', async () => {
+    it('the drain starts when the child exits, not when a grandchild that inherited stdout lets the pipe close', LINUX_PROC, async () => {
         const pidFile = path.join(require('node:os').tmpdir(), `j8-drain-${process.pid}-c`);
         const started = Date.now();
         const r = await live.spawnRunner()(process.execPath, ['-e', pipeHolderScript(pidFile, 'process.exit(0);')], { env: process.env, cwd: __dirname, timeout: 10_000 });
@@ -324,7 +332,7 @@ describe('J8 live adapters', () => {
         expect({ status: r.status, timedOut: r.timedOut, drained: r.drained, out: r.stdout.trim(), grandchildGone: gone(pid), quick: ms < 5_000 })
             .toEqual({ status: 0, timedOut: false, drained: true, out: 'started', grandchildGone: true, quick: true });
     });
-    it('the drain starts at the deadline (250 ms), not when a grandchild that inherited stdout lets the pipe close', async () => {
+    it('the drain starts at the deadline (250 ms), not when a grandchild that inherited stdout lets the pipe close', LINUX_PROC, async () => {
         const pidFile = path.join(require('node:os').tmpdir(), `j8-drain-${process.pid}-d`);
         const started = Date.now();
         const r = await live.spawnRunner()(process.execPath, ['-e', pipeHolderScript(pidFile, 'setInterval(() => {}, 1000);')], { env: process.env, cwd: __dirname, timeout: 250 });
@@ -530,5 +538,70 @@ describe('J8 live adapters', () => {
                 expect(h.calls.length).toBe(0);
             }
         });
+    });
+});
+
+// The selector listing the J8 test, shared by the parent-boundary and lifecycle controls below.
+const SPEC_LIST_OK = { status: 0, drained: true,
+    stdout: `Listing tests:\n  [deployed-live-chromium] › live/rwt-feedback-association-boundaries.live.spec.ts:753:5 › ${live.J8_DESCRIBE} › ${live.J8_TEST}\nTotal: 1 test in 1 file\n` };
+
+describe('J8 parent boundary (Sam, 23 Nov): the browser spec never inherits the production or PostHog key', () => {
+    const env = { RWT_J8_RUNNER_ADMISSION: '/evidence/j8-admission.json', GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '2' };
+    const KEYS = { SUPABASE_SERVICE_ROLE_KEY: 'service-role-secret', POSTHOG_PERSONAL_API_KEY: 'posthog-secret', SUPABASE_URL: 'https://p.supabase.co' };
+    const listed = SPEC_LIST_OK;
+    it('the spec (list and run) gets the parent address and token but neither key; the operations child gets the key and the admitted email', async () => {
+        const h = harness([listed, { status: 0, stdout: '' }], { baseEnv: { PATH: '/bin', ...KEYS } });
+        await h.adapters.runSpec({ env });
+        expect(h.calls.length).toBe(2);
+        for (const c of h.calls) {
+            expect(c.env.SUPABASE_SERVICE_ROLE_KEY).toBe(undefined);
+            expect(c.env.POSTHOG_PERSONAL_API_KEY).toBe(undefined);
+            expect(c.env.RWT_J8_OPS_URL).toBe('http://127.0.0.1:41234/op');
+            expect(/^[a-f0-9]{64}$/.test(c.env.RWT_J8_OPS_TOKEN)).toBe(true);
+        }
+        expect(h.ops.length).toBe(1);
+        expect(h.ops[0].email).toBe('rwt-journey-fixture@example.test');
+        expect(h.ops[0].baseEnv.SUPABASE_SERVICE_ROLE_KEY).toBe('service-role-secret');
+        expect(h.ops[0].token).toBe(h.calls[0].env.RWT_J8_OPS_TOKEN);
+        expect(h.ops[0].stopped).toBe(true);
+    });
+    it('a key passed in the entry env is withheld from the spec too', async () => {
+        const h = harness([listed, { status: 0, stdout: '' }]);
+        await h.adapters.runSpec({ env: { ...env, SUPABASE_SERVICE_ROLE_KEY: 'leak' } });
+        for (const c of h.calls) expect(c.env.SUPABASE_SERVICE_ROLE_KEY).toBe(undefined);
+    });
+    it('without an admitted email, or when the operations child does not start, the spec is not run at all', async () => {
+        const noEmail = harness([], { readAdmission: () => '{}' });
+        expect((await noEmail.adapters.runSpec({ env })).notRun).toBe('the admission record names no reserved email');
+        expect(noEmail.calls.length).toBe(0);
+        const noOps = harness([], { startOps: async () => null });
+        expect((await noOps.adapters.runSpec({ env })).notRun).toBe('the parent operations did not start');
+        expect(noOps.calls.length).toBe(0);
+    });
+    it('the readback child keeps PostHog but never the production key', async () => {
+        const h = harness([{ status: 0, stdout: '' }], { baseEnv: { PATH: '/bin', ...KEYS } });
+        await h.adapters.qualify(qualifyArgs());
+        expect(h.calls[0].env.SUPABASE_SERVICE_ROLE_KEY).toBe(undefined);
+        expect(h.calls[0].env.POSTHOG_PERSONAL_API_KEY).toBe('posthog-secret');
+    });
+    it('admittedEmail reads only the admission record\'s createAttempt.lookupRef', () => {
+        expect(live.admittedEmail('/x', () => JSON.stringify({ createAttempt: { lookupRef: 'A@B.test' } }))).toBe('a@b.test');
+        expect(live.admittedEmail('/x', () => 'not json')).toBe(null);
+        expect(live.admittedEmail('/x', () => JSON.stringify({ createAttempt: { lookupRef: 'no-at-sign' } }))).toBe(null);
+    });
+});
+
+describe('J8 parent lifecycle (Sam, 23 Nov): an operation still in flight when Playwright exits HOLDs cleanup', () => {
+    const env = { RWT_J8_RUNNER_ADMISSION: '/evidence/j8-admission.json', GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '2' };
+    it('when the parent operations do not settle after the spec exits, the spec is reported not drained (teardown leaves the account)', async () => {
+        const h = harness([SPEC_LIST_OK, { status: 0, stdout: '' }], {
+            startOps: async () => ({ url: 'http://127.0.0.1:41234/op', stop: async () => false }) });
+        const r = await h.adapters.runSpec({ env });
+        expect(r.exitCode).toBe(0);
+        expect(r.drained).toBe(false);
+    });
+    it('when they settle, the spec\'s own drain decides', async () => {
+        const h = harness([SPEC_LIST_OK, { status: 0, stdout: '' }]);
+        expect((await h.adapters.runSpec({ env })).drained).toBe(true);
     });
 });

@@ -588,7 +588,7 @@ describe('J8 receipt leak guard: the run-owned account id is registered (upload-
         expect(assigned).toBeGreaterThan(-1);
         expect(forbidden).toBeGreaterThan(assigned);
         expect(spec.slice(assigned, forbidden).split('\n').filter((l) => !l.trim().startsWith('//')).length).toBeLessThanOrEqual(2);
-        expect(spec).toContain('receipt.forbid(owner.email, SERVICE_ROLE);');
+        expect(spec).toContain('receipt.forbid(...[owner.email, SERVICE_ROLE].filter(Boolean));');
     });
     it('a receipt carrying the registered account id is caught by the content check; one without it is clean', () => {
         const uid = '7f3c9a1e-1111-4111-8111-222222222222';

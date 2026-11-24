@@ -35,6 +35,7 @@ import { ZERO_RESIDUE_ROW } from './helpers/feedbackReportCleanup';
 import { NO_SESSION_ATTEMPT_CAP, noSessionWriteDecision } from './helpers/feedbackNoSessionCleanup';
 import { HarnessParityTap, START_CONTROLS } from './helpers/rwtHarnessParity';
 import { JourneyFeedbackFence } from './helpers/feedbackFence';
+import { j8ParentOpsFromEnv, parentFenceClient, parentIdentityAndClaim, parentReportReader, parentReportsByKeys, parentTakeRows } from './helpers/j8ParentOpsClient';
 import {
     J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8RunnerAdmission,
     j8bFinalSentFeedbackVerdict, legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
@@ -57,6 +58,9 @@ const admin = SUPABASE_URL && SERVICE_ROLE
     ? createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } })
     : null;
 const fixture = loadRwtFixture('open_mic_tts');
+// J8 runner (Sam, 23 Nov): the browser spec holds no service-role key; production reads and writes go through the parent's named,
+// account-bound operations. Null outside the J8 runner, where the legacy tests keep their own admin client.
+const parentOps = j8ParentOpsFromEnv();
 
 // The two deployed checks each bind exactly one share_feedback action, matching the current readback contract.
 test.use({
@@ -91,16 +95,17 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, 
     await requireApprovedSurface(page, receipt);
     // J8: the email is the lookup reference the named runner recorded for this account-create BEFORE the signup (Sam on 94fe88d7).
     owner.email = runnerEmail ?? newDisposableEmail('feedback-boundary');
-    receipt.forbid(owner.email, SERVICE_ROLE);
+    receipt.forbid(...[owner.email, SERVICE_ROLE].filter(Boolean));
     const account = await signUpDisposableAccount(page, owner.email);
     owner.uid = account.uid;
     // The account id reaches receipt evidence through the fence, feedback and readback helpers: the leak guard must know it, so an
     // uploaded receipt that carries it is replaced by the redacted failure receipt. (The password never leaves the signup closure.)
     receipt.forbid(owner.uid);
-    const identity = await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);
+    const parentResult = parentOps ? await parentIdentityAndClaim(parentOps, owner.uid) : null;
+    const identity = parentResult ? parentResult.failures : await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);
     if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
     receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');
-    const claimed = await markRunOwnedAccountCanary(admin as never, owner.uid, owner.email);
+    const claimed = parentResult ? parentResult.claimed : await markRunOwnedAccountCanary(admin as never, owner.uid, owner.email);
     if (!claimed) {
         receipt.halt('canary claim', 'HOLD before qualifying traffic: the run-owned canary claim was not applied');
         return false;
@@ -251,8 +256,8 @@ async function submitOpenDialog(
     const keys = [...inserts.keys];
     let rows: Array<{ id: unknown; session_id: unknown; metadata: unknown }> = [];
     if (keys.length > 0) {
-        const { data, error } = await admin!.from('user_issue_reports')
-            .select('id,session_id,metadata').eq('user_id', uid).in('idempotency_key', keys);
+        const { data, error } = parentOps ? await parentReportsByKeys(parentOps, keys) as { data: typeof rows | null; error: { code?: string } | null }
+            : await admin!.from('user_issue_reports').select('id,session_id,metadata').eq('user_id', uid).in('idempotency_key', keys);
         if (error) throw new Error(`feedback row read failed (fail closed): ${error.code ?? 'unknown'}`);
         rows = data ?? [];
     }
@@ -493,7 +498,8 @@ async function runFeedbackFaultLeg(
     let storedRows: number | null = null;
     let storedSessionMatches: boolean | null = null;
     if (key) {
-        const { data, error } = await admin!.from('user_issue_reports').select('id,session_id').eq('user_id', uid).eq('idempotency_key', key);
+        const { data, error } = parentOps ? await parentReportsByKeys(parentOps, [key]) as { data: Array<{ id: unknown; session_id: unknown }> | null; error: { code?: string } | null }
+            : await admin!.from('user_issue_reports').select('id,session_id').eq('user_id', uid).eq('idempotency_key', key);
         if (!error && Array.isArray(data)) {
             storedRows = data.length;
             storedSessionMatches = data.length === 1 ? data[0].session_id === olderId : null;
@@ -767,6 +773,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const admission = j8RunnerAdmission(process.env, (f) => readFileSync(f, 'utf8'));
         test.skip(!admission.admitted, admission.admitted ? '' : admission.reason);
         if (!admission.admitted) return;
+        // Sam, 23 Nov: under the runner the browser spec never holds the production key, and reaches data only through the parent.
+        if (SERVICE_ROLE || !parentOps) {
+            throw new Error('J8 runner: the spec must run without the service-role key and with the parent operations (fail closed, nothing sent)');
+        }
         test.setTimeout(2_400_000);
         const owner: Owner = { email: '', uid: '' };
         const receipt = new RwtReceipt(J8_SUITE);
@@ -875,7 +885,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             const ready = await prepareDisposable(page, receipt, owner, admission.lookupRef);
             claimed = ready;
             if (!ready) return;
-            feedbackFence = new JourneyFeedbackFence(admin as never, J8_FENCE_CASE, J8_FENCE_KEY_CAP);
+            feedbackFence = new JourneyFeedbackFence((parentOps ? parentFenceClient(parentOps) : admin) as never, J8_FENCE_CASE, J8_FENCE_KEY_CAP);
             await feedbackFence.open(owner.uid, currentRunBinding());
             if (!feedbackFence.writable) {
                 receipt.halt('feedback fence open', `HOLD before any feedback write: ${feedbackFence.heldReason ?? 'not opened'}`);
@@ -945,7 +955,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 writeOlderTakeReportRows(b, storedB, olderId);
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
-                    receipt: legReceipt(receipt, 'J8.b'), admin: admin as never, userId: owner.uid, reportId: storedB.id, currentSessionId: newerId,
+                    receipt: legReceipt(receipt, 'J8.b'), admin: (parentOps ? parentReportReader(parentOps) : admin) as never, userId: owner.uid, reportId: storedB.id, currentSessionId: newerId,
                     reportedSessionId: olderId, acknowledgementVisible: storedB.acknowledged,
                     exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'open_mic',
                 });
@@ -964,7 +974,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             // RUN; after it, HOLD. Only a successful read that lacks a take FAILs.
             const readTakes = async (): Promise<ReadonlyMap<string, string | null> | null> => {
                 try {
-                    return readTakeDigests(await admin!.from('sessions').select(TAKE_PROJECTION_FIELDS.join(',')).eq('user_id', owner.uid).in('id', [olderId, newerId]), owner.uid);
+                    return readTakeDigests((parentOps ? await parentTakeRows(parentOps, [olderId, newerId])
+                        : await admin!.from('sessions').select(TAKE_PROJECTION_FIELDS.join(',')).eq('user_id', owner.uid).in('id', [olderId, newerId])) as never, owner.uid);
                 } catch { return null; }
             };
             const linkedToOlder = Boolean(storedB && storedB.storedRows === 1 && storedB.sessionId === olderId);

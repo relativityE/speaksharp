@@ -989,7 +989,8 @@ describe('J8 nightly entry with the live adapters composed over a recording proc
             const ev = evidenceFor(q, status);
             return { status, stdout: ev ? `noise\nTELEMETRY_READBACK_QUALIFICATION_EVIDENCE ${JSON.stringify({ gate: 'TELEMETRY-READBACK-COMPLETENESS', ...ev })}\n` : '' };
         };
-        const deps = { ...j8LiveAdapters({ repoRoot, baseEnv: {}, run: runner, sleep: async () => {}, admin: fakeAdmin(users, { counts }) }),
+        const deps = { ...j8LiveAdapters({ repoRoot, baseEnv: {}, run: runner, sleep: async () => {}, admin: fakeAdmin(users, { counts }),
+            readAdmission: (f) => require('node:fs').readFileSync(f, 'utf8'), startOps: async () => ({ url: 'http://127.0.0.1:41234/op', stop: async () => true }) }),
             evaluate: async (receipt) => ({ suite: receipt.suite, release: receipt.release, errors: [], rows: receipt.rows }) };
         return { deps, calls, users };
     }
