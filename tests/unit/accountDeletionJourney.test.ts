@@ -2,7 +2,7 @@
 /** J1.f / J7.d deletion journeys on the disposable billing stack: the link, the terminal message and the leg receipt. */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ENTRY_ROUTE, STATUS_RECHECK_MS, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, scorerAccount, terminalMessage, type DeletionLegFacts } from '../billing/user-journey/accountDeletionJourney';
+import { ENTRY_ROUTE, STATUS_RECHECK_MS, combineLegScorerFiles, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, legScorerFile, scorerAccount, terminalMessage, type DeletionLegFacts } from '../billing/user-journey/accountDeletionJourney';
 import { finaliseDeletionReceipt } from '../billing/user-journey/deletionReceipt.mjs';
 
 const API = 'http://127.0.0.1:54321';
@@ -111,5 +111,32 @@ describe('the journeys\' combined receipt is exactly what the scorer (deletionRe
         expect(score(leg('J1.f', { entryReached: false }), leg('J7.d')).defects['J1.f']).toContain('entry_not_reached');
         expect(score(leg('J1.f'), leg('J7.d', { verificationLinkFound: false })).defects['J7.d']).toContain('verification_not_observed');
         expect(score(leg('J1.f', { terminal: 'deleted_cleanup_unverified' }), leg('J7.d')).defects['J1.f']).toContain('terminal_ui_not_deleted');
+    });
+});
+
+describe('each route runs on its own (run 45407419238): per-leg scorer files, rebuilt into one receipt', () => {
+    const run = { release: 'f'.repeat(40), stackRun: 'billing-local-stack-45407419238-1' };
+    const facts = (leg: 'J1.f' | 'J7.d'): DeletionLegFacts => ({ leg, route: ENTRY_ROUTE[leg], accountSha: 'a'.repeat(16), entryReached: true,
+        verificationRequested: true, verificationLinkFound: true, terminal: 'deleted', closurePhase: 'completed', authUser: 'absent',
+        residueClear: true, fallbackCleanup: 'not_run' });
+    const file = (leg: 'J1.f' | 'J7.d', r = run) => legScorerFile(scorerAccount(facts(leg), (leg === 'J1.f' ? '1' : '2').repeat(64)), r);
+    it('combines this run\'s files in leg order, whichever finished first', () => {
+        expect(combineLegScorerFiles([file('J7.d'), file('J1.f')], run).map((a) => a.leg)).toEqual(['J1.f', 'J7.d']);
+    });
+    it('a leg whose file is missing is simply absent (the scorer then fails the account count), never invented', () => {
+        expect(combineLegScorerFiles([file('J7.d')], run).map((a) => a.leg)).toEqual(['J7.d']);
+    });
+    it('another run\'s or another release\'s file, a malformed file, or another kind is ignored; a duplicate leg is kept', () => {
+        const other = file('J1.f', { ...run, stackRun: 'billing-local-stack-1-1' });
+        const oldRelease = file('J1.f', { ...run, release: 'e'.repeat(40) });
+        expect(combineLegScorerFiles([other, oldRelease, null, 'x', { ...file('J1.f'), kind: 'other' }, file('J7.d')], run).map((a) => a.leg)).toEqual(['J7.d']);
+        expect(combineLegScorerFiles([file('J1.f'), file('J1.f')], run)).toHaveLength(2);
+    });
+    it('the spec has no serial mode, writes each leg\'s scorer file, and rebuilds the combined receipt from those files', () => {
+        const spec = readFileSync('tests/billing/user-journey/account-deletion.billing.spec.ts', 'utf8');
+        expect(spec).not.toMatch(/mode:\s*'serial'/);
+        expect(spec).toContain('-deletion-scorer.json`), scorerText');
+        expect(spec).toContain('const accounts = combineLegScorerFiles(files, { release: RELEASE, stackRun: STACK_RUN });');
+        expect(spec).not.toMatch(/\bscored\b/);
     });
 });

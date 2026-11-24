@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { CLOSURE_SCHEMA_SHA256, COMPLETION_SCHEMA_SHA256, GRANT_WINDOW_MS, LOCAL_TARGET, buildDeletionGrant, coverageSql, envFileLines, localDbUrl }
+import { CLOSURE_SCHEMA_SHA256, COMPLETION_SCHEMA_SHA256, GRANT_WINDOW_MS, LOCAL_TARGET, buildDeletionGrant, closurePhaseSql, coverageSql, envFileLines, localDbUrl }
     from '../billing/user-journey/accountDeletionLocalStack.mjs';
 import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256, verifyAccountClosureRuntimeBinding }
     from '../../backend/supabase/functions/_shared/accountClosureRuntimeBinding';
@@ -89,5 +89,14 @@ describe('disposable deletion grant for the billing local stack', () => {
         expect(() => coverageSql("x' OR true --")).toThrow('uuid');
         expect(localDbUrl('postgresql://postgres:postgres@127.0.0.1:54322/postgres')).toContain('127.0.0.1:54322');
         expect(() => localDbUrl('postgresql://postgres:postgres@db.example.supabase.co:5432/postgres')).toThrow('loopback');
+    });
+    it('the closure-phase read is one uuid user\'s attempt over the stack database, and the journey never reads it as service_role', () => {
+        expect(closurePhaseSql('d0110000-0000-4000-8000-000000000001'))
+            .toBe("SELECT phase FROM public.account_closure_attempts WHERE user_id='d0110000-0000-4000-8000-000000000001'::uuid;");
+        expect(() => closurePhaseSql("x' OR true --")).toThrow('uuid');
+        const spec = readFileSync('tests/billing/user-journey/account-deletion.billing.spec.ts', 'utf8');
+        // Run 45407419238: service_role has no grant on account_closure_attempts, so this read returned `unread`.
+        expect(spec).not.toMatch(/admin\.from\('account_closure_attempts'\)/);
+        expect(spec).toContain('facts.closurePhase = readClosurePhase(account.uid);');
     });
 });

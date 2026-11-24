@@ -8,7 +8,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { completionBootstrap } from '../db/account-completion-fixture.mjs';
-import { COVERAGE_EVIDENCE, coverageSql, localDbUrl } from '../billing/user-journey/accountDeletionLocalStack.mjs';
+import { COVERAGE_EVIDENCE, closurePhaseSql, coverageSql, localDbUrl } from '../billing/user-journey/accountDeletionLocalStack.mjs';
 
 const scope = 'd'.repeat(64);
 let db: PGlite; let serial = 0;
@@ -67,6 +67,14 @@ describe('disposable completion coverage for one pending request', () => {
         const unfenced = await pendingUser();
         await one("UPDATE account_billing_fences SET phase='closing' WHERE user_id=$1", [unfenced.user]);
         expect(await seed(unfenced.user)).toEqual([]);
+    });
+    it('the closure phase is unreadable as service_role (run 45407419238) and readable over the stack database', async () => {
+        const { user } = await pendingUser();
+        await db.exec('SET ROLE service_role');
+        const denied = await db.query("SELECT phase FROM public.account_closure_attempts WHERE user_id=$1", [user]).then(() => 'read', (e: { code?: string }) => e.code);
+        await db.exec('RESET ROLE');
+        expect(denied).toBe('42501');
+        expect((await db.query<{ phase: string }>(closurePhaseSql(user))).rows.map((r) => r.phase)).toEqual(['pending']);
     });
     it('refuses a non-uuid user and a non-loopback database', () => {
         expect(() => coverageSql("x' OR true --")).toThrow('uuid');

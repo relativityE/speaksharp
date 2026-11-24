@@ -97,3 +97,22 @@ export function scorerAccount(facts: DeletionLegFacts, accountRefSha256: string)
 export function combinedDeletionReceipt(accounts: ReadonlyArray<ReturnType<typeof scorerAccount>>, run: { release: string; stackRun: string }) {
     return { accounts: [...accounts], schema: 'account-deletion-local/v1', stackRun: run.stackRun, stripeMode: 'test', testedRelease: run.release };
 }
+
+/**
+ * Each leg writes its own scorer record to a file (Sam on run 45407419238: each route runs on its own). A failed leg restarts
+ * Playwright's worker, which loses any in-memory list, so the combined receipt is rebuilt from these files: only this run's
+ * (release and stack run), in leg order. A duplicate leg is kept, so the scorer's account count fails it, never hides it.
+ */
+export function legScorerFile(account: ReturnType<typeof scorerAccount>, run: { release: string; stackRun: string }) {
+    return { kind: 'account-deletion-leg-scorer', release: run.release, stackRun: run.stackRun, account };
+}
+export function combineLegScorerFiles(files: readonly unknown[], run: { release: string; stackRun: string }): Array<ReturnType<typeof scorerAccount>> {
+    const order: Record<string, number> = { 'J1.f': 0, 'J7.d': 1 };
+    return files
+        .filter((f): f is ReturnType<typeof legScorerFile> => !!f && typeof f === 'object'
+            && (f as { kind?: unknown }).kind === 'account-deletion-leg-scorer'
+            && (f as { release?: unknown }).release === run.release && (f as { stackRun?: unknown }).stackRun === run.stackRun
+            && typeof (f as { account?: { leg?: unknown } }).account?.leg === 'string')
+        .map((f) => f.account)
+        .sort((a, b) => (order[a.leg] ?? 9) - (order[b.leg] ?? 9));
+}
