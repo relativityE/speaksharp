@@ -17,7 +17,7 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { buildHolderLabel, interpretAcquireResult, isLeaseRevoked, type AcquireLeaseResult, type LeaseDecision } from './recordingLeasePolicy';
 import { authEpoch, currentOwnerId } from './loginSessionLog';
-import { safeLocalStorageGetJSON, safeLocalStorageRemove, safeLocalStorageSet } from '@/lib/safeStorage';
+import { safeLocalStorageGet, safeLocalStorageRemove, safeLocalStorageSet } from '@/lib/safeStorage';
 
 export type LeaseRpc = (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
 
@@ -193,7 +193,7 @@ export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: str
         // A refusal heard after the signed-in account changed may be about the wrong account: kept, never trusted.
         const settled = outcome === 'abandoned' || (outcome === 'refused' && sameAccount(owner, epoch));
         if (settled) { if (unreachedAbandons.get(leaseId) === entry) forget(leaseId, owner); } else {
-            // Re-assert it (read, change, write): another tab may have rewritten the account's list during the attempt.
+            // Re-assert its own record (a no-op if present): a storage write during the attempt may have been refused or cleared.
             storeChange(owner, leaseId, null);
             if (entry.onlineDuringFlight) {
                 entry.onlineDuringFlight = false;
@@ -277,12 +277,16 @@ async function abandonStart(rpc: LeaseRpc, leaseId: string): Promise<AbandonOutc
  *    one pass at a time, at most `MAX_ABANDONS_PER_PASS` calls per pass (oldest first; the rest wait for the next pass),
  *    each call within `LEASE_SETTLE_RPC_DEADLINE_MS`, and a Start waits on the pass for one budget only;
  *  - entries are kept per account in localStorage (lease ids only, nothing the person said), so a reload or navigation
- *    resumes them on the next acquire, release or reconnect;
+ *    resumes them on the next acquire, release or reconnect. Each lease has its OWN key (Codex on 260bfd5a): adding or
+ *    removing one is a single write to that key, never a read-modify-write of a shared list, so two tabs of one account
+ *    writing at the same moment can never overwrite each other's leases;
  *  - a pass only replays the signed-in account's own entries, and a refusal heard after the signed-in account changed is
  *    not trusted: another account never settles, releases or forgets this account's leases.
  */
 export const MAX_ABANDONS_PER_PASS = 8;
-export const UNSETTLED_STARTS_KEY_PREFIX = 'speaksharp.recordingLease.unsettledStarts.v1:';
+export const UNSETTLED_STARTS_KEY_PREFIX = 'speaksharp.recordingLease.unsettledStart.v2:';
+/** One lease's durable record: `<prefix><owner>:<leaseId>`, valued with when it was recorded (ms), for oldest-first order. */
+export const unsettledStartKey = (owner: string, leaseId: string): string => `${UNSETTLED_STARTS_KEY_PREFIX}${owner}:${leaseId}`;
 type Unsettled = { rpc: LeaseRpc | null; owner: string | null; inFlight?: boolean; onlineDuringFlight?: boolean };
 const unreachedAbandons = new Map<string, Unsettled>();
 /** The account that acquired each lease this page still knows about. */
@@ -290,28 +294,48 @@ const leaseOwners = new Map<string, string | null>();
 let retrying: Promise<void> | null = null;
 /**
  * A pass asked for while another was running: run once after it (coalesced), with the latest caller's rpc, over only the
- * leases the running pass did not cover. A lease that pass just tried waits for the next trigger like any other.
+ * leases the running pass did not cover. A lease that pass just tried waits for the next trigger like any other, except
+ * after a reconnect seen while it ran (`onOnline`), which asks for that pass's leases too.
  */
 let rerunRequested: { rpc?: LeaseRpc; only: Set<string> } | null = null;
 /** The leases the running pass covers. */
 let runningBatch = new Set<string>();
 let onlineListening = false;
 
-// No length cap (Codex on 6093a9ac): a failed validation DELETES the stored list, so a cap would erase every durable record
-// once an account passed it. Work stays bounded by MAX_ABANDONS_PER_PASS per pass instead.
-const isLeaseIdList = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 64);
-
-function storedFor(owner: string): string[] {
-    return safeLocalStorageGetJSON<string[]>(UNSETTLED_STARTS_KEY_PREFIX + owner, [], isLeaseIdList);
+const isKeyPart = (x: string): boolean => x.length > 0 && x.length <= 64 && !x.includes(':');
+const recordedAt = (v: string | null): number => (v !== null && /^\d{1,16}$/.test(v) ? Number(v) : 0);
+/** Strictly increasing within a page, so records written in the same millisecond keep their order. */
+let lastRecordedAt = 0;
+const nextRecordedAt = (): number => (lastRecordedAt = Math.max(Date.now(), lastRecordedAt + 1));
+/** The owner and lease a durable record's key names, or null when the key is not exactly one lease record. */
+function parseUnsettledKey(key: string): { owner: string; leaseId: string } | null {
+    if (!key.startsWith(UNSETTLED_STARTS_KEY_PREFIX)) return null;
+    const parts = key.slice(UNSETTLED_STARTS_KEY_PREFIX.length).split(':');
+    return parts.length === 2 && isKeyPart(parts[0]) && isKeyPart(parts[1]) ? { owner: parts[0], leaseId: parts[1] } : null;
 }
 
-/** Apply one change to the account's stored list (read, change, write), so other tabs' entries are never overwritten. */
+/**
+ * The account's recorded leases, oldest first. No count limit: work is bounded per pass (`MAX_ABANDONS_PER_PASS`), and a
+ * record is never deleted on read. The lease id is in the key, so even a garbled value keeps the lease (ordered first).
+ */
+function storedFor(owner: string): string[] {
+    const found: Array<[string, number]> = [];
+    try {
+        for (let i = 0; i < window.localStorage.length; i += 1) {
+            const key = window.localStorage.key(i);
+            const parsed = key === null ? null : parseUnsettledKey(key);
+            if (key !== null && parsed !== null && parsed.owner === owner) found.push([parsed.leaseId, recordedAt(window.localStorage.getItem(key))]);
+        }
+    } catch { return []; }
+    return found.sort((x, y) => x[1] - y[1] || (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0)).map(([leaseId]) => leaseId);
+}
+
+/** One write to the one lease's own key: never a read-modify-write of anything another tab can also be changing. */
 function storeChange(owner: string | null, add: string | null, remove: string | null): void {
     if (owner === null) return; // no account to keep it under: memory only for this page
-    const next = storedFor(owner).filter((id) => id !== remove && id !== add);
-    if (add !== null) next.push(add);
-    if (next.length === 0) safeLocalStorageRemove(UNSETTLED_STARTS_KEY_PREFIX + owner);
-    else safeLocalStorageSet(UNSETTLED_STARTS_KEY_PREFIX + owner, JSON.stringify(next));
+    if (remove !== null) safeLocalStorageRemove(unsettledStartKey(owner, remove));
+    // Kept as first recorded if already there (its age orders the passes).
+    if (add !== null && safeLocalStorageGet(unsettledStartKey(owner, add)) === null) safeLocalStorageSet(unsettledStartKey(owner, add), String(nextRecordedAt()));
 }
 
 /** Merge the account's stored leases (another tab's, or this tab's before a reload) into memory. */
@@ -348,7 +372,14 @@ function forget(leaseId: string, owner: string | null): void {
 function onOnline(): void {
     // An attempt still in flight cannot be retried now; it runs one follow-up pass when it ends unsettled.
     for (const entry of unreachedAbandons.values()) if (entry.inFlight) entry.onlineDuringFlight = true;
+    // J7.c (Codex on 260bfd5a): a running pass may have sent its requests before this reconnect. Once it ends, one rerun
+    // retries its leases still unsettled. Only this event asks for it; a pass never schedules itself.
+    if (retrying) requestRerun([...runningBatch], undefined);
     void retryUnreachedAbandons();
+}
+function requestRerun(leaseIds: string[], rpc: LeaseRpc | undefined): void {
+    if (leaseIds.length === 0) return;
+    rerunRequested = { rpc: rpc ?? rerunRequested?.rpc, only: new Set([...(rerunRequested?.only ?? []), ...leaseIds]) };
 }
 
 /**
@@ -361,11 +392,8 @@ export function keepUnsettledStartsAcross(clear: () => void): void {
     try {
         for (let i = 0; i < window.localStorage.length; i += 1) {
             const key = window.localStorage.key(i);
-            const value = key !== null && key.startsWith(UNSETTLED_STARTS_KEY_PREFIX) ? window.localStorage.getItem(key) : null;
-            // Only a well-formed list of lease ids is kept (Sam 12:41): anything else at that key is cleared like the rest.
-            let wellFormed = false;
-            try { wellFormed = value !== null && isLeaseIdList(JSON.parse(value)); } catch { wellFormed = false; }
-            if (key !== null && value !== null && wellFormed) kept.push([key, value]);
+            // Only an exact one-lease record key is kept (Sam 12:41), with its recorded time; everything else is cleared.
+            if (key !== null && parseUnsettledKey(key) !== null) kept.push([key, String(recordedAt(window.localStorage.getItem(key)))]);
         }
     } catch { /* storage unreadable: nothing to keep */ }
     clear();
@@ -395,10 +423,7 @@ function runPass(opts: { rpc?: LeaseRpc }, only: Set<string> | null): Promise<vo
     // busy one ends. Only a caller asks for it, never the pass itself, so passes cannot schedule themselves without end.
     // Only when this call has a lease the running pass does not cover: a repeat ask for the same leases adds no call.
     if (retrying) {
-        const uncovered = batch.map(([leaseId]) => leaseId).filter((leaseId) => !runningBatch.has(leaseId));
-        if (uncovered.length > 0) {
-            rerunRequested = { rpc: opts.rpc ?? rerunRequested?.rpc, only: new Set([...(rerunRequested?.only ?? []), ...uncovered]) };
-        }
+        requestRerun(batch.map(([leaseId]) => leaseId).filter((leaseId) => !runningBatch.has(leaseId)), opts.rpc);
         return retrying;
     }
     runningBatch = new Set(batch.map(([leaseId]) => leaseId));
@@ -428,6 +453,10 @@ function runPass(opts: { rpc?: LeaseRpc }, only: Set<string> | null): Promise<vo
 /** Test seam: the exact leases still waiting for an abandon the server never received. */
 export function __unreachedAbandonsForTests(): string[] {
     return [...unreachedAbandons.keys()];
+}
+/** The account's durable records as a reload would read them, oldest first. */
+export function __storedUnsettledStartsForTests(owner: string): string[] {
+    return storedFor(owner);
 }
 
 /** Test seam: forget any held lease and timer without calling the server. */

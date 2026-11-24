@@ -10,20 +10,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
     MAX_ABANDONS_PER_PASS,
-    UNSETTLED_STARTS_KEY_PREFIX,
     acquireTakeLease,
     currentTakeLeaseId,
     releaseTakeLease,
     retryUnreachedAbandons,
     __resetTakeLeaseForTests,
+    __storedUnsettledStartsForTests,
     __unreachedAbandonsForTests,
+    unsettledStartKey,
     type LeaseRpc,
 } from '../recordingLease';
 import { setCurrentLogin } from '../loginSessionLog';
 
 const A = 'aaaaaaaa-0000-4000-8000-00000000000a';
 const B = 'bbbbbbbb-0000-4000-8000-00000000000b';
-const stored = (owner: string): unknown => JSON.parse(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + owner) ?? '[]');
+const stored = (owner: string): string[] => __storedUnsettledStartsForTests(owner);
 
 /** A server that settles obligations per account: abandon succeeds only for the account that acquired the lease. */
 function server() {
@@ -87,7 +88,7 @@ describe('J7.c: an uncertain lease is never dropped, survives a reload, and is o
         await retryUnreachedAbandons({ rpc: net.rpc });
         for (const id of leases) expect(net.obligations.has(id), `obligation ${id} settled`).toBe(false);
         expect(__unreachedAbandonsForTests()).toEqual([]);
-        expect(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + A)).toBeNull();
+        expect(stored(A)).toEqual([]);
     });
 
     it('a reload before reconnect still settles the lease, on the next acquire (exactly that lease, then the new take)', async () => {
@@ -125,7 +126,7 @@ describe('J7.c: an uncertain lease is never dropped, survives a reload, and is o
         expect(net.calls.filter((c) => c.lease === coldA && c.as === B)).toEqual([]);
         expect(net.obligations.get(coldA)).toBe(A);       // still A's to settle
         expect(stored(A)).toEqual([coldA]);
-        expect(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + B)).toBeNull();
+        expect(stored(B)).toEqual([]);
         // A signs back in (even after a reload): A's own lease settles.
         reload(); signIn(net, A);
         await acquireTakeLease({ rpc: net.rpc });
@@ -158,7 +159,7 @@ describe('J7.c: an uncertain lease is never dropped, survives a reload, and is o
         await releaseTakeLease({ rpc: net.rpc, startFailed: coldA });
         expect(net.obligations.get(coldA)).toBe(A);
         expect(stored(A)).toEqual([coldA]);
-        expect(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + B)).toBeNull();
+        expect(stored(B)).toEqual([]);
         await retryUnreachedAbandons({ rpc: net.rpc });
         expect(net.calls.filter((c) => c.fn === 'abandon_recording_start_v1' && c.lease === coldA && c.as === B)).toHaveLength(1);
         reload(); signIn(net, A);
@@ -199,18 +200,21 @@ describe('J7.c: an uncertain lease is never dropped, survives a reload, and is o
         // Another tab stores its own unsettled lease while this tab's failed Start is settling.
         const otherTab: LeaseRpc = async (fn, args) => {
             if (fn === 'abandon_recording_start_v1' && args.p_lease_id === second) {
-                window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A, JSON.stringify([first, 'other-tab-lease']));
+                window.localStorage.setItem(unsettledStartKey(A, 'other-tab-lease'), String(Date.now()));
             }
             return net.rpc(fn, args);
         };
         await releaseTakeLease({ rpc: otherTab, startFailed: second });
-        expect(stored(A)).toEqual([first, 'other-tab-lease', second]);
+        expect([...stored(A)].sort()).toEqual([first, 'other-tab-lease', second].sort());
     });
 
-    it('a corrupted stored list is discarded, never thrown on', async () => {
+    it('a garbled record value never throws, and its lease (named by the key) is still replayed', async () => {
         const net = server(); signIn(net, A);
-        window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A, '{not json');
+        const garbled = 'f0110000-0000-4000-8000-0000000000c1';
+        window.localStorage.setItem(unsettledStartKey(A, garbled), '{not json');
+        window.localStorage.setItem(unsettledStartKey(A, 'x') + ':extra', '1'); // not one lease record: ignored
         await expect(acquireTakeLease({ rpc: net.rpc })).resolves.toMatchObject({ action: 'start' });
-        expect(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + A)).toBeNull();
+        expect(net.calls.some((c) => c.fn === 'abandon_recording_start_v1' && c.lease === garbled)).toBe(true);
+        expect(net.calls.some((c) => c.lease === 'x' || c.lease === 'x:extra')).toBe(false);
     });
 });

@@ -11,10 +11,10 @@ import { resolve } from 'node:path';
 import * as lease from '../recordingLease';
 import { setCurrentLogin } from '../loginSessionLog';
 
-const { UNSETTLED_STARTS_KEY_PREFIX, acquireTakeLease, currentTakeLeaseId, releaseTakeLease, __resetTakeLeaseForTests, __unreachedAbandonsForTests } = lease;
+const { UNSETTLED_STARTS_KEY_PREFIX, unsettledStartKey, acquireTakeLease, currentTakeLeaseId, releaseTakeLease, __resetTakeLeaseForTests, __storedUnsettledStartsForTests, __unreachedAbandonsForTests } = lease;
 type LeaseRpc = lease.LeaseRpc;
 const A = 'aaaaaaaa-0000-4000-8000-00000000000a';
-const stored = (owner: string): unknown => JSON.parse(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + owner) ?? '[]');
+const stored = (owner: string): string[] => __storedUnsettledStartsForTests(owner);
 
 /** A per-account server whose abandon can be held open (an in-flight first attempt) and then fail or answer. */
 function server() {
@@ -141,34 +141,57 @@ describe('J7.c review A (Jack on 6093a9ac): a pass requested while another is bu
     });
 });
 
-describe('J7.c review B (Sam 12:41, Jack): sign-out keeps only valid owner lease lists', () => {
-    it('only the exact-prefix, well-formed lease list survives, byte-identical; auth, other keys and sessionStorage are gone', () => {
-        const ids = JSON.stringify(['f0110000-0000-4000-8000-00000000000a']);
-        window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A, ids);
-        window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + 'bbbbbbbb-0000-4000-8000-00000000000b', '{not json');
-        window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + 'cccccccc-0000-4000-8000-00000000000c', JSON.stringify([{ token: 'x' }]));
-        window.localStorage.setItem('speaksharp.recordingLease.unsettledStarts.v2:' + A, ids); // look-alike prefix
+describe('J7.c review B (Sam 12:41, Jack): sign-out keeps only exact one-lease records', () => {
+    it('only exact one-lease record keys survive, with their recorded time; auth, look-alikes, other keys and sessionStorage are gone', () => {
+        const key = unsettledStartKey(A, 'f0110000-0000-4000-8000-00000000000a');
+        const garbled = unsettledStartKey(A, 'f0110000-0000-4000-8000-00000000000b');
+        window.localStorage.setItem(key, '1700000000000');
+        window.localStorage.setItem(garbled, '{"access_token":"x"}');                  // kept as a lease, value normalized
+        window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A, '["x"]');           // not one lease record
+        window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A + ':a:b', '1');      // not one lease record
+        window.localStorage.setItem('speaksharp.recordingLease.unsettledStarts.v1:' + A, '["x"]'); // look-alike prefix
         window.localStorage.setItem('sb-abcd-auth-token', '{"access_token":"x"}');
         window.localStorage.setItem('speaksharp.other', 'x');
         window.sessionStorage.setItem('session-key', 'x');
         (lease as unknown as { keepUnsettledStartsAcross: (clear: () => void) => void })
             .keepUnsettledStartsAcross(() => { window.localStorage.clear(); window.sessionStorage.clear(); });
         const keys = Array.from({ length: window.localStorage.length }, (_, i) => window.localStorage.key(i));
-        expect(keys).toEqual([UNSETTLED_STARTS_KEY_PREFIX + A]);
-        expect(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + A)).toBe(ids);
+        expect(keys.sort()).toEqual([key, garbled].sort());
+        expect(window.localStorage.getItem(key)).toBe('1700000000000');
+        expect(window.localStorage.getItem(garbled)).toBe('0');
         expect(window.sessionStorage.length).toBe(0);
     });
 });
 
-describe('J7.c review D (Codex on 6093a9ac): a long unsettled list is never deleted on read', () => {
+describe('J7.c review D (Codex on 6093a9ac): a long run of unsettled records is never deleted on read', () => {
     it('1,001 stored valid lease ids are kept and a pass still runs (bounded to one batch)', async () => {
         const many = Array.from({ length: 1001 }, (_, i) => `f0110000-0000-4000-8000-${String(i).padStart(12, '0')}`);
-        window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A, JSON.stringify(many));
+        many.forEach((id, i) => window.localStorage.setItem(unsettledStartKey(A, id), String(1_700_000_000_000 + i)));
         const calls: string[] = [];
         const rpc: LeaseRpc = async (fn, args) => { calls.push(fn); void args; throw new TypeError('Failed to fetch'); };
         await lease.retryUnreachedAbandons({ rpc });
         expect(calls.filter((c) => c === 'abandon_recording_start_v1').length).toBe(lease.MAX_ABANDONS_PER_PASS);
-        expect(JSON.parse(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + A) ?? '[]')).toHaveLength(1001);
+        expect(stored(A)).toEqual(many);                                    // all kept, oldest first
     });
 });
 
+
+describe('J7.c review E (Codex on 260bfd5a): a reconnect during a busy retry pass is not lost', () => {
+    it('a pass whose request was sent offline, then online, then that request fails: the lease still settles', async () => {
+        const net = server2();
+        await acquireTakeLease({ rpc: net.rpc });
+        const x = currentTakeLeaseId()!;
+        net.state.abandonDown = true;
+        await releaseTakeLease({ rpc: net.rpc, startFailed: x });          // X remembered, unreached
+        net.state.holdFor = new Set([x]);
+        const pass = lease.retryUnreachedAbandons({ rpc: net.rpc });       // a pass sends X's retry while still offline
+        await flush();
+        net.state.abandonDown = false;
+        window.dispatchEvent(new Event('online'));                          // reconnect while that request is pending
+        await flush();
+        net.state.abandonDown = true; net.settle(x, false); net.state.abandonDown = false; // the offline request fails
+        await pass; await tick(); await tick();
+        expect(net.obligations.has(x)).toBe(false);                         // settled with no further Start, Stop or online
+        expect(__unreachedAbandonsForTests()).not.toContain(x);
+    });
+});

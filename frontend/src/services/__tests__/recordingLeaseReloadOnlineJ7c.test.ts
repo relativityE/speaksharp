@@ -28,9 +28,9 @@ beforeEach(() => { vi.resetModules(); window.localStorage.clear(); calls.length 
 afterEach(() => { window.localStorage.clear(); });
 
 it('a reload, sign-in as the owner, then online alone settles only that owner\'s stored lease', async () => {
-    const { UNSETTLED_STARTS_KEY_PREFIX } = await import('../recordingLease');
-    window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + A, JSON.stringify([X]));
-    window.localStorage.setItem(UNSETTLED_STARTS_KEY_PREFIX + B, JSON.stringify([Y])); // another account's, on this device
+    const { unsettledStartKey } = await import('../recordingLease');
+    window.localStorage.setItem(unsettledStartKey(A, X), '1700000000000');
+    window.localStorage.setItem(unsettledStartKey(B, Y), '1700000000000'); // another account's, on this device
     vi.resetModules();                                   // the reload: a fresh module, storage kept
     const { setCurrentLogin } = await import('../loginSessionLog');
     await import('../recordingLease');
@@ -40,6 +40,6 @@ it('a reload, sign-in as the owner, then online alone settles only that owner\'s
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.filter((c) => c.fn === 'abandon_recording_start_v1').map((c) => c.id)).toEqual([X]);
     expect(open.has(X)).toBe(false);
-    expect(JSON.parse(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + A) ?? '[]')).toEqual([]);
-    expect(JSON.parse(window.localStorage.getItem(UNSETTLED_STARTS_KEY_PREFIX + B) ?? '[]')).toEqual([Y]); // untouched
+    expect(window.localStorage.getItem(unsettledStartKey(A, X))).toBeNull();
+    expect(window.localStorage.getItem(unsettledStartKey(B, Y))).toBe('1700000000000'); // untouched
 });
