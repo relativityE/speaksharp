@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
@@ -153,5 +154,25 @@ describe('the rc-gates J8 job runs the protected runner', () => {
         expect(job).toContain('const n = require("./scripts/rwt-j8-parent-runner.cjs");');
         expect(job).toContain('e.RWT_WRITES_ACK !== n.J8_WRITES_ACK || e.RWT_CANARY_CLAIM_ACK !== n.J8_CANARY_ACK');
         expect({ writes: runner.J8_WRITES_ACK, canary: runner.J8_CANARY_ACK }).toEqual({ writes: 'RWT-DISPOSABLE-ACCOUNT-WRITES', canary: 'RWT-CANARY-CLAIM-RUN-OWNED' });
+    });
+});
+
+describe('the J8 selection step refuses an incompatible gate (Codex on 6975d161)', () => {
+    const rcGates = fs.readFileSync(path.join(REPO, '.github', 'workflows', 'rc-gates.yml'), 'utf8');
+    const at = rcGates.indexOf('- name: Validate the J8 runner selection');
+    const body = rcGates.slice(rcGates.indexOf("node -e '", at) + "node -e '".length, rcGates.indexOf("'\n", rcGates.indexOf("node -e '", at) + 9));
+    const adapters = require('../../tools/cloud-test/nightly/j8-live-adapters.cjs') as { SPEC: string; SPEC_GREP: string };
+    const VALID = { J8_RUNNER: 'J8-PARENT-RUNNER', SELECTED_GATE: 'gate-3-dast', DIAGNOSTIC_SPEC: adapters.SPEC, DIAGNOSTIC_GREP: adapters.SPEC_GREP,
+        RWT_WRITES_ACK: runner.J8_WRITES_ACK, RWT_CANARY_CLAIM_ACK: runner.J8_CANARY_ACK };
+    const runStep = (env: Record<string, string>) => spawnSync(process.execPath, ['-e', body], { cwd: REPO, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', ...env } });
+    it('the workflow step admits gate-3-dast with the J8 inputs', () => {
+        const r = runStep(VALID);
+        expect({ status: r.status, out: /J8 runner selected/.test(r.stdout) }).toEqual({ status: 0, out: true });
+    });
+    it('any other gate with the J8 runner set fails the job before anything runs (never a silent skip of both)', () => {
+        for (const gate of ['all', 'gate-1-product', 'gate-5-ux', '']) {
+            const r = runStep({ ...VALID, SELECTED_GATE: gate });
+            expect({ gate, status: r.status, why: /accepted only with gate gate-3-dast/.test(r.stderr) }).toEqual({ gate, status: 1, why: true });
+        }
     });
 });

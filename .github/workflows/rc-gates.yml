@@ -147,7 +147,7 @@ jobs:
     environment: trusted-main-credentials
     name: Gate 3 - DAST / Running App
     # The J8 runner selection runs in the J8 job instead, so J8 never runs standalone here.
-    if: ${{ (github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast') && github.event.inputs.rwt_j8_runner == '' }}
+    if: ${{ (github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast') && !(github.event.inputs.gate == 'gate-3-dast' && github.event.inputs.rwt_j8_runner != '') }}
     # Pinned (AHT-01 run 43413270234): ubuntu-latest is rolling to 26.04, where pinned Playwright 1.57 has no Chromium build
     # and setup fails before any gate runs. Remove with the Playwright upgrade (#1840).
     runs-on: ubuntu-24.04
@@ -661,7 +661,9 @@ jobs:
   j8-runner:
     environment: trusted-main-credentials
     name: J8 - Parent runner (one run-owned account)
-    if: ${{ github.event.inputs.gate == 'gate-3-dast' && github.event.inputs.rwt_j8_runner != '' }}
+    # Runs whenever J8 is requested, so an incompatible selection (any gate but gate-3-dast) fails loudly in the first step rather
+    # than skipping both Gate 3 and J8 (Codex on 6975d161). Gate 3 steps aside only for gate-3-dast with the J8 runner.
+    if: ${{ github.event.inputs.rwt_j8_runner != '' }}
     # Same runner image as Gate 3 (pinned Playwright 1.57; #1840).
     runs-on: ubuntu-24.04
     # No longer than Gate 3 (rwtInterruptedRunRecovery GATE3_JOB_TIMEOUT_MS), so interrupted-run recovery's minimum account age stays
@@ -677,6 +679,7 @@ jobs:
         timeout-minutes: 2
         env:
           J8_RUNNER: ${{ github.event.inputs.rwt_j8_runner }}
+          SELECTED_GATE: ${{ github.event.inputs.gate }}
           DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
           DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
           RWT_WRITES_ACK: ${{ github.event.inputs.rwt_writes_ack }}
@@ -686,6 +689,7 @@ jobs:
             const a = require("./tools/cloud-test/nightly/j8-live-adapters.cjs");
             const e = process.env;
             if (e.J8_RUNNER !== "J8-PARENT-RUNNER") { console.error("::error::rwt_j8_runner is accepted only as J8-PARENT-RUNNER; nothing ran."); process.exit(1); }
+            if (e.SELECTED_GATE !== "gate-3-dast") { console.error("::error::rwt_j8_runner is accepted only with gate gate-3-dast; nothing ran."); process.exit(1); }
             if (e.DIAGNOSTIC_SPEC !== a.SPEC || e.DIAGNOSTIC_GREP !== a.SPEC_GREP) { console.error("::error::the J8 runner needs the J8 spec and its exact test selector; nothing ran."); process.exit(1); }
             const n = require("./scripts/rwt-j8-parent-runner.cjs");
             if (e.RWT_WRITES_ACK !== n.J8_WRITES_ACK || e.RWT_CANARY_CLAIM_ACK !== n.J8_CANARY_ACK) { console.error("::error::J8 needs the exact disposable-account write and canary-claim acknowledgements; nothing ran."); process.exit(1); }
