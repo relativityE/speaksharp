@@ -86,6 +86,39 @@ export function seedSql({ attestationId, record, validation, completionScopeDige
     ].join('\n');
 }
 
+/**
+ * SEEDED, disposable stack only: the request-scoped completion coverage row for one run-owned user's PENDING request, as the
+ * native full-chain fixtures do (tests/db/account-completion-full-chain-invariants.sql). In production this row is operator
+ * evidence (legacy producers drained, portal settlement) for one request; here neither producer exists, and the evidence text
+ * says so. Bound to exactly that user's pending closure attempt, its pending billing fence for the same request, and the
+ * scope this run's grant enabled; anything else inserts nothing, and the caller requires exactly one row.
+ */
+export function coverageSql(userId) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(userId))) throw new Error('coverage: the user id must be a uuid');
+    return [
+        'INSERT INTO public.account_completion_coverage(user_id,request_id,scope_digest,legacy_producer_evidence,portal_settlement_evidence)',
+        `  SELECT a.user_id, a.request_id, cfg.scope_digest, '${COVERAGE_EVIDENCE.legacy}', '${COVERAGE_EVIDENCE.portal}'`,
+        '  FROM public.account_closure_attempts a',
+        "  JOIN public.account_billing_fences f ON f.user_id=a.user_id AND f.request_id=a.request_id AND f.phase='pending'",
+        '  CROSS JOIN public.account_completion_configuration cfg',
+        `  WHERE a.user_id='${userId}'::uuid AND a.phase='pending' AND cfg.singleton AND cfg.enabled AND cfg.scope_digest IS NOT NULL`,
+        '  RETURNING request_id;',
+    ].join('\n');
+}
+export const COVERAGE_EVIDENCE = Object.freeze({
+    legacy: 'disposable local stack only: no legacy producer exists; not production drain evidence',
+    portal: 'disposable local stack only: no billing portal session exists; not production settlement evidence',
+});
+
+/** The stack's own database URL, and only on a loopback host (the CLI stack's published port). */
+export function localDbUrl(raw) {
+    let url; try { url = new URL(String(raw)); } catch { throw new Error('coverage: the local database URL is malformed'); }
+    if (!['postgres:', 'postgresql:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
+        throw new Error('coverage: the database must be the disposable stack on a loopback host');
+    }
+    return url.toString();
+}
+
 /** The env-file lines for `supabase functions serve --env-file` (none start with SUPABASE_, which the CLI reserves). */
 export function envFileLines(env) {
     return Object.entries(env).map(([k, v]) => {

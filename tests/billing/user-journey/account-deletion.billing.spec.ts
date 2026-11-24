@@ -9,6 +9,7 @@
  * the fallback cleanup run, and a leg that needed it is recorded as such: it never earns a deletion pass (deletionReceipt.mjs).
  * Deletion is enabled only on this stack, by the run's own disposable grant (accountDeletionLocalStack.mjs); never production.
  */
+import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,6 +20,7 @@ import { loopbackTargets, receiptLeaks, smokeIdentity, type MailSummary } from '
 import { openFromHomepage, sessionUid, signInThroughForm } from '../../smoke/smokePage';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
 import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, scorerAccount, terminalMessage, type DeletionLeg, type DeletionLegFacts } from './accountDeletionJourney';
+import { coverageSql, localDbUrl } from './accountDeletionLocalStack.mjs';
 
 const APP = process.env.BILLING_SANDBOX_APP_URL ?? '';
 const API = process.env.BILLING_SANDBOX_SUPABASE_URL ?? '';
@@ -72,14 +74,28 @@ async function linkFromMailbox(address: string): Promise<string | null> {
 
 const statusTexts = (page: Page) => page.getByRole('status').allInnerTexts().catch(() => [] as string[]);
 
+/**
+ * SEEDED, this stack only: the request-scoped completion coverage for this run-owned user's pending request
+ * (accountDeletionLocalStack.mjs coverageSql). In production that row is operator evidence; without it the status reader says
+ * `coverage_unverified` and the page never offers completion. Exactly one row, or the leg fails.
+ */
+function seedCoverage(uid: string) {
+    const out = execFileSync('psql', [localDbUrl(process.env.LOCAL_DB_URL ?? ''), '-X', '-q', '-tA', '-v', 'ON_ERROR_STOP=1', '-c', coverageSql(uid)],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
+    if (out.trim().split('\n').filter(Boolean).length !== 1) throw new Error('disposable completion coverage: expected exactly one pending request');
+}
+
 /** Confirm on the verified page, then (if pending) complete through readiness, and return the page's terminal message. */
-async function confirmAndComplete(page: Page) {
+async function confirmAndComplete(page: Page, uid: string) {
     await page.getByLabel('I understand this is permanent, ends my access now, and provides no refund.').check();
     await page.getByRole('button', { name: 'Permanently delete my account' }).click();
     const deadline = Date.now() + 180_000;
     let lastStatusCheck = -Infinity;
+    let covered = false;
     while (Date.now() < deadline) {
         const terminal = terminalMessage(await statusTexts(page));
+        // Once the confirmation is pending (the request now exists), and before the first status check asks for readiness.
+        if (terminal === 'pending' && !covered) { seedCoverage(uid); covered = true; }
         const complete = page.getByRole('button', { name: 'Complete permanent account deletion' });
         const check = page.getByRole('button', { name: 'Check deletion status' });
         const step = deletionLoopStep({ terminal, completeVisible: await complete.isVisible().catch(() => false),
@@ -137,7 +153,7 @@ async function runLeg(leg: DeletionLeg, browser: import('@playwright/test').Brow
         if (!link) return facts;
         await page.goto(link);
         await page.waitForURL((u) => u.pathname === '/account/delete', { timeout: 30_000 });
-        facts.terminal = await confirmAndComplete(page);
+        facts.terminal = await confirmAndComplete(page, account.uid);
     } finally {
         await context.close().catch(() => undefined);
         // READ-ONLY, before any cleanup: the attempt's phase, the Auth user, and the shipped residue check.
