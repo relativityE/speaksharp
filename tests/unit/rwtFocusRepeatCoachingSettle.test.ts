@@ -47,6 +47,46 @@ describe('J3.b — the repeat take\'s coaching request settles before the next S
         expect(settle).toBeGreaterThan(practice);
     });
 
+    it('rapid repeat unchanged (Sam 1795523718): nothing waits on coaching from Practice again until the next Start step', () => {
+        const from = journey.indexOf("await test.step('Practice again");
+        const to = journey.indexOf("await test.step('next Start without a hold'");
+        expect(from).toBeGreaterThan(-1);
+        expect(to).toBeGreaterThan(from);
+        const between = journey.slice(from, to);
+        expect(between).toContain('again = await practiceAgainEvidence(');
+        expect(between).not.toMatch(/settle\(|waitForResponse|get-ai-suggestions/);
+    });
+
+    it('rapid repeat unchanged: practiceAgainEvidence itself awaits no coaching answer', () => {
+        const start = shared.indexOf('export async function practiceAgainEvidence(');
+        expect(start).toBeGreaterThan(-1);
+        const body = shared.slice(start, shared.indexOf('\n}\n', start));
+        expect(body).not.toMatch(/settle\(|waitForResponse|get-ai-suggestions/);
+    });
+
+    it('the late answer is captured BEFORE the next Start navigates (scaled timeline, the step\'s own order)', async () => {
+        type Handler = (arg: unknown) => void;
+        const handlers = new Map<string, Handler[]>();
+        const page = { on: (e: string, h: Handler) => handlers.set(e, [...(handlers.get(e) ?? []), h]) };
+        const emit = (e: string, arg: unknown) => { for (const h of handlers.get(e) ?? []) h(arg); };
+        const request = {
+            url: () => 'https://example.supabase.co/functions/v1/get-ai-suggestions', method: () => 'POST',
+            postDataJSON: () => ({ sessionId: 'repeat-take', product: 'focus_points', diagnostic_request_id: 'r', diagnostic_attempt_id: 'a', client_attempt: 1 }),
+        };
+        const tap = new CoachingGenerationTap();
+        tap.attach(page as never);
+        const order: string[] = [];
+        emit('request', request);
+        order.push('repeat Start, request in flight');
+        // The answer lands at 106 ms (the live 10.6 s at 1/100 scale), after the run's navigation moment would have been.
+        setTimeout(() => { order.push('answer'); emit('response', { request: () => request, status: () => 200, json: async () => ({ diagnostics: { outcome: 'success' } }) }); }, 106);
+        // The step: settle, then navigate. Navigation is where the page (and any unanswered fetch) would be replaced.
+        await tap.settle(1_000);
+        order.push('navigate');
+        expect(order).toEqual(['repeat Start, request in flight', 'answer', 'navigate']);
+        expect(tap.exchanges.map((e) => [e.sent.sessionId, e.outcome])).toEqual([['repeat-take', 'answered']]);
+    });
+
     it('a deferred answer (no headers for 10 s) is recorded as answered by that settle, not lost', async () => {
         type Handler = (arg: unknown) => void;
         const handlers = new Map<string, Handler[]>();
