@@ -363,6 +363,23 @@ export function readTakeDigests(result: { data: unknown; error: unknown }, owner
     return new Map((result.data as Record<string, unknown>[]).map((r) => [String(r?.id), takeDigest(r, ownerId)]));
 }
 
+/**
+ * J8.c's session choices (Sam, 2026-11-15: exactly "No session" plus the two distinct saved takes, each listed once). The
+ * dialog also draws ONE disabled `__sep` rule between the listed sessions and "No session" whenever a session is listed
+ * (IssueReportDialog, #1541); it is not a choice. So: the ENABLED options are exactly `__none` and the two takes, each once,
+ * and the only disabled option allowed is that one rule. Run 45375829329 stopped here: the old exact-3 count included the rule.
+ */
+export function j8cSessionChoices(options: ReadonlyArray<{ value: string; disabled: boolean }>, takes: readonly [string, string]):
+    { ok: true } | { ok: false; reason: string } {
+    if (new Set(takes).size !== 2 || takes.includes('__none') || takes.includes('__sep')) return { ok: false, reason: 'takes_not_two_distinct' };
+    const enabled = options.filter((o) => !o.disabled).map((o) => o.value);
+    const disabled = options.filter((o) => o.disabled).map((o) => o.value);
+    if (disabled.length > 1 || (disabled.length === 1 && disabled[0] !== '__sep')) return { ok: false, reason: 'unexpected_disabled_option' };
+    if (enabled.length !== 3) return { ok: false, reason: 'choice_count' };
+    for (const want of ['__none', ...takes]) if (enabled.filter((v) => v === want).length !== 1) return { ok: false, reason: 'choice_not_listed_once' };
+    return { ok: true };
+}
+
 /** Both saved takes read completely and owner-bound: the precondition for opening J8.c (Sam on 94fe88d7). Unreadable is not. */
 export function takesReadComplete(takeIds: readonly [string, string], digests: ReadonlyMap<string, string | null> | null): boolean {
     return digests !== null && new Set(takeIds).size === 2 && takeIds.every((id) => typeof digests.get(id) === 'string') && digests.size === 2;
