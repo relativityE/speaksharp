@@ -120,7 +120,7 @@ import { productFillerCount } from './helpers/rwtFillerOracle';
 import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } from './helpers/rwtFillerReference';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
-import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './helpers/rwtCoachingCollector';
+import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair, witnessShownTake } from './helpers/rwtCoachingCollector';
 import { answerOrder, deferredLateCoachingSink, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader, reopenWithinCutoff } from './helpers/rwtLateCoaching';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { observeActive } from './helpers/rwtNumericActive';
@@ -1081,9 +1081,15 @@ test.describe('RWT — Open Mic first session @live', () => {
                     // Option B (Sam, 21 Nov): take 3 is a SAVE take, so it records past the product's 5 s minimum before its Stop.
                     { saveTakeMs, beforeCapture: () => captureGate().confirm(), holdRepeatPastSaveMinimum: true,
                         // J1.b (Sam, 22 Nov): the save take's ordinary owner-bound reopen, inside the repeat's recording window.
+                        // J1.b (run 45142628330): on PASS, B is witnessed from that same reopened saved review, still inside the
+                        // window and before the repeat's save expires B's inputs. The repeat's timing is unchanged (never awaited
+                        // before its Stop) and nothing substitutes C.
                         duringRepeatHold: ({ savedSessionId, closesAt }) => lateCoachingSavedRow(lateCoaching.sink,
                             savedSessionId && savedSessionId !== persistedId && capturedUid ? savedSessionId : null,
-                            lateCoachingDeps(savedSessionId ?? ''), { closesAt }) });
+                            lateCoachingDeps(savedSessionId ?? ''), { closesAt,
+                                onShown: (shown) => coachingCapture && savedSessionId
+                                    ? witnessShownTake(coachingCapture, savedSessionId, { version: 'gemini_coaching_v1', ...shown }, closesAt)
+                                    : Promise.resolve() }) });
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
