@@ -188,14 +188,15 @@ describe('Manage billing shows the plan', () => {
     // The cadence element is fine but the block naming the current plan also lists another price.
     expect(portalShowsPlan([['$10.00 per month', 'Current plan\n$10.00 per month\nUpgrade to Team $25.00 per month']])).toBe(false);
   });
-  it('accepts the portal heading "Current subscription" as well as "Current plan" (run 45361320828), and nothing looser', () => {
-    const sub = 'Current subscription\nSpeakSharp Pro\n$10.00 per month\nRenews on December 21, 2026\nCancel subscription';
-    expect(portalShowsPlan([['$10.00 per month', sub]])).toBe(true);
-    expect(portalShowsPlan([['$10.00', '$10.00 per month', sub]])).toBe(true);
-    for (const label of ['Subscription', 'Your plan', 'Current', 'Plan', 'Current subscriptions page']) {
+  it('keeps the heading exact: "Current plan" only; any other heading fails and reads as no_plan_block', () => {
+    // Not widened on a guess (Sam, 2026-11-24): run 45361320828 never showed which heading Stripe used. If it was this one,
+    // the next run says so as portal_plan_not_shown_no_plan_block instead of a bare timeout.
+    for (const label of ['Current subscription', 'Subscription', 'Your plan', 'Current', 'Plan', 'Current plans page']) {
       const block = `${label}\nSpeakSharp Pro\n$10.00 per month`;
-      expect({ label, shown: portalShowsPlan([['$10.00 per month', block]]) }).toEqual({ label, shown: false });
+      expect({ label, shown: portalShowsPlan([['$10.00 per month', block]]), miss: portalPlanMiss([['$10.00 per month', block]]) })
+        .toEqual({ label, shown: false, miss: 'no_plan_block' });
     }
+    expect(portalPlanMiss([['$10.00 per month', 'Current plan\nSpeakSharp Pro\n$10.00 per month']])).toBeNull();
   });
   it('names the furthest condition any visible $10.00 reached, as one fixed word, and null only when one passes', () => {
     expect(portalPlanMiss([['US$10.00 per month', plan, page]])).toBeNull();

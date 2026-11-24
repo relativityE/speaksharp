@@ -114,11 +114,11 @@ export function firstInvoiceCharge(invoice: InvoiceRow | null, f: { firstInvoice
 const PLAN_PRICE = /\$\s?10\.00(?!\d)/;
 const PLAN_CADENCE = /(\bper month|\/\s?month|\bmonthly|\bevery month)\b/i;
 /**
- * The heading of the block that names the plan: "Current plan" or "Current subscription", a closed list of two. Run
- * 45361320828 opened the portal and never passed in 120 s; which heading it showed is unread (no page text leaves), so a
- * timeout names its condition (`portalPlanMiss`) and the next run says whether the heading was the cause.
+ * The heading of the block that names the plan, unchanged: "Current plan". Run 45361320828 opened the portal and never passed
+ * in 120 s, and which condition failed is unread (no page text leaves). A timeout now names it (`portalPlanMiss`); a
+ * different heading reads as `no_plan_block`. The check is widened only after a run shows why (Sam, 2026-11-24).
  */
-const PLAN_LABEL = /\bcurrent (?:plan|subscription)\b/i;
+const PLAN_LABEL = /\bcurrent plan\b/i;
 const MONEY = /\$\s?\d[\d,]*(?:\.\d+)?/g;
 /** Longest text of the element that carries the price and its cadence, and of the current-plan block around it. */
 export const PLAN_LINE_MAX = 200;
