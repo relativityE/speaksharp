@@ -11,6 +11,7 @@ import { markIdentitySettled, resetIdentitySettlement } from '@/services/transcr
 import { clearFeedbackDraft } from '@/services/feedbackDraft';
 import { clearLoginSessions, loginStartedAtOf, setCurrentLogin } from '@/services/loginSessionLog';
 import { loadPracticePrivacy } from '@/services/practicePrivacy';
+import { keepUnsettledStartsAcross } from '@/services/recordingLease';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -391,7 +392,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       logger.info('[AuthProvider] QueryClient cache cleared');
       useSessionStore.getState().resetSession();
       logger.info('[AuthProvider] Zustand session memory purged');
-      window.localStorage.clear();
+      // J7.c: everything is cleared except the unsettled recording-start records, which only their own account settles.
+      keepUnsettledStartsAcross(() => window.localStorage.clear());
       window.sessionStorage.clear();
       logger.info('[AuthProvider] Window storage cleared');
       await supabase.auth.signOut();

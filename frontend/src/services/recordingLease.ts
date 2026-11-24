@@ -182,11 +182,24 @@ export async function releaseTakeLease(opts: { rpc?: LeaseRpc; startFailed?: str
         const owner = leaseOwners.has(leaseId) ? leaseOwners.get(leaseId) ?? null : currentOwnerId();
         leaseOwners.delete(leaseId);
         void retryUnreachedAbandons({ rpc });
+        // J7.c (Codex on #1968): remembered (and stored) BEFORE the first attempt, with the `online` listener armed, so a
+        // reload or a reconnect during that attempt can never lose it. While in flight, passes skip it; a reconnect seen
+        // meanwhile runs one follow-up pass after the attempt, if it did not settle the lease.
+        const entry = rememberUnreachedAbandon(leaseId, rpc, owner);
+        entry.inFlight = true;
         const epoch = authEpoch();
         const outcome = await abandonStart(rpc, leaseId);
+        entry.inFlight = false;
         // A refusal heard after the signed-in account changed may be about the wrong account: kept, never trusted.
         const settled = outcome === 'abandoned' || (outcome === 'refused' && sameAccount(owner, epoch));
-        if (settled) { if (unreachedAbandons.has(leaseId)) forget(leaseId, owner); } else rememberUnreachedAbandon(leaseId, rpc, owner);
+        if (settled) { if (unreachedAbandons.get(leaseId) === entry) forget(leaseId, owner); } else {
+            // Re-assert it (read, change, write): another tab may have rewritten the account's list during the attempt.
+            storeChange(owner, leaseId, null);
+            if (entry.onlineDuringFlight) {
+                entry.onlineDuringFlight = false;
+                void retryUnreachedAbandons({ rpc });
+            }
+        }
         if (outcome === 'abandoned') return;
         await releaseLease(rpc, leaseId);
         return;
@@ -270,7 +283,7 @@ async function abandonStart(rpc: LeaseRpc, leaseId: string): Promise<AbandonOutc
  */
 export const MAX_ABANDONS_PER_PASS = 8;
 export const UNSETTLED_STARTS_KEY_PREFIX = 'speaksharp.recordingLease.unsettledStarts.v1:';
-type Unsettled = { rpc: LeaseRpc | null; owner: string | null };
+type Unsettled = { rpc: LeaseRpc | null; owner: string | null; inFlight?: boolean; onlineDuringFlight?: boolean };
 const unreachedAbandons = new Map<string, Unsettled>();
 /** The account that acquired each lease this page still knows about. */
 const leaseOwners = new Map<string, string | null>();
@@ -309,12 +322,13 @@ function listenForOnline(): void {
     }
 }
 
-function rememberUnreachedAbandon(leaseId: string, rpc: LeaseRpc, owner: string | null): void {
-    const known = unreachedAbandons.get(leaseId);
-    if (known) known.rpc = rpc;
-    else unreachedAbandons.set(leaseId, { rpc, owner });
+function rememberUnreachedAbandon(leaseId: string, rpc: LeaseRpc, owner: string | null): Unsettled {
+    let entry = unreachedAbandons.get(leaseId);
+    if (entry) entry.rpc = rpc;
+    else { entry = { rpc, owner }; unreachedAbandons.set(leaseId, entry); }
     storeChange(owner, leaseId, null);
     listenForOnline();
+    return entry;
 }
 
 function forget(leaseId: string, owner: string | null): void {
@@ -323,7 +337,29 @@ function forget(leaseId: string, owner: string | null): void {
 }
 
 function onOnline(): void {
+    // An attempt still in flight cannot be retried now; it runs one follow-up pass when it ends unsettled.
+    for (const entry of unreachedAbandons.values()) if (entry.inFlight) entry.onlineDuringFlight = true;
     void retryUnreachedAbandons();
+}
+
+/**
+ * J7.c (Codex on #1968): sign-out clears the browser's storage, which would also wipe these records, leaving the server's
+ * admitted obligation with nothing to settle it. Runs `clear` and then puts back only the unsettled-start records (lease ids,
+ * per account; a pass replays only the signed-in account's own, so another account never acts on them).
+ */
+export function keepUnsettledStartsAcross(clear: () => void): void {
+    const kept: Array<[string, string]> = [];
+    try {
+        for (let i = 0; i < window.localStorage.length; i += 1) {
+            const key = window.localStorage.key(i);
+            const value = key !== null && key.startsWith(UNSETTLED_STARTS_KEY_PREFIX) ? window.localStorage.getItem(key) : null;
+            if (key !== null && value !== null) kept.push([key, value]);
+        }
+    } catch { /* storage unreadable: nothing to keep */ }
+    clear();
+    for (const [key, value] of kept) {
+        try { window.localStorage.setItem(key, value); } catch { /* storage refused: memory still holds them this page */ }
+    }
 }
 
 /**
@@ -334,7 +370,7 @@ function onOnline(): void {
 export function retryUnreachedAbandons(opts: { rpc?: LeaseRpc } = {}): Promise<void> {
     const owner = currentOwnerId();
     loadStored(owner);
-    const batch = [...unreachedAbandons].filter(([, e]) => e.owner === owner).slice(0, MAX_ABANDONS_PER_PASS);
+    const batch = [...unreachedAbandons].filter(([, e]) => e.owner === owner && !e.inFlight).slice(0, MAX_ABANDONS_PER_PASS);
     if (batch.length === 0) return retrying ?? Promise.resolve();
     listenForOnline();
     retrying ??= (async () => {
