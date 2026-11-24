@@ -103,28 +103,57 @@ const currentAge = (value?: string | null) => {
   return Number.isFinite(age) && age >= 0 && age <= MAX_CURRENT_AGE;
 };
 
+const HTTP_FIELDS: Record<string, Record<string, string>> = {
+  'Vercel API': { http: 'Vercel API' },
+  'Supabase API': { auth: 'Auth settings', 'check-usage-limit': 'Usage preflight' },
+  'Stripe API': { balance: 'Balance', pro: 'Pro price' },
+  'Sentry API': { project: 'Sentry project' },
+  'PostHog API': { query: 'Analytics query' },
+};
+
+function safeCheckDiagnostics(check: Check): { details: string[]; reason?: string } {
+  const evidence = evidenceText(check);
+  const details = new Set<string>();
+  let reason: string | undefined;
+  if (check.status === 'skip' && /^missing=[A-Z][A-Z0-9_]*(?:\|[A-Z][A-Z0-9_]*)*$/.test(evidence)) {
+    reason = 'Required configuration is missing';
+  } else if (check.status === 'fail' && /^(?:fetch failed|network_error)$/i.test(evidence)) {
+    reason = 'Could not connect to the service';
+  } else if (check.status === 'fail' && /^(?:This operation was aborted|The operation was aborted\.?|timeout)$/i.test(evidence)) {
+    reason = 'The service request timed out';
+  }
+  if (reason) details.add(reason);
+  for (const field of evidence.split(';', 16)) {
+    const part = field.trim();
+    const app = check.name === 'App' ? /^Production app HTTP ([1-5]\d{2})$/.exec(part) : null;
+    const token = /^([a-z-]+)=([1-5]\d{2})(:inactive)?$/.exec(part);
+    const fields = HTTP_FIELDS[check.name];
+    const label = token && fields && Object.prototype.hasOwnProperty.call(fields, token[1]) ? fields[token[1]] : null;
+    if (app) {
+      const message = 'HTTP ' + app[1];
+      details.add(message);
+      if (Number(app[1]) >= 400) reason ??= message;
+    } else if (label && token && (!token[3] || check.name === 'Stripe API' && token[1] === 'pro')) {
+      const message = label + ': HTTP ' + token[2] + (token[3] ? '; price inactive' : '');
+      details.add(message);
+      if (token[3] || Number(token[2]) >= 400) reason ??= message;
+    }
+  }
+  return { details: [...details], reason };
+}
+
 function checksForDisplay(checks: Check[]): Service[] {
   const cards: Service[] = [];
   for (const check of checks) {
     const scope = Object.prototype.hasOwnProperty.call(KNOWN, check.name) ? KNOWN[check.name] : null;
     if (!scope) continue;
-    const http = [...evidenceText(check).matchAll(/\b(?:HTTP |(?:auth|check-usage-limit|balance|pro|project|query)=)([1-5]\d{2})\b/g)]
-      .map((match) => match[0]);
-    const labels: Record<string, string> = {
-      auth: 'Auth settings', 'check-usage-limit': 'Usage preflight', balance: 'Balance', pro: 'Pro price', project: 'Project',
-      query: 'Analytics query',
-    };
-    const readable = http.map((item) => {
-      const [key, value] = item.split('=');
-      return value ? labels[key] + ': HTTP ' + value : item;
-    });
+    const { details: diagnostics, reason } = safeCheckDiagnostics(check);
     const deployment = check.name === 'Vercel API' ? evidenceText(check).match(/\blatest=(READY|BUILDING|QUEUED|INITIALIZING|ERROR|CANCELED)\b/)?.[1] : null;
-    const details = [...(check.name === 'Sentry API' ? [] : readable),
-      ...(deployment ? ['Deployment state: ' + deployment.toLowerCase() + '.'] : []), scope.limits];
+    const details = [...diagnostics, ...(deployment ? ['Deployment state: ' + deployment.toLowerCase() + '.'] : []), scope.limits];
     cards.push({ name: scope.name, status: check.status,
       headline: scope.checked,
-      reason: check.status === 'fail' ? (readable.find((item) => /HTTP [45]/.test(item))?.replace('Project:', 'Sentry:') ?? 'Service check failed')
-        : check.status === 'warn' ? (deployment ? 'Deployment ' + deployment.toLowerCase() : 'Check needs review') : 'Check unavailable',
+      reason: reason ?? (check.status === 'fail' ? 'Service check failed'
+        : check.status === 'warn' ? (deployment ? 'Deployment ' + deployment.toLowerCase() : 'Check needs review') : 'Check unavailable'),
       details, checkedAt: check.checkedAt, links: [{ label: scope.link, url: check.drilldownUrl }] });
   }
 

@@ -91,6 +91,25 @@ describe('OpsStatusPage', () => {
     expect(info(service('AI Service -- LLM'))).toHaveTextContent('Generation not checked');
   });
 
+  it.each([
+    ['Stripe API', 'Stripe', 'fail', 'balance=200; pro=200:inactive; body=synthetic-private-value', 'Pro price: HTTP 200; price inactive'],
+    ['Vercel API', 'Vercel', 'fail', 'scopeSupplied=false; http=401; provider=synthetic-private-value', 'Vercel API: HTTP 401'],
+    ['Supabase API', 'Supabase', 'skip', 'missing=SYNTHETIC_PRIVATE_VALUE|SYNTHETIC_ALIAS', 'Required configuration is missing'],
+    ['PostHog API', 'PostHog', 'fail', 'fetch failed', 'Could not connect to the service'],
+  ])('shows a sanitized %s failure in the collapsed and expanded row', async (name, label, state, evidence, expected) => {
+    vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ ...payload,
+      checks: [{ name, status: state, evidence, checkedAt: now }],
+    }) as Response);
+    view();
+    await screen.findByText(label);
+    const row = service(label);
+    expect(info(row)).toHaveTextContent(expected);
+    expect(panel(row)).not.toBeVisible();
+    fireEvent.click(toggle(row));
+    expect(within(panel(row)).getByText(expected, { exact: true })).toBeVisible();
+    expect(panel(row)).not.toHaveTextContent(/synthetic.private.value|synthetic.alias|scopeSupplied|fetch failed/i);
+  });
+
   it('reloads the published report and shows the newer check without dispatching a job', async () => {
     const updatedAt = new Date(Date.parse(now) + 30_000).toISOString();
     vi.mocked(globalThis.fetch)
