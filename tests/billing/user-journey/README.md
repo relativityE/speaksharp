@@ -203,12 +203,18 @@ prints the plan and what still blocks it; it reads committed files only and neve
 outcome 8's own mode: it holds only the paid value loop, which `smoke` and `full` never include, so a Gemini outage
 or a coaching bug shows as outcome 8 not proven, never as billing not proven.
 
-`full` also adds `paid_account_kept` (J9.a): two completed, run-marked earlier sessions are seeded during the live
-trial (the account's own transcript and coaching choice first, then service-role inserts; no takes), the account pays
-once by test card, and a fresh sign-in must keep Pro, open each seeded session by its own id showing its own
-transcript (`keptHistoryVerdict`; one session opened twice fails), list both in Progress, make no coaching request and
-store no coaching for them, and show the $10.00 monthly plan as the current plan in one block of Manage billing. It is
-a seeded test-mode proof, never evidence of calendar-time longevity, and the hosted portal text is Stripe's own.
+`full` also adds `paid_account_kept` (J9.a), under the reviewed `newest_one_v1` retention policy (only the newest saved
+take keeps its text). During the live trial the policy is first proven active, read back from the database (the
+disposable local stack's service role switches it on; the hosted sandbox is only read, and an inactive policy fails as
+`retention_not_active`). The account records its own choice (transcripts saved, coaching off), seeds one completed older
+session three days back as the member, and then saves one real take through the app, which is where the policy expires
+the older text. The member's own read must then show both rows, the older one with its metrics intact and its text
+expired, and the newest with its text (`retentionRowsFailure`). Coaching is then switched on, the account pays once by
+test card, and a fresh sign-in must keep Pro, open the older session by its own id as expired with its phrase nowhere
+on the page and the newest with its own transcript (`retentionViewFailure`, element counts only), list both in
+Progress, make no coaching request, store no coaching for the older session, and show the $10.00 monthly plan as the
+current plan in one block of Manage billing. Every miss is a content-free `retention_*` code. It is a seeded test-mode
+proof, never evidence of calendar-time longevity, and the hosted portal text is Stripe's own.
 
 Access after a membership ends follows Akin's 2026-11-14 rule, "No payment, no service or access to their past
 data", which the #1863 payment wall enforces. In `portal_expiry` and `refund_period_end`, once the paid period

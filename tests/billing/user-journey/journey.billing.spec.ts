@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync } from 'node:fs';
@@ -13,7 +13,8 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
-  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, keptHistoryVerdict, historySeedFailure } from './contract';
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, historySeedFailure,
+  retentionActive, retentionActivationFailure, retentionRowsFailure, retentionViewFailure, RETENTION_ROW_COLUMNS, type RetentionDetailFacts } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
@@ -45,11 +46,12 @@ const id = (value: unknown): string => typeof value === 'string' ? value
   : value && typeof value === 'object' && 'id' in value ? String(value.id) : '';
 
 /** No POST to stripe-webhook, no signing key, no local replay, and no entitlement writes after fixture setup. */
-/** J9.a: two earlier sessions, oldest first. Each transcript has its own phrase so the detail view is matched to its row. */
-const EARLIER_SESSIONS = [
-  { daysAgo: 3, phrase: 'earlier practice one about planning the quarterly review with the whole team' },
-  { daysAgo: 2, phrase: 'earlier practice two about presenting the launch timeline to new customers' },
-] as const;
+/**
+ * J9.a: the one older session, seeded three days back. Its phrase is its own, so any view or row that still carries it is caught.
+ * Its metrics are fixed here so the verdict can prove they survive the expiry of its text.
+ */
+const OLDER_SESSION = { daysAgo: 3, phrase: 'earlier practice one about planning the quarterly review with the whole team',
+  duration: 60, total_words: 12, wpm: 12 } as const;
 
 class SandboxJourney {
   readonly started = Date.now();
@@ -75,8 +77,8 @@ class SandboxJourney {
   firstInvoice = '';
   /** J2: the declined session's own verified subscription (unpaid), allowed beside the paid retry's; null when none was attached. */
   declinedSubscription: string | null = null;
-  /** J9.a: the earlier sessions this run seeded during the trial, oldest first. */
-  earlier: string[] = [];
+  /** J9.a: the older session this run seeded during the trial, and the newest take the app then saved for real. */
+  older = ''; newest = '';
   /** The Checkout session openCheckout positively bound to this run (assertCheckoutIdentity); null until then. */
   boundCheckout: string | null = null;
   /** Whether the bound Customer's email IS this run's fixture email: compared only, never kept or reported; null when unread. */
@@ -777,43 +779,84 @@ class SandboxJourney {
   }
 
   /**
-   * J9.a: two completed, run-marked earlier sessions, seeded during the live trial (no takes). The account first records
-   * its own choice through its own API, as the Practice prompt does: transcripts saved and coaching ON, so "no new
-   * coaching" later is a real check, not a consequence of coaching being off. The sessions are written by the MEMBER, under
-   * its own insert policy: the #1835 transcript-consent trigger reads the owner's choice FOR SHARE as the writing role, and
-   * service_role holds only SELECT on that table, so a service-role write of a transcript is refused (run 45370792241).
+   * J9.a under the reviewed retention policy (Sam, 2026-11-24): only the newest saved take keeps its text. During the live trial:
+   * 1. The policy is proven ACTIVE before anything is seeded, read back from the database. The disposable local stack starts with
+   *    it off, so its service role switches it on first, as hosted was switched on; the hosted sandbox is only ever read.
+   * 2. The account records its own choice (transcripts saved, coaching off, exactly as the Practice prompt would) and seeds ONE
+   *    older completed session three days back, written by the MEMBER: the #1835 consent trigger reads the owner's choice FOR SHARE
+   *    as the writing role, and service_role holds only SELECT on that table (run 45370792241).
+   * 3. The newest take is a REAL app save (lease, create, complete_session_v2), which is where the policy expires older text.
+   * 4. The member's own read must then show the older row listed with its metrics, its text expired, and the newest take's text.
+   * Coaching is switched ON afterwards, so "no new coaching" on the paid return is a real check.
    */
   async seedHistory(): Promise<void> {
     this.stage = 'history_seeded';
-    const choice = await this.member.rpc('set_practice_privacy_choices_v1',
-      { p_transcript_save: true, p_ai_coaching: true, p_expected_revision: null });
-    requireFact(!choice.error, 'history_privacy_choice_failed');
-    for (const [index, earlier] of EARLIER_SESSIONS.entries()) {
-      const words = earlier.phrase.split(' ').length;
-      const { data, error } = await this.member.from('sessions').insert({
-        user_id: this.uid, title: `${this.marker} earlier session ${index + 1}`, status: 'completed',
-        transcript: earlier.phrase, duration: 60, total_words: words, wpm: words,
-        created_at: new Date(Date.now() - earlier.daysAgo * 86_400_000).toISOString(),
-      }).select('id').single();
-      requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), historySeedFailure(error));
-      this.earlier.push(data.id);
+    if (useLocalStack && !(await this.retentionIsActive())) {
+      const activated = await this.admin.rpc('activate_transcript_retention_newest_one');
+      requireFact(!activated.error, retentionActivationFailure(activated.error));
     }
-    const rows = await this.earlierRows();
-    requireFact(rows.length === EARLIER_SESSIONS.length
-      && rows.every(row => row.user_id === this.uid && row.status === 'completed' && row.ai_suggestions === null), 'history_seed_not_read_back');
+    requireFact(await this.retentionIsActive(), 'retention_not_active');
+    const choice = await this.member.rpc('set_practice_privacy_choices_v1',
+      { p_transcript_save: true, p_ai_coaching: false, p_expected_revision: null });
+    const revision = (Array.isArray(choice.data) ? choice.data[0] : choice.data)?.choice_revision;
+    requireFact(!choice.error && Number.isSafeInteger(revision), 'history_privacy_choice_failed');
+    const { data, error } = await this.member.from('sessions').insert({
+      user_id: this.uid, title: `${this.marker} earlier session 1`, status: 'completed', transcript: OLDER_SESSION.phrase,
+      duration: OLDER_SESSION.duration, total_words: OLDER_SESSION.total_words, wpm: OLDER_SESSION.wpm,
+      created_at: new Date(Date.now() - OLDER_SESSION.daysAgo * 86_400_000).toISOString(),
+    }).select('id').single();
+    requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), historySeedFailure(error));
+    this.older = data.id;
+    await this.login();
+    await this.record();
+    this.newest = this.savedSession;
+    this.retentionHolds(await this.retentionRows());
+    const coaching = await this.member.rpc('set_practice_privacy_choices_v1',
+      { p_transcript_save: true, p_ai_coaching: true, p_expected_revision: revision });
+    requireFact(!coaching.error, 'history_privacy_choice_failed');
     this.steps.add('history_seeded');
   }
 
-  async earlierRows(): Promise<{ id: string; user_id: string; status: string; ai_suggestions: unknown }[]> {
-    const { data, error } = await this.admin.from('sessions').select('id,user_id,status,ai_suggestions')
-      .eq('user_id', this.uid).in('id', this.earlier);
-    requireFact(!error && Array.isArray(data), 'history_read_failed');
-    return data;
+  /** The reviewed policy version, and active, read back from the database (service role; the member cannot call either). */
+  async retentionIsActive(): Promise<boolean> {
+    const [version, active] = await Promise.all([this.admin.rpc('transcript_retention_policy_version'),
+      this.admin.rpc('transcript_retention_is_active')]);
+    return !version.error && !active.error && retentionActive({ version: version.data, active: active.data });
+  }
+
+  /** The account's session rows as the MEMBER reads them (its own surface); null when the read is not a clean list. */
+  async retentionRows(): Promise<Parameters<typeof retentionRowsFailure>[0]> {
+    const { data, error } = await this.member.from('sessions').select(RETENTION_ROW_COLUMNS).eq('user_id', this.uid);
+    return error || !Array.isArray(data) ? null : data;
+  }
+
+  /** Throws the first failing retention reason as a content-free receipt code. */
+  retentionHolds(rows: Parameters<typeof retentionRowsFailure>[0]): void {
+    const miss = retentionRowsFailure(rows, { id: this.older, ...OLDER_SESSION }, this.newest);
+    if (miss) throw new Error(`BILLING_JOURNEY:${miss}`);
+  }
+
+  /** One session's detail page, by its own id, read as element counts (never the page's text). */
+  async detailFacts(page: Page, sessionId: string): Promise<RetentionDetailFacts> {
+    await page.goto(`/progress/${sessionId}`);
+    await expect(page.getByTestId('trial-payment-wall')).toHaveCount(0);
+    const transcript = page.getByTestId('session-detail-transcript');
+    const expired = page.getByTestId('session-detail-transcript-expired');
+    await transcript.or(expired).first().waitFor({ state: 'visible', timeout: 60_000 }).catch(() => undefined);
+    const count = (locator: Locator) => locator.count().catch(() => null);
+    const transcripts = await count(transcript);
+    return {
+      id: new URL(page.url()).pathname.split('/').pop() ?? null,
+      expiredNotices: await count(expired), transcripts,
+      transcriptHasText: transcripts === 1 ? await transcript.textContent().then(t => /\S/.test(t ?? ''), () => null) : false,
+      oldPhraseElements: await count(page.getByText(OLDER_SESSION.phrase)),
+    };
   }
 
   /**
-   * J9.a: a fresh sign-in on the paid account keeps Pro, opens both earlier sessions and Progress, asks for no coaching for
-   * them, and Manage billing shows the $10.00 monthly plan as the current plan in one compact block of Stripe's portal.
+   * J9.a: a fresh sign-in on the paid account keeps Pro; the older session opens by its own id as expired (no text, metrics kept)
+   * and the newest take opens with its own text; Progress lists both; no coaching is asked for or stored for the older session;
+   * and Manage billing shows the $10.00 monthly plan as the current plan in one compact block of Stripe's portal.
    */
   async keptOnReturn(): Promise<void> {
     // A fresh browser context proves a real new sign-in, not cleared storage.
@@ -838,34 +881,28 @@ class SandboxJourney {
       this.steps.add('entitlement_kept');
 
       this.stage = 'history_opens';
-      // Each seeded session is opened by its own id and must show its own transcript (keptHistoryVerdict): a count of
-      // opens, or one session opened twice, can never pass.
-      const opened: { id: string; text: string | null }[] = [];
-      for (const [index, sessionId] of this.earlier.entries()) {
-        await other.goto(`/progress/${sessionId}`);
-        await expect(other.getByTestId('trial-payment-wall')).toHaveCount(0);
-        const transcript = other.getByTestId('session-detail-transcript');
-        await expect(transcript).toContainText(EARLIER_SESSIONS[index].phrase, { timeout: 60_000 });
-        opened.push({ id: new URL(other.url()).pathname.split('/').pop() ?? '', text: await transcript.textContent() });
-      }
-      requireFact(keptHistoryVerdict(this.earlier.map((sessionId, index) => ({ id: sessionId, phrase: EARLIER_SESSIONS[index].phrase })),
-        opened), 'history_not_kept_per_session');
+      // Each session is opened by its own id and read as element counts (retentionViewFailure); the server rows are read again
+      // as the member, so an expired transcript restored at any point after the save fails here too.
+      const miss = retentionViewFailure({ older: await this.detailFacts(other, this.older), newest: await this.detailFacts(other, this.newest) },
+        { older: this.older, newest: this.newest });
+      if (miss) throw new Error(`BILLING_JOURNEY:${miss}`);
+      this.retentionHolds(await this.retentionRows());
       this.steps.add('history_opens');
 
       this.stage = 'progress_opens';
       await other.goto('/progress');
       await expect(other.getByTestId('analytics-dashboard')).toBeVisible({ timeout: 60_000 });
       await expect(other.getByTestId('trial-payment-wall')).toHaveCount(0);
-      for (const sessionId of this.earlier) {
+      for (const sessionId of [this.older, this.newest]) {
         await expect(other.getByTestId(`session-history-item-${sessionId}`)).toBeVisible({ timeout: 60_000 });
       }
       this.steps.add('progress_opens');
 
       this.stage = 'no_new_coaching';
-      // Coaching is ON for this account, yet opening its old sessions never asks for coaching or stores any.
+      // Coaching is ON for this account, yet opening its sessions on the paid return never asks for coaching, and the older
+      // session stores none (retentionRowsFailure: retention_coaching_stored_for_old_session).
       requireFact(coachingRequests.length === 0, 'coaching_requested_for_old_sessions');
-      const rows = await this.earlierRows();
-      requireFact(rows.length === EARLIER_SESSIONS.length && rows.every(row => row.ai_suggestions === null), 'coaching_stored_for_old_sessions');
+      this.retentionHolds(await this.retentionRows());
       this.steps.add('no_new_coaching');
 
       this.stage = 'portal_plan_shown';

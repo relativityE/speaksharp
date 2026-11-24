@@ -6,7 +6,9 @@ import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertT
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
   APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, takeOutcome, optInThroughPrompt,
-  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded, keptHistoryVerdict, historySeedFailure } from './contract';
+  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded, historySeedFailure,
+  retentionActive, retentionActivationFailure, retentionRowsFailure, retentionViewFailure, RETENTION_POLICY_VERSION, type RetentionRowFacts,
+  type RetentionDetailFacts } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
 import { stackIdentitySha256 } from './localStackResources.mjs';
 
@@ -997,7 +999,7 @@ test('decline scan trusts only the hosted Checkout page and Stripe frames; an un
 test('J9.a history seed: written by the member, and a refusal names its error class only', () => {
   const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
   const seed = spec.slice(spec.indexOf('async seedHistory()'), spec.indexOf("this.steps.add('history_seeded');"));
-  assert.ok(seed.length > 0 && seed.length < 2000, 'seedHistory found');
+  assert.ok(seed.length > 0 && seed.length < 2600, 'seedHistory found');
   // Run 45370792241: service_role holds only SELECT on practice_privacy_choices, so the #1835 consent trigger's FOR SHARE
   // read refuses a service-role transcript write (42501). The member's own insert policy is the supported path.
   assert.match(seed, /this\.member\.from\('sessions'\)\.insert\(/);
@@ -1021,24 +1023,99 @@ test('J9.a history seed: written by the member, and a refusal names its error cl
   }
 });
 
-test('J9.a kept history: each seeded session opened by its own id shows its own transcript; same-session-twice fails', () => {
-  const seeded = [{ id: 'a1', phrase: 'earlier practice one' }, { id: 'b2', phrase: 'earlier practice two' }];
-  const own = [{ id: 'a1', text: 'Transcript: earlier practice one.' }, { id: 'b2', text: 'earlier practice two' }];
-  assert.equal(keptHistoryVerdict(seeded, own), true);
-  assert.equal(keptHistoryVerdict(seeded, [...own].reverse()), true, 'order of opening does not matter');
-  // Opening the same session twice is two opens, never two sessions.
-  assert.equal(keptHistoryVerdict(seeded, [own[0], own[0]]), false, 'same session twice');
-  assert.equal(keptHistoryVerdict(seeded, [own[0], { id: 'a1', text: 'earlier practice two' }]), false, 'same id, other text');
-  // Each view must be its own session's: swapped, merged, missing, foreign or unread views fail.
-  assert.equal(keptHistoryVerdict(seeded, [{ id: 'a1', text: 'earlier practice two' }, { id: 'b2', text: 'earlier practice one' }]), false, 'swapped');
-  assert.equal(keptHistoryVerdict(seeded, [{ id: 'a1', text: 'earlier practice one earlier practice two' }, own[1]]), false, 'shows both');
-  assert.equal(keptHistoryVerdict(seeded, [own[0]]), false, 'one session missing');
-  assert.equal(keptHistoryVerdict(seeded, [own[0], { id: 'zz', text: 'earlier practice two' }]), false, 'foreign id');
-  assert.equal(keptHistoryVerdict(seeded, [own[0], { id: 'b2', text: null }]), false, 'unread view');
-  assert.equal(keptHistoryVerdict(seeded, [...own, { id: 'c3', text: 'x' }]), false, 'an extra open');
-  // The seeds themselves must be two or more distinct sessions with distinct phrases.
-  assert.equal(keptHistoryVerdict([seeded[0]], [own[0]]), false, 'one seed');
-  assert.equal(keptHistoryVerdict([seeded[0], { id: 'a1', phrase: 'earlier practice two' }], own), false, 'duplicate seed id');
-  assert.equal(keptHistoryVerdict([seeded[0], { id: 'b2', phrase: 'earlier practice one' }], own), false, 'duplicate seed phrase');
-  assert.equal(keptHistoryVerdict([seeded[0], { id: 'b2', phrase: '' }], own), false, 'empty seed phrase');
+test('J9.a retention precondition: only the reviewed policy version, read back as active, counts', () => {
+  assert.equal(RETENTION_POLICY_VERSION, 'newest_one_v1');
+  assert.equal(retentionActive({ version: 'newest_one_v1', active: true }), true);
+  // Negative control (Sam): an inactive policy, another version, or an unread value never passes.
+  for (const read of [{ version: 'newest_one_v1', active: false }, { version: 'newest_one_v1', active: null }, { version: 'newest_one_v1', active: 'true' },
+    { version: 'newest_two_v1', active: true }, { version: null, active: true }, { version: 'NEWEST_ONE_V1', active: true }]) {
+    assert.equal(retentionActive(read), false, JSON.stringify(read));
+  }
+  for (const [error, expected] of [[{ code: '55000', message: '1 ambiguous legacy session(s)' }, 'retention_activation_failed_55000'],
+    [{ code: '42501', message: 'x' }, 'retention_activation_failed_42501'], [{ message: 'x' }, 'retention_activation_failed_other']] as const) {
+    assert.equal(retentionActivationFailure(error), expected);
+    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${expected}`)), expected);
+  }
+});
+
+test('J9.a retention rows: a real save expires the older text, keeps both rows and the older metrics, and stores no coaching', () => {
+  const older = { id: 'old-1', phrase: 'earlier practice one about planning', duration: 60, total_words: 12, wpm: 12 };
+  const oldRow: RetentionRowFacts = { id: 'old-1', transcript: null, transcript_state: 'expired', duration: 60, total_words: 12, wpm: 12, ai_suggestions: null };
+  const newRow: RetentionRowFacts = { id: 'new-2', transcript: 'the newest take', transcript_state: 'available', duration: 9, total_words: 3, wpm: 20, ai_suggestions: null };
+  assert.equal(retentionRowsFailure([oldRow, newRow], older, 'new-2'), null);
+  assert.equal(retentionRowsFailure([newRow, { ...oldRow, wpm: '12' }], older, 'new-2'), null, 'order and numeric-string metrics');
+  const cases: [RetentionRowFacts[] | null, string][] = [
+    [null, 'retention_rows_unread'],
+    // Negative control: the older session is missing (never seeded, or lost by the save).
+    [[newRow], 'retention_older_not_listed'],
+    [[oldRow, oldRow, newRow], 'retention_older_not_listed'],
+    [[oldRow], 'retention_newest_missing_or_textless'],
+    [[oldRow, { ...newRow, transcript: '  ' }], 'retention_newest_missing_or_textless'],
+    [[oldRow, { ...newRow, transcript_state: 'expired' }], 'retention_newest_missing_or_textless'],
+    [[oldRow, newRow, { ...newRow, id: 'x-3' }], 'retention_unexpected_rows'],
+    // Negative controls: an inactive policy leaves the old text; a resurrected transcript brings it back.
+    [[{ ...oldRow, transcript: older.phrase, transcript_state: 'available' }, newRow], 'retention_old_transcript_retained'],
+    [[{ ...oldRow, transcript: older.phrase }, newRow], 'retention_old_transcript_retained'],
+    [[{ ...oldRow, transcript_state: 'available' }, newRow], 'retention_old_transcript_retained'],
+    [[oldRow, { ...newRow, transcript: `then ${older.phrase}` }], 'retention_old_phrase_readable'],
+    [[{ ...oldRow, total_words: 0 }, newRow], 'retention_older_metrics_lost'],
+    [[{ ...oldRow, duration: null }, newRow], 'retention_older_metrics_lost'],
+    [[{ ...oldRow, wpm: '' }, newRow], 'retention_older_metrics_lost'],
+    [[{ ...oldRow, ai_suggestions: { tips: [] } }, newRow], 'retention_coaching_stored_for_old_session'],
+  ];
+  for (const [rows, expected] of cases) {
+    assert.equal(retentionRowsFailure(rows, older, 'new-2'), expected, expected);
+    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${expected}`)), expected, `${expected} survives the receipt`);
+  }
+  assert.equal(retentionRowsFailure([oldRow, newRow], older, 'old-1'), 'retention_ids_invalid', 'the newest take cannot be the older seed');
+  assert.equal(retentionRowsFailure([oldRow, newRow], { ...older, phrase: ' ' }, 'new-2'), 'retention_ids_invalid');
+});
+
+test('J9.a retention views: the older session opens as expired with its phrase nowhere, the newest with its own text', () => {
+  const ids = { older: 'old-1', newest: 'new-2' };
+  const older: RetentionDetailFacts = { id: 'old-1', expiredNotices: 1, transcripts: 0, transcriptHasText: false, oldPhraseElements: 0 };
+  const newest: RetentionDetailFacts = { id: 'new-2', expiredNotices: 0, transcripts: 1, transcriptHasText: true, oldPhraseElements: 0 };
+  assert.equal(retentionViewFailure({ older, newest }, ids), null);
+  const cases: [Partial<RetentionDetailFacts>, Partial<RetentionDetailFacts>, string][] = [
+    [{ expiredNotices: null }, {}, 'retention_view_unread'],
+    [{}, { oldPhraseElements: null }, 'retention_view_unread'],
+    [{ id: 'new-2' }, {}, 'retention_older_view_wrong_session'],
+    // Negative control: a resurrected (or never expired) transcript renders as the available block.
+    [{ transcripts: 1, expiredNotices: 0, transcriptHasText: true }, {}, 'retention_old_transcript_shown'],
+    [{ expiredNotices: 0 }, {}, 'retention_older_not_shown_expired'],
+    [{}, { id: 'old-1' }, 'retention_newest_view_wrong_session'],
+    [{}, { transcripts: 0, expiredNotices: 1, transcriptHasText: false }, 'retention_newest_transcript_missing'],
+    [{}, { transcriptHasText: false }, 'retention_newest_transcript_missing'],
+    [{ oldPhraseElements: 1 }, {}, 'retention_old_phrase_shown'],
+    [{}, { oldPhraseElements: 2 }, 'retention_old_phrase_shown'],
+  ];
+  for (const [o, n, expected] of cases) {
+    assert.equal(retentionViewFailure({ older: { ...older, ...o }, newest: { ...newest, ...n } }, ids), expected, expected);
+    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${expected}`)), expected);
+  }
+  assert.equal(retentionViewFailure({ older, newest }, { older: 'old-1', newest: 'old-1' }), 'retention_ids_invalid');
+});
+
+test('J9.a wiring: active before seeding, one member-written older session, a real save, then both verdicts on the return', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const seed = spec.slice(spec.indexOf('  async seedHistory(): Promise<void> {'), spec.indexOf("this.steps.add('history_seeded');"));
+  const order = ["if (useLocalStack && !(await this.retentionIsActive())) {", "this.admin.rpc('activate_transcript_retention_newest_one')",
+    "requireFact(await this.retentionIsActive(), 'retention_not_active');", "p_ai_coaching: false", "this.member.from('sessions').insert(",
+    'await this.login();', 'await this.record();', 'this.newest = this.savedSession;', 'this.retentionHolds(await this.retentionRows());',
+    'p_ai_coaching: true, p_expected_revision: revision'];
+  let from = 0;
+  for (const step of order) { const at = seed.indexOf(step, from); assert.ok(at >= 0, step); from = at + step.length; }
+  // Activation only on the disposable stack; the hosted sandbox is read, never changed.
+  assert.equal(spec.match(/activate_transcript_retention_newest_one/g)?.length, 1);
+  assert.equal(seed.match(/this\.member\.from\('sessions'\)\.insert\(/g)?.length, 1, 'exactly one seeded older session');
+  assert.doesNotMatch(seed, /pre_expiry_/);
+  const rows = spec.slice(spec.indexOf('  async retentionRows()'), spec.indexOf('  retentionHolds('));
+  assert.match(rows, /this\.member\.from\('sessions'\)\.select\(RETENTION_ROW_COLUMNS\)/);
+  const facts = spec.slice(spec.indexOf('  async detailFacts('), spec.indexOf('  /**\n   * J9.a: a fresh sign-in'));
+  assert.doesNotMatch(facts, /innerText|querySelectorAll|locator\('body'\)/, 'element counts, never the page text');
+  const kept = spec.slice(spec.indexOf("this.stage = 'history_opens';"), spec.indexOf("this.stage = 'portal_plan_shown';"));
+  for (const step of ['retentionViewFailure({ older: await this.detailFacts(other, this.older), newest: await this.detailFacts(other, this.newest) },',
+    "this.steps.add('history_opens');", '[this.older, this.newest]', "requireFact(coachingRequests.length === 0, 'coaching_requested_for_old_sessions');",
+    "this.steps.add('no_new_coaching');"]) assert.ok(kept.includes(step), step);
+  assert.equal(kept.match(/this\.retentionHolds\(await this\.retentionRows\(\)\);/g)?.length, 2, 'rows re-read on the return');
 });
