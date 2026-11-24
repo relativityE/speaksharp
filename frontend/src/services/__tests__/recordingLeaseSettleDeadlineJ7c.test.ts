@@ -111,7 +111,7 @@ describe('J7.c: a hung settle call cannot block Start or Stop', () => {
         expect(currentTakeLeaseId()).toBeNull();
     });
 
-    it('a timed-out retry costs one of the five tries; once the server answers, the SAME lease is abandoned and forgotten', async () => {
+    it('a timed-out retry keeps the lease; once the server answers, the SAME lease is abandoned and forgotten', async () => {
         const net = network(); const cold = await strandedStart(net);
         net.mode.abandon = 'hang';
         await finishesWithin(acquireTakeLease({ rpc: net.rpc }), LEASE_SETTLE_RPC_DEADLINE_MS);
@@ -124,14 +124,18 @@ describe('J7.c: a hung settle call cannot block Start or Stop', () => {
         expect(net.of('release_recording_lease')).toContain(take);
     });
 
-    it('bounded overall: five hung retries, then the lease is left to the existing cleanup and acquire stops waiting on it', async () => {
+    it('bounded per Start, never by dropping: hung retries keep the lease, and every Start still costs one budget at most', async () => {
         const net = network(); const cold = await strandedStart(net);
         net.mode.abandon = 'hang';
-        for (let i = 0; i < 5; i += 1) await finishesWithin(acquireTakeLease({ rpc: net.rpc }), LEASE_SETTLE_RPC_DEADLINE_MS);
+        for (let i = 0; i < 7; i += 1) {
+            const start = acquireTakeLease({ rpc: net.rpc });
+            expect(await finishesWithin(start, LEASE_SETTLE_RPC_DEADLINE_MS - 1)).toBe(false);
+            expect(await finishesWithin(start, 1)).toBe(true);
+        }
+        // Elon 1795530380: the obligation is still open on the server, so the lease is still remembered.
+        expect(__unreachedAbandonsForTests()).toEqual([cold]);
+        net.mode.abandon = 'online';
+        await finishesWithin(acquireTakeLease({ rpc: net.rpc }), LEASE_SETTLE_RPC_DEADLINE_MS);
         expect(__unreachedAbandonsForTests()).toEqual([]);
-        const before = net.of('abandon_recording_start_v1').length;
-        expect(await finishesWithin(acquireTakeLease({ rpc: net.rpc }), 0), 'nothing left to wait on').toBe(true);
-        expect(net.of('abandon_recording_start_v1')).toHaveLength(before);
-        expect(net.of('abandon_recording_start_v1').filter((l) => l === cold)).toHaveLength(1 + 5);
     });
 });
