@@ -105,6 +105,16 @@ export function coverageSql(userId) {
         '  RETURNING request_id;',
     ].join('\n');
 }
+/**
+ * READ-ONLY: the closure attempt's phase for one run-owned user. `account_closure_attempts` grants nothing to service_role
+ * (20261013180000: REVOKE ALL ... FROM service_role), so the stack's admin client cannot read it; the stack's own loopback
+ * database can (run 45407419238 read `unread` for a completed deletion that way).
+ */
+export function closurePhaseSql(userId) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(userId))) throw new Error('closure phase: the user id must be a uuid');
+    return `SELECT phase FROM public.account_closure_attempts WHERE user_id='${userId}'::uuid;`;
+}
+
 export const COVERAGE_EVIDENCE = Object.freeze({
     legacy: 'disposable local stack only: no legacy producer exists; not production drain evidence',
     portal: 'disposable local stack only: no billing portal session exists; not production settlement evidence',

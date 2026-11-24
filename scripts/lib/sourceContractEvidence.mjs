@@ -373,7 +373,9 @@ const wiring={
   "if (terminal === 'pending' && !covered) { seedCoverage(uid); covered = true; }",
   "if (step === 'stop') return terminal;",
   "facts.terminal = await confirmAndComplete(page, account.uid);",
-  "scored.push(scorerAccount(facts, sha256(account.uid)));",
+  "const scorer = legScorerFile(scorerAccount(facts, sha256(account.uid)), { release: RELEASE, stackRun: STACK_RUN });",
+  "facts.closurePhase = readClosurePhase(account.uid);",
+  "const accounts = combineLegScorerFiles(files, { release: RELEASE, stackRun: STACK_RUN });",
 ],
 "tests/billing/user-journey/paid-value-loop.billing.spec.ts":["readonly targets = assertSandboxConfiguration(env, committedTarget);", "if (useLocalStack) await runnerPreflight(env);", "requireFact(balance.livemode === false, 'stripe_account_not_test');", "assertEligibleEvaluation(evaluation, sessionId, this.uid);", "const result = paidValueLoopReceipt(run?.steps ?? new Set());", "result: status.result,", "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');"],
 

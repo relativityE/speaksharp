@@ -11,7 +11,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -19,8 +19,8 @@ import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { loopbackTargets, receiptLeaks, smokeIdentity, type MailSummary } from '../../smoke/j1dSmokeChecks';
 import { openFromHomepage, sessionUid, signInThroughForm } from '../../smoke/smokePage';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
-import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, scorerAccount, terminalMessage, type DeletionLeg, type DeletionLegFacts } from './accountDeletionJourney';
-import { coverageSql, localDbUrl } from './accountDeletionLocalStack.mjs';
+import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, legScorerFile, combineLegScorerFiles, scorerAccount, terminalMessage, type DeletionLeg, type DeletionLegFacts } from './accountDeletionJourney';
+import { closurePhaseSql, coverageSql, localDbUrl } from './accountDeletionLocalStack.mjs';
 
 const APP = process.env.BILLING_SANDBOX_APP_URL ?? '';
 const API = process.env.BILLING_SANDBOX_SUPABASE_URL ?? '';
@@ -34,8 +34,6 @@ const RUN = /^\d+$/.test(process.env.GITHUB_RUN_ID ?? '') ? process.env.GITHUB_R
 const WALL = 'trial-payment-wall';
 const sha = (v: string) => createHash('sha256').update(v).digest('hex').slice(0, 16);
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
-/** Both legs' scorer records, combined into the one receipt deletionReceipt.mjs scores (written after both, before teardown). */
-const scored: Array<ReturnType<typeof scorerAccount>> = [];
 
 function guards(): SupabaseClient {
     expect(process.env.BILLING_SANDBOX_TARGET, 'the disposable local stack only').toBe('local-disposable-stack');
@@ -83,6 +81,19 @@ function seedCoverage(uid: string) {
     const out = execFileSync('psql', [localDbUrl(process.env.LOCAL_DB_URL ?? ''), '-X', '-q', '-tA', '-v', 'ON_ERROR_STOP=1', '-c', coverageSql(uid)],
         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
     if (out.trim().split('\n').filter(Boolean).length !== 1) throw new Error('disposable completion coverage: expected exactly one pending request');
+}
+
+/**
+ * READ-ONLY: the closure attempt's phase over the stack's own loopback database (service_role has no grant on
+ * account_closure_attempts). No row is null; a failed or ambiguous read is `unread`, never a phase.
+ */
+function readClosurePhase(uid: string): string | null {
+    try {
+        const out = execFileSync('psql', [localDbUrl(process.env.LOCAL_DB_URL ?? ''), '-X', '-q', '-tA', '-v', 'ON_ERROR_STOP=1', '-c', closurePhaseSql(uid)],
+            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
+        const rows = out.trim().split('\n').filter(Boolean);
+        return rows.length === 0 ? null : rows.length === 1 ? rows[0] : 'unread';
+    } catch { return 'unread'; }
 }
 
 /** Confirm on the verified page, then (if pending) complete through readiness, and return the page's terminal message. */
@@ -157,8 +168,7 @@ async function runLeg(leg: DeletionLeg, browser: import('@playwright/test').Brow
     } finally {
         await context.close().catch(() => undefined);
         // READ-ONLY, before any cleanup: the attempt's phase, the Auth user, and the shipped residue check.
-        const attempt = await admin.from('account_closure_attempts').select('phase').eq('user_id', account.uid).maybeSingle();
-        facts.closurePhase = attempt.error ? 'unread' : (attempt.data?.phase ?? null);
+        facts.closurePhase = readClosurePhase(account.uid);
         const user = await admin.auth.admin.getUserById(account.uid);
         facts.authUser = user.data?.user ? 'present' : (user.error && !/not.?found/i.test(user.error.message ?? '')) ? 'unread' : 'absent';
         const residue = await admin.rpc('verify_account_closure_residue', { p_user_id: account.uid, p_email: account.email });
@@ -170,22 +180,30 @@ async function runLeg(leg: DeletionLeg, browser: import('@playwright/test').Brow
                 facts.fallbackCleanup = (await admin.auth.admin.getUserById(account.uid)).data?.user ? 'ran_residue' : 'ran_deleted';
             } catch { facts.fallbackCleanup = 'ran_failed'; }
         }
-        scored.push(scorerAccount(facts, sha256(account.uid)));
+        const scorer = legScorerFile(scorerAccount(facts, sha256(account.uid)), { release: RELEASE, stackRun: STACK_RUN });
         const receipt = legReceipt(facts, { release: RELEASE, stackRun: STACK_RUN, startedAt: started, finishedAt: Date.now() });
         const text = JSON.stringify(receipt, null, 2);
         const leaks = receiptLeaks(text, [account.email, account.password, account.uid, SERVICE, ANON]);
         mkdirSync(OUT, { recursive: true });
+        const scorerText = JSON.stringify(scorer, null, 2);
+        const scorerLeaks = receiptLeaks(scorerText, [account.email, account.password, account.uid, SERVICE, ANON]);
         if (leaks.length === 0) writeFileSync(join(OUT, `${leg === 'J1.f' ? 'j1f' : 'j7d'}-deletion-receipt.json`), text, { mode: 0o600 });
+        // Each leg's own scorer record, on disk: the combined receipt is rebuilt from these even after a worker restart.
+        if (scorerLeaks.length === 0) writeFileSync(join(OUT, `${leg === 'J1.f' ? 'j1f' : 'j7d'}-deletion-scorer.json`), scorerText, { mode: 0o600 });
         await test.info().attach('account-deletion-leg.json', { body: leaks.length === 0 ? text : '{"refused":"receipt_leak"}', contentType: 'application/json' });
-        expect(leaks, 'the receipt carries no address, id, secret, token or link').toEqual([]);
+        expect([...leaks, ...scorerLeaks], 'the receipts carry no address, id, secret, token or link').toEqual([]);
     }
     return facts;
 }
 
-test.describe.configure({ mode: 'serial' });
-
+// Each route runs on its own (Sam on run 45407419238): no serial mode, so a failure in J1.f never skips J7.d. One worker, in
+// order (playwright.account-deletion.config.ts); a failing leg restarts the worker, so the combined receipt is rebuilt from
+// each leg's scorer file, not from memory, in every afterAll (the last one sees both).
 test.afterAll(() => {
-    const text = JSON.stringify(combinedDeletionReceipt(scored, { release: RELEASE, stackRun: STACK_RUN }), null, 2);
+    const files = ['j1f', 'j7d'].map((l) => join(OUT, `${l}-deletion-scorer.json`)).filter((f) => existsSync(f))
+        .map((f) => { try { return JSON.parse(readFileSync(f, 'utf8')) as unknown; } catch { return null; } });
+    const accounts = combineLegScorerFiles(files, { release: RELEASE, stackRun: STACK_RUN });
+    const text = JSON.stringify(combinedDeletionReceipt(accounts, { release: RELEASE, stackRun: STACK_RUN }), null, 2);
     // The combined receipt carries hashes and fixed words only; the per-leg leak check already ran on each leg's facts.
     if (!/@|eyJ|access_token|\/auth\/v1\/verify/.test(text)) {
         mkdirSync(OUT, { recursive: true });
