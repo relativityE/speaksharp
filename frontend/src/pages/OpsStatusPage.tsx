@@ -44,7 +44,7 @@ type Service = {
   links?: { label: string; url?: string | null }[];
 };
 
-const DOTS = { pass: 'bg-success', warn: 'bg-yellow-500', fail: 'bg-destructive' } as const;
+const DOTS = { pass: 'bg-success', warn: 'rotate-45 bg-neutral-secondary', fail: 'bg-destructive' } as const;
 const LABELS: Record<Status, string> = { pass: 'Working', fail: 'Check failed', warn: 'Review', skip: 'Not checked' };
 const ORDER: Record<Status, number> = { fail: 0, warn: 1, skip: 2, pass: 3 };
 const WORKFLOWS = { ci: 'Latest CI run', canary: 'Latest canary run', release: 'Full live release gate on main' } as const;
