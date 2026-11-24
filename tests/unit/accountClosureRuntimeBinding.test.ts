@@ -57,3 +57,48 @@ describe('backend current facts → executing worker binding', () => {
       ? JSON.stringify({ ...manifest, record: { candidateSha: manifest.scope.context.candidateSha } }) : env(key))).toThrow();
   });
 });
+
+describe('J1.f/J7.d disposable stack: the target decides the mode, never the manifest', () => {
+  // `supabase functions serve` gives the function SUPABASE_URL=http://kong:8000 (set after the env-file, not overridable).
+  const KONG = 'http://kong:8000';
+  const local = (url = KONG, environment = 'disposable') => {
+    const { manifest, values, env } = fixture();
+    manifest.scope.context.environment = environment; values.SUPABASE_URL = url;
+    return { manifest, env };
+  };
+  it('the CLI stack (exactly http://kong:8000) is admitted only for a manifest that declares disposable', () => {
+    const { manifest, env } = local();
+    expect(readAccountClosureRuntimeBinding(env)).toEqual({
+      target: { projectId: 'fixture-project', environment: 'disposable', url: KONG }, scope: manifest.scope });
+    expect(readAccountClosureRuntimeBinding(local('http://kong:8000/').env).target.url).toBe(KONG);
+  });
+  it('a production manifest is refused on the local stack', () => {
+    expect(() => readAccountClosureRuntimeBinding(local(KONG, 'production').env)).toThrow('closure_runtime_binding_unavailable');
+  });
+  it('a hosted target can never enter the local mode by claiming disposable: it keeps the hosted rule and hosted URL', () => {
+    const { env } = local('https://fixture-project.supabase.co');
+    expect(readAccountClosureRuntimeBinding(env).target.url).toBe('https://fixture-project.supabase.co');
+    expect(() => readAccountClosureRuntimeBinding(local('https://other.supabase.co').env)).toThrow();
+    expect(() => readAccountClosureRuntimeBinding(local('https://fixture-project.supabase.co:8443').env)).toThrow();
+  });
+  it('a loopback stack is also admitted for a disposable manifest (the shared local rule)', () => {
+    for (const url of ['http://127.0.0.1:54321', 'http://localhost:54321', 'http://[::1]:54321']) {
+      expect(readAccountClosureRuntimeBinding(local(url).env).target.url).toBe(url);
+      expect(() => readAccountClosureRuntimeBinding(local(url, 'production').env)).toThrow('closure_runtime_binding_unavailable');
+    }
+  });
+  it.each(['http://kong', 'http://kong:8001', 'https://kong:8000', 'https://127.0.0.1:54321',
+    'http://kong.example.test:8000', 'http://kong:8000.example.test', 'http://10.0.0.5:8000', 'http://fixture-project.supabase.co', 'https://example.test',
+    'http://127.0.0.1.nip.io:54321', 'http://localhost.example.test'])(
+    'a disposable manifest is refused on any non-local target: %s', (url) => {
+      expect(() => readAccountClosureRuntimeBinding(local(url).env)).toThrow('closure_runtime_binding_unavailable');
+    });
+  it.each(['http://user:secret@kong:8000', 'http://kong:8000/rest', 'http://kong:8000?x=1', 'http://kong:8000#x'])(
+    'the local target with credentials, a path, a query or a fragment is refused: %s', (url) => {
+      expect(() => readAccountClosureRuntimeBinding(local(url).env)).toThrow();
+    });
+  it('the executing worker must still belong to the manifest project on the local stack', () => {
+    const { env } = local();
+    expect(() => readAccountClosureRuntimeBinding((key) => key === 'DENO_DEPLOYMENT_ID' ? 'other-project_function_1' : env(key))).toThrow();
+  });
+});

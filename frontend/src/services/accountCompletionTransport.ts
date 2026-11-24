@@ -12,12 +12,17 @@ const MAX_REPLY_BYTES = 8192;
 export const COMPLETION_TIMEOUT_MS = 10_000;
 const BEARER = /^\S{1,4096}$/;
 
-/** The one completion-status URL for a Supabase project origin; null unless it is a plain HTTPS origin. */
+/** A local disposable Supabase stack's API on this machine (J1.f/J7.d local stack): plain http on a loopback host only. */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+export const isSecureOrLocalApiOrigin = (url: URL): boolean =>
+  url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname));
+
+/** The one completion-status URL for a Supabase project origin; null unless it is a plain HTTPS origin (or a loopback stack). */
 export function completionStatusTarget(supabaseUrl: unknown): string | null {
   if (typeof supabaseUrl !== 'string') return null;
   let url: URL;
   try { url = new URL(supabaseUrl); } catch { return null; }
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
+  if (!isSecureOrLocalApiOrigin(url) || url.username || url.password || url.search || url.hash
     || (url.pathname !== '/' && url.pathname !== '')) return null;
   return `${url.origin}${COMPLETION_STATUS_PATH}`;
 }

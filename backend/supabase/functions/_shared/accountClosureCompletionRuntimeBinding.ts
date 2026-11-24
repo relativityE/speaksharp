@@ -1,4 +1,5 @@
 import type { CompletionBinding } from './accountClosureCompletionAdapter.ts';
+import { isLocalDisposableTarget } from './accountClosureLocalTarget.ts';
 
 type Env = (name: string) => string | undefined;
 // Source identity of the ordered three account migrations plus completion SQL.
@@ -34,8 +35,8 @@ export async function readAccountClosureCompletionRuntimeBinding(env: Env): Prom
     || !['production', 'disposable'].includes(String(context.environment))) stop();
   const production = context.environment === 'production' && url.protocol === 'https:'
     && url.hostname === `${context.projectId}.supabase.co` && !url.port;
-  const disposable = context.environment === 'disposable' && url.protocol === 'http:'
-    && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  // The same local rule as the closure binding (accountClosureLocalTarget.ts), for a disposable manifest only.
+  const disposable = context.environment === 'disposable' && isLocalDisposableTarget(url);
   if ((!production && !disposable) || url.username || url.password || url.search || url.hash || url.pathname !== '/') stop();
   // Canonical tuple, including the actual executing worker and normalized target.
   const tuple = [1, worker, context.candidateSha, context.configDigest, context.migrationDigest,
