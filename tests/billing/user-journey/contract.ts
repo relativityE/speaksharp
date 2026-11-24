@@ -807,18 +807,92 @@ export function assertSandboxConfiguration(env: Record<string, string | undefine
 }
 
 /**
- * J9.a: each seeded earlier session was opened by its OWN id and showed its OWN transcript, and no other seeded session's.
- * Opening one session twice, a missing or foreign id, another session's text, an unread view, or seeds that are not two
- * or more distinct ids with distinct phrases all fail, so a count of opens can never stand in for the sessions themselves.
+ * J9.a: a refused history seed as a content-free receipt code. It names the database's error class only (a 5-character
+ * SQLSTATE such as 42501, or a PostgREST PGRST code), never its message, so the next failing run says why without
+ * any row text leaving the runner. No error and no row is `no_row`; an error without a recognised code is `other`.
  */
-export function keptHistoryVerdict(seeded: readonly { id: string; phrase: string }[],
-  opened: readonly { id: string; text: string | null }[]): boolean {
-  if (seeded.length < 2 || new Set(seeded.map(s => s.id)).size !== seeded.length
-    || new Set(seeded.map(s => s.phrase)).size !== seeded.length || seeded.some(s => !s.id || !s.phrase)) return false;
-  if (opened.length !== seeded.length || new Set(opened.map(o => o.id)).size !== opened.length) return false;
-  return seeded.every((own) => {
-    const view = opened.find(o => o.id === own.id);
-    return typeof view?.text === 'string' && view.text.includes(own.phrase)
-      && seeded.every(other => other.id === own.id || !view.text!.includes(other.phrase));
-  });
+export function historySeedFailure(error: unknown): string {
+  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
+  if (typeof code === 'string' && /^(?:[0-9A-Z]{5}|PGRST[0-9]{3})$/.test(code)) return `history_seed_failed_${code.toLowerCase()}`;
+  return error ? 'history_seed_failed_other' : 'history_seed_failed_no_row';
+}
+
+/** J9.a: the reviewed transcript retention policy (migration 20260908120000): only the newest saved take keeps its text. */
+export const RETENTION_POLICY_VERSION = 'newest_one_v1';
+
+/**
+ * J9.a precondition, read back from the database itself (Sam): the reviewed policy version, and active. A read error, another
+ * version, or an inactive policy is not active, so a seed into a database that would never expire anything cannot pass.
+ */
+export function retentionActive(read: { version: unknown; active: unknown }): boolean {
+  return read.version === RETENTION_POLICY_VERSION && read.active === true;
+}
+
+/** J9.a: a refused activation as a content-free code (the database's error class only), like historySeedFailure. */
+export function retentionActivationFailure(error: unknown): string {
+  return historySeedFailure(error).replace(/^history_seed_failed_/, 'retention_activation_failed_');
+}
+
+/** One of the account's session rows as J9.a reads it back (the member's own read). Values are compared, never reported. */
+export interface RetentionRowFacts {
+  id: unknown; transcript: unknown; transcript_state: unknown; duration: unknown; total_words: unknown; wpm: unknown; ai_suggestions: unknown;
+}
+export const RETENTION_ROW_COLUMNS = 'id,transcript,transcript_state,duration,total_words,wpm,ai_suggestions';
+
+/**
+ * J9.a server verdict after a REAL app save of the newest take: the account has exactly the older seeded session and that take;
+ * the older row is still listed with its metrics intact but its text is expired (no text, state expired) and its phrase is
+ * readable nowhere; the newest take keeps its text; and no coaching was stored for the older session. Returns null when all of
+ * that holds, otherwise the first failing reason as a content-free code, so a receipt says why without any row text.
+ */
+export function retentionRowsFailure(rows: readonly RetentionRowFacts[] | null,
+  older: { id: string; phrase: string; duration: number; total_words: number; wpm: number }, newestId: string): string | null {
+  if (!Array.isArray(rows)) return 'retention_rows_unread';
+  if (!older.id || !older.phrase.trim() || !newestId || older.id === newestId) return 'retention_ids_invalid';
+  const old = rows.filter(r => r.id === older.id);
+  const newest = rows.filter(r => r.id === newestId);
+  if (old.length !== 1) return 'retention_older_not_listed';
+  const kept = newest[0];
+  if (newest.length !== 1 || kept.transcript_state !== 'available' || typeof kept.transcript !== 'string' || !/\S/.test(kept.transcript)) {
+    return 'retention_newest_missing_or_textless';
+  }
+  if (rows.length !== 2) return 'retention_unexpected_rows';
+  if (old[0].transcript !== null || old[0].transcript_state !== 'expired') return 'retention_old_transcript_retained';
+  if (rows.some(r => typeof r.transcript === 'string' && r.transcript.includes(older.phrase))) return 'retention_old_phrase_readable';
+  const same = (value: unknown, expected: number) => value !== null && value !== '' && Number(value) === expected;
+  if (!same(old[0].duration, older.duration) || !same(old[0].total_words, older.total_words) || !same(old[0].wpm, older.wpm)) {
+    return 'retention_older_metrics_lost';
+  }
+  if (old[0].ai_suggestions !== null) return 'retention_coaching_stored_for_old_session';
+  return null;
+}
+
+/**
+ * What one session's detail page showed, as counts of elements (never the page's text): the page's own session id, the expired
+ * notice, the available-transcript block and whether it has any text, and how many elements contain the older phrase. `null` is
+ * unread, never zero or false.
+ */
+export interface RetentionDetailFacts {
+  id: string | null; expiredNotices: number | null; transcripts: number | null; transcriptHasText: boolean | null; oldPhraseElements: number | null;
+}
+
+/**
+ * J9.a view verdict on the paid return: the older session opens by its own id and shows the expired notice, no transcript and its
+ * phrase nowhere; the newest take opens by its own id and shows its own non-empty transcript, again without the older phrase.
+ * Returns null when both hold, otherwise the first failing reason as a content-free code.
+ */
+export function retentionViewFailure(views: { older: RetentionDetailFacts; newest: RetentionDetailFacts },
+  ids: { older: string; newest: string }): string | null {
+  const { older, newest } = views;
+  if (!ids.older || !ids.newest || ids.older === ids.newest) return 'retention_ids_invalid';
+  for (const view of [older, newest]) {
+    if (view.id === null || view.expiredNotices === null || view.transcripts === null || view.oldPhraseElements === null) return 'retention_view_unread';
+  }
+  if (older.id !== ids.older) return 'retention_older_view_wrong_session';
+  if (older.transcripts !== 0) return 'retention_old_transcript_shown';
+  if (older.expiredNotices !== 1) return 'retention_older_not_shown_expired';
+  if (newest.id !== ids.newest) return 'retention_newest_view_wrong_session';
+  if (newest.transcripts !== 1 || newest.expiredNotices !== 0 || newest.transcriptHasText !== true) return 'retention_newest_transcript_missing';
+  if (older.oldPhraseElements !== 0 || newest.oldPhraseElements !== 0) return 'retention_old_phrase_shown';
+  return null;
 }
