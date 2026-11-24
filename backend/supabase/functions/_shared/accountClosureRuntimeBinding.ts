@@ -9,8 +9,12 @@ const closed = (v: unknown, keys: string[]): v is Record<string, unknown> => obj
 const sha = (v: unknown, n = 64): v is string => typeof v === 'string' && new RegExp(`^[a-f0-9]{${n}}$`).test(v);
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v);
 function stop(): never { throw new Error('closure_runtime_binding_unavailable'); }
-/** Loopback hosts a local disposable stack serves on; never a hosted project. */
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+/**
+ * The one local target admitted: the Supabase CLI's internal gateway. `supabase functions serve` sets the function's
+ * SUPABASE_URL to exactly this, after the env-file entries, so an env-file cannot change it; a deployed function's
+ * platform-supplied URL is never it.
+ */
+const LOCAL_CLI_STACK_ORIGIN = 'http://kong:8000';
 
 /**
  * Backend-only, independently prepared current deployment/config/schema facts.
@@ -50,11 +54,11 @@ export function verifyAccountClosureRuntimeBinding(raw: string | undefined, targ
     || !['production', 'disposable'].includes(String(s.context.environment))) stop();
   // The TARGET decides the mode, never the manifest. A hosted target (https, no port, <project>.supabase.co — the URL
   // the platform supplies to a deployed function) keeps its existing rule. The only other target admitted is a local
-  // test stack: plain http on a loopback host, and then ONLY for a manifest that declares `disposable`. A hosted
-  // deployment cannot reach the local mode by claiming `disposable`, because its own target is never loopback; a
-  // `production` manifest is refused on loopback.
+  // CLI test stack, exactly http://kong:8000, and then ONLY for a manifest that declares `disposable`. A hosted
+  // deployment cannot reach the local mode by claiming `disposable`, because its own target is never kong:8000; a
+  // `production` manifest is refused there.
   const hosted = url.protocol === 'https:' && !url.port ? /^([a-z0-9-]{1,63})\.supabase\.co$/.exec(url.hostname) : null;
-  const local = url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);
+  const local = url.origin === LOCAL_CLI_STACK_ORIGIN;
   if (hosted) {
     if (s.context.projectId !== hosted[1]) stop();
   } else if (!local || s.context.environment !== 'disposable') stop();
