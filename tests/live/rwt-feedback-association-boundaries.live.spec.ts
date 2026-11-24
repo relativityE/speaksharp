@@ -38,7 +38,7 @@ import { JourneyFeedbackFence } from './helpers/feedbackFence';
 import { j8ParentOpsFromEnv, parentFenceClient, parentIdentityAndClaim, parentReportReader, parentReportsByKeys, parentTakeRows } from './helpers/j8ParentOpsClient';
 import {
     J8_FENCE_CASE, J8_FENCE_KEY_CAP, J8_LEGS, J8_LEGACY_REFUSAL, J8_SUITE, type J8Leg, J8WriteGate, type J8WriteOutcome, TAKE_PROJECTION_FIELDS, j8AdmissionPresent, j8ParentPreflight, j8RunnerAdmission, J8_CONSENT_MODE, j8BackendApiKey, j8OwnerChoiceClient, j8OwnerToken,
-    j8bFinalSentFeedbackVerdict, legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
+    j8bFinalSentFeedbackVerdict, j8cSessionChoices, legReadback, legReceipt, legSink, mergeLegReadback, readTakeDigests, takesReadComplete, takesUnchangedVerdict, writerDrainedVerdict,
     type StartPressCounts, legStartPressVerdict, startPressSnapshot,
 } from './helpers/rwtJ8Journey';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -245,10 +245,10 @@ async function submitOpenDialog(
     } else if (association === 'no_session_with_takes') {
         // J8.c (Sam, 2026-11-15): exactly "No session" plus the two distinct saved takes, each listed once; then No session.
         if (!listedTakes || new Set(listedTakes).size !== 2) throw new Error('J8.c requires the two distinct saved take ids');
-        const values = await selector.locator('option').evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
-        expect(values.filter((v) => v === '__none')).toHaveLength(1);
-        for (const take of listedTakes) expect(values.filter((v) => v === take)).toHaveLength(1);
-        expect(values).toHaveLength(3);
+        // The dialog's disabled `__sep` rule is not a choice (j8cSessionChoices).
+        const options = await selector.locator('option').evaluateAll((all) => all.map((option) =>
+            ({ value: (option as HTMLOptionElement).value, disabled: (option as HTMLOptionElement).disabled })));
+        expect(j8cSessionChoices(options, listedTakes)).toEqual({ ok: true });
         await selector.selectOption('__none');
     } else {
         await expect(selector.locator('option[value="__none"]')).toHaveCount(1);

@@ -29,11 +29,15 @@ const htmlResponse = () => ({
 });
 const summaryEndpoint = "https://test.supabase.co/storage/v1/object/public/ops-health/ops-health.summary.json";
 const view = () => render(<OpsStatusPage summaryEndpoint={summaryEndpoint} />, { route: '/admin/ops-status', path: '/admin/ops-status' });
-function service(name: string): HTMLDetailsElement {
-  const row = screen.getByText(name, { exact: true }).closest('details');
+function service(name: string): HTMLTableRowElement {
+  const row = screen.getByText(name, { exact: true }).closest('tr');
   if (!row) throw Error('Service row not rendered: ' + name);
   return row;
 }
+const toggle = (row: HTMLTableRowElement) => within(row).getByRole('button');
+const panel = (row: HTMLTableRowElement) => document.getElementById(toggle(row).getAttribute('aria-controls')!)!;
+const status = (row: HTMLTableRowElement) => row.cells[1];
+const info = (row: HTMLTableRowElement) => row.cells[2];
 
 describe('OpsStatusPage', () => {
   beforeEach(() => {
@@ -48,15 +52,43 @@ describe('OpsStatusPage', () => {
     await screen.findByText('The production page responded');
     expect(screen.getByRole('heading', { name: 'Software health' })).toBeInTheDocument();
     expect(screen.getByText(/Latest published report/)).toBeInTheDocument();
-    expect(screen.getByTestId('ops-status-checks').querySelectorAll('details')).toHaveLength(3);
+    expect(screen.getByRole('table', { name: 'Software API status' }).querySelectorAll('tbody th[scope=row]')).toHaveLength(3);
     const row = service('SpeakSharp');
-    expect(row.open).toBe(false);
-    expect(row.querySelector('summary')).toHaveTextContent('Working');
-    fireEvent.click(row.querySelector('summary')!);
-    expect(row.open).toBe(true);
-    expect(within(row).getByText('Does not run sign-in, recording or any user journey.')).toBeInTheDocument();
-    expect(within(row).getByRole('link', { name: 'Open SpeakSharp' })).toHaveAttribute('href', 'https://speaksharp-public.vercel.app/');
+    expect(toggle(row)).toHaveAttribute('aria-expanded', 'false');
+    expect(panel(row)).not.toBeVisible();
+    expect(status(row)).toHaveAttribute('aria-label', 'Working');
+    expect(info(row)).toBeEmptyDOMElement();
+    fireEvent.click(toggle(row));
+    expect(toggle(row)).toHaveAttribute('aria-expanded', 'true');
+    expect(panel(row)).toBeVisible();
+    expect(within(panel(row)).getByText('Does not run sign-in, recording or any user journey.')).toBeInTheDocument();
+    expect(within(panel(row)).getByRole('link', { name: 'Open SpeakSharp' })).toHaveAttribute('href', 'https://speaksharp-public.vercel.app/');
     expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('ops-health.summary.json'), { cache: 'no-store' });
+  });
+
+  it('uses one shared legend and reveals checked capabilities on name hover and focus without raw key/value text', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ ...payload, checks: [...payload.checks, {
+      name: 'Sentry API', status: 'pass', evidence: 'project=200', checkedAt: now,
+    }] }) as Response);
+    view();
+    const name = await screen.findByText('Sentry', { exact: true });
+    const row = service('Sentry');
+    const tooltip = within(row).getByRole('tooltip');
+    expect(info(row)).toBeEmptyDOMElement();
+    expect(row).not.toHaveTextContent('project=200');
+    expect(row).not.toHaveTextContent('No action');
+    expect(tooltip).toHaveClass('sr-only');
+    fireEvent.mouseEnter(name.parentElement!);
+    expect(tooltip).not.toHaveClass('sr-only');
+    expect(tooltip).toHaveTextContent('Sentry APIs responsive');
+    fireEvent.mouseLeave(name.parentElement!);
+    expect(tooltip).toHaveClass('sr-only');
+    fireEvent.focus(name);
+    expect(tooltip).not.toHaveClass('sr-only');
+    fireEvent.keyDown(name, { key: 'Escape' });
+    expect(tooltip).toHaveClass('sr-only');
+    expect(screen.getAllByLabelText('Status legend')).toHaveLength(1);
+    expect(info(service('AI Service -- LLM'))).toHaveTextContent('Generation not checked');
   });
 
   it('reloads the published report and shows the newer check without dispatching a job', async () => {
@@ -70,13 +102,13 @@ describe('OpsStatusPage', () => {
     view();
     await screen.findByText('The production page responded');
     fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
-    await screen.findByText('See what did not pass');
+    await within(info(service('SpeakSharp'))).findByText('HTTP 503');
     const row = service('SpeakSharp');
-    expect(row.querySelector('summary')).toHaveTextContent('Check failed');
+    expect(status(row)).toHaveAttribute('aria-label', 'Check failed');
     expect(document.querySelector('time')?.getAttribute('datetime')).toBe(updatedAt);
-    fireEvent.click(row.querySelector('summary')!);
-    expect(within(row).getByText('HTTP 503')).toBeInTheDocument();
-    expect(row.querySelector('time')).toHaveAttribute('datetime', updatedAt);
+    fireEvent.click(toggle(row));
+    expect(within(panel(row)).getByText('HTTP 503')).toBeInTheDocument();
+    expect(panel(row).querySelector('time')).toHaveAttribute('datetime', updatedAt);
     expect(vi.mocked(globalThis.fetch).mock.calls).toEqual([
       [summaryEndpoint, { cache: 'no-store' }], [summaryEndpoint, { cache: 'no-store' }],
     ]);
@@ -84,27 +116,29 @@ describe('OpsStatusPage', () => {
 
   it('shows GitHub working even when SpeakSharp CI blocks release, with run and workflow links under GitHub', async () => {
     view();
-    await screen.findByText('Repository and Actions readable');
+    await screen.findByText('GitHub', { exact: true });
     expect(screen.getByTestId('ops-status-verdict')).toHaveTextContent('Action required');
     const row = service('GitHub');
-    expect(row.querySelector('summary')).toHaveTextContent('Working');
-    expect(row.open).toBe(false);
-    fireEvent.click(row.querySelector('summary')!);
-    expect(within(row).getByText('Repository API: Passed.')).toBeInTheDocument();
-    expect(within(row).getByText('Actions API: Passed.')).toBeInTheDocument();
-    expect(within(row).getByText('Latest CI run: Failed')).toBeInTheDocument();
-    expect(within(row).getByText('Full live release gate on main: No qualifying run found')).toBeInTheDocument();
-    expect(within(row).getByRole('link', { name: 'Open CI in Actions' })).toHaveAttribute('href', actions + '/runs/381');
-    expect(within(row).getByRole('link', { name: 'Open release gate in Actions' })).toHaveAttribute('href', actions + '/workflows/rc-gates.yml');
-    expect(within(row).getAllByText(/Recorded .* UTC/i)).toHaveLength(2);
+    expect(status(row)).toHaveAttribute('aria-label', 'Working');
+    expect(info(row)).toBeEmptyDOMElement();
+    expect(toggle(row)).toHaveAttribute('aria-expanded', 'false');
+    expect(panel(row)).not.toBeVisible();
+    fireEvent.click(toggle(row));
+    expect(within(panel(row)).getByText('Repository API: Passed.')).toBeInTheDocument();
+    expect(within(panel(row)).getByText('Actions API: Passed.')).toBeInTheDocument();
+    expect(within(panel(row)).getByText('Latest CI run: Failed')).toBeInTheDocument();
+    expect(within(panel(row)).getByText('Full live release gate on main: No qualifying run found')).toBeInTheDocument();
+    expect(within(panel(row)).getByRole('link', { name: 'Open CI in Actions' })).toHaveAttribute('href', actions + '/runs/381');
+    expect(within(panel(row)).getByRole('link', { name: 'Open release gate in Actions' })).toHaveAttribute('href', actions + '/workflows/rc-gates.yml');
+    expect(within(panel(row)).getAllByText(/Recorded .* UTC/i)).toHaveLength(2);
     expect(screen.queryByText(/private=false/)).not.toBeInTheDocument();
   });
 
   it('does not show a green generation or end-to-end status from legacy Gemini catalog success', async () => {
     view();
     await screen.findByText('Gemini · Version: Not reported');
-    expect(service('AI Service -- LLM').querySelector('summary')).toHaveTextContent('Review');
-    expect(service('AI Service -- LLM').querySelector('summary')).not.toHaveTextContent('Working');
+    expect(status(service('AI Service -- LLM'))).toHaveAttribute('aria-label', 'Review');
+    expect(status(service('AI Service -- LLM'))).not.toHaveAttribute('aria-label', 'Working');
     expect(screen.queryByText('* Latest working version')).not.toBeInTheDocument();
   });
 
@@ -117,20 +151,22 @@ describe('OpsStatusPage', () => {
     view();
     await screen.findByText('AI Service -- LLM');
     const row = service('AI Service -- LLM');
-    expect(row.querySelector('summary')).toHaveTextContent('Check failed');
-    expect(row.querySelector('summary')).toHaveTextContent('Gemini · Version: gemini-3.5-flash-lite-001*');
+    expect(status(row)).toHaveAttribute('aria-label', 'Check failed');
+    expect(info(row)).toHaveTextContent('Gemini · Version: gemini-3.5-flash-lite-001*');
     expect(within(row).getByText('* Latest working version')).toBeInTheDocument();
-    expect(row.open).toBe(false);
-    const summaries = Array.from(screen.getByTestId('ops-status-checks').querySelectorAll('summary')).map(item => item.textContent);
+    expect(toggle(row)).toHaveAttribute('aria-expanded', 'false');
+    expect(panel(row)).not.toBeVisible();
+    const summaries = Array.from(screen.getByRole('table').querySelectorAll('tbody th[scope=row]')).map(item => item.textContent);
     expect(summaries.filter(text => text?.includes('AI Service -- LLM'))).toHaveLength(1);
     expect(summaries.join(' ')).not.toMatch(/Gemini API|Gemini generation/);
-    fireEvent.click(row.querySelector('summary')!);
-    expect(row.open).toBe(true);
-    expect(within(row).getByText('Gemini API: Passed.')).toBeInTheDocument();
-    expect(within(row).getByText('Gemini generation: Did not pass.')).toBeInTheDocument();
-    expect(within(row).getByText(/Highest tested model.*gemini-3.5-flash-lite-001/)).toBeInTheDocument();
-    expect(within(row).getByText('gemini-3.6-flash: Rate limited (HTTP 429)')).toBeInTheDocument();
-    expect(within(row).getByText('2 listed model(s) were not tested.')).toBeInTheDocument();
+    fireEvent.click(toggle(row));
+    expect(toggle(row)).toHaveAttribute('aria-expanded', 'true');
+    expect(panel(row)).toBeVisible();
+    expect(within(panel(row)).getByText('Gemini API: Passed.')).toBeInTheDocument();
+    expect(within(panel(row)).getByText('Gemini generation: Did not pass.')).toBeInTheDocument();
+    expect(within(panel(row)).getByText(/Highest tested model.*gemini-3.5-flash-lite-001/)).toBeInTheDocument();
+    expect(within(panel(row)).getByText('gemini-3.6-flash: Rate limited (HTTP 429)')).toBeInTheDocument();
+    expect(within(panel(row)).getByText('2 listed model(s) were not tested.')).toBeInTheDocument();
   });
 
   it('shows a safe typed observed version without relying on free-form evidence and never marks stale data current', async () => {
@@ -139,7 +175,7 @@ describe('OpsStatusPage', () => {
     view();
     await screen.findByText('AI Service -- LLM');
     let row = service('AI Service -- LLM');
-    expect(row.querySelector('summary')).toHaveTextContent('Gemini · Version: gemini-3.5-flash-lite-002*');
+    expect(info(row)).toHaveTextContent('Gemini · Version: gemini-3.5-flash-lite-002*');
     expect(within(row).getByText('* Latest working version')).toBeInTheDocument();
     expect(screen.queryByText('Gemini highest working model')).not.toBeInTheDocument();
 
@@ -149,7 +185,7 @@ describe('OpsStatusPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
     await screen.findByText(/Stale or bundled report/);
     row = service('AI Service -- LLM');
-    expect(row.querySelector('summary')).toHaveTextContent('Historical');
+    expect(status(row)).toHaveAttribute('aria-label', 'Historical');
     expect(within(row).queryByText('* Latest working version')).not.toBeInTheDocument();
     expect(row.querySelector('sup')).toBeNull();
   });
@@ -163,14 +199,14 @@ describe('OpsStatusPage', () => {
     await screen.findByText('Gemini · Version: Not reported');
     expect(screen.queryByText('* Latest working version')).not.toBeInTheDocument();
     expect(service('AI Service -- LLM')).not.toHaveTextContent('secret=value');
-    expect(service('AI Service -- LLM').querySelector('summary')).not.toHaveTextContent('gemini-3.5-flash');
+    expect(info(service('AI Service -- LLM'))).not.toHaveTextContent('gemini-3.5-flash');
   });
 
   it('accepts the old published schema without turning workflow failures into GitHub outages', async () => {
     vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ ...payload, checks: [app, { ...git, github: undefined }] }) as Response);
     view();
     await screen.findByText('Older report did not separate access from workflow results');
-    expect(service('GitHub').querySelector('summary')).toHaveTextContent('Not checked');
+    expect(status(service('GitHub'))).toHaveAttribute('aria-label', 'Not checked');
     expect(screen.getByTestId('ops-status-verdict')).toHaveTextContent('Action required');
   });
 
@@ -180,7 +216,7 @@ describe('OpsStatusPage', () => {
     }) as Response);
     view();
     await screen.findByText(/Stale or bundled report\./);
-    expect(service('GitHub').querySelector('summary')).toHaveTextContent('Historical');
+    expect(status(service('GitHub'))).toHaveAttribute('aria-label', 'Historical');
     expect(screen.getByTestId('ops-status-verdict')).not.toHaveTextContent('Checks passed');
   });
 
@@ -189,8 +225,8 @@ describe('OpsStatusPage', () => {
     view();
     await screen.findByText(/Stale or bundled report\./);
     expect(screen.getByTestId('ops-status-verdict')).toHaveTextContent('Historical only');
-    expect(service('SpeakSharp').querySelector('summary')).toHaveTextContent('Historical');
-    expect(service('SpeakSharp').querySelector('summary')).not.toHaveTextContent('Working');
+    expect(status(service('SpeakSharp'))).toHaveAttribute('aria-label', 'Historical');
+    expect(status(service('SpeakSharp'))).not.toHaveAttribute('aria-label', 'Working');
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, '/ops-health/ops-health.summary.json', { cache: 'no-store' });
   });
 });

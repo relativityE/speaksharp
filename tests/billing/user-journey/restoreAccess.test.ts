@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Window } from 'happy-dom';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
-  portalShowsPlan, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX } from './restoreAccess';
+  portalShowsPlan, portalPlanMiss, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX } from './restoreAccess';
 import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
 import { sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
@@ -188,6 +188,38 @@ describe('Manage billing shows the plan', () => {
     // The cadence element is fine but the block naming the current plan also lists another price.
     expect(portalShowsPlan([['$10.00 per month', 'Current plan\n$10.00 per month\nUpgrade to Team $25.00 per month']])).toBe(false);
   });
+  it('keeps the heading exact: "Current plan" only; any other heading fails and reads as no_plan_block', () => {
+    // Not widened on a guess (Sam, 2026-11-24): run 45361320828 never showed which heading Stripe used. If it was this one,
+    // the next run says so as portal_plan_not_shown_no_plan_block instead of a bare timeout.
+    for (const label of ['Current subscription', 'Subscription', 'Your plan', 'Current', 'Plan', 'Current plans page']) {
+      const block = `${label}\nSpeakSharp Pro\n$10.00 per month`;
+      expect({ label, shown: portalShowsPlan([['$10.00 per month', block]]), miss: portalPlanMiss([['$10.00 per month', block]]) })
+        .toEqual({ label, shown: false, miss: 'no_plan_block' });
+    }
+    expect(portalPlanMiss([['$10.00 per month', 'Current plan\nSpeakSharp Pro\n$10.00 per month']])).toBeNull();
+  });
+  it('names the furthest condition any visible $10.00 reached, as one fixed word, and null only when one passes', () => {
+    expect(portalPlanMiss([['US$10.00 per month', plan, page]])).toBeNull();
+    expect(portalPlanMiss(null)).toBe('unreadable');
+    expect(portalPlanMiss([[7]])).toBe('unreadable');
+    expect(portalPlanMiss([])).toBe('no_visible_price');
+    expect(portalPlanMiss([['Pro', 'Pro $10.00 per month']])).toBe('no_visible_price');
+    expect(portalPlanMiss([['$10.00', 'Invoice history\n$10.00 Paid']])).toBe('no_cadence');
+    expect(portalPlanMiss([[`$10.00 per month ${'x'.repeat(PLAN_LINE_MAX)}`, plan]])).toBe('line_too_long');
+    expect(portalPlanMiss([['$10.00 per month', 'SpeakSharp Pro\n$10.00 per month']])).toBe('no_plan_block');
+    expect(portalPlanMiss([['$10.00 per month', `Current plan\n$10.00 per month\n${'x'.repeat(PLAN_BLOCK_MAX)}`]])).toBe('no_plan_block');
+    expect(portalPlanMiss([['$10.00 per month', 'Current plan\n$10.00 per month\nUpgrade to Team $25.00 per month']])).toBe('other_amount');
+    // The furthest reached across chains decides, whatever their order; a passing chain anywhere wins.
+    const cadenceOnly = ['$10.00', 'Invoice history\n$10.00 Paid'];
+    const noBlock = ['$10.00 per month', 'SpeakSharp Pro\n$10.00 per month'];
+    expect(portalPlanMiss([noBlock, cadenceOnly])).toBe('no_plan_block');
+    expect(portalPlanMiss([cadenceOnly, noBlock])).toBe('no_plan_block');
+    expect(portalPlanMiss([noBlock, ['US$10.00 per month', plan, page]])).toBeNull();
+    // Every word fits the receipt's closed failure-code alphabet.
+    for (const word of ['unreadable', 'no_visible_price', 'no_cadence', 'line_too_long', 'no_plan_block', 'other_amount']) {
+      expect(`portal_plan_not_shown_${word}`).toMatch(/^[a-z0-9_]{1,160}$/);
+    }
+  });
   it('refuses a line or block over its length limit', () => {
     expect(portalShowsPlan([[`$10.00 per month ${'x'.repeat(PLAN_LINE_MAX)}`, plan]])).toBe(false);
     expect(portalShowsPlan([['$10.00 per month', `Current plan\n$10.00 per month\n${'x'.repeat(PLAN_BLOCK_MAX)}`]])).toBe(false);
@@ -314,14 +346,21 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(branch.indexOf("this.steps.add('history_restored')")).toBeGreaterThan(listed);
     expect(branch.match(/this\.record\(\)/g)).toHaveLength(1);
     expect(branch.indexOf('this.record()')).toBeGreaterThan(branch.indexOf("this.steps.add('portal_plan')"));
-    const portal = spec.slice(spec.indexOf('  async portalPlan(): Promise<void> {'), spec.indexOf('  async planAncestries(): Promise<string[][]> {'));
+    const portal = spec.slice(spec.indexOf('  async portalPlan(): Promise<void> {'), spec.indexOf('  async planAncestries(page: Page): Promise<string[][]> {'));
     expect(portal.length).toBeGreaterThan(0);
     expect(portal).toMatch(/waitForURL\(url => url\.origin === 'https:\/\/billing\.stripe\.com'/);
-    // The portal check reads per-element ancestries, never the whole page's text.
-    expect(portal).toMatch(/portalShowsPlan\(await this\.planAncestries\(\)/);
+    // The portal check reads per-element ancestries, never the whole page's text, and a timeout names its fixed reason.
+    expect(portal).toMatch(/await this\.awaitPortalPlan\(this\.page\);/);
+    expect(spec).toMatch(/portalPlanMiss\(await this\.planAncestries\(page\)\.catch\(\(\) => null\)\)/);
+    expect(spec).toMatch(/throw new Error\(`BILLING_JOURNEY:portal_plan_not_shown_\$\{miss \?\? 'unreadable'\}`\)/);
+    // J9.a's paid_account_kept reads the same way in its fresh context: never its own innerText scan.
+    const kept = spec.slice(spec.indexOf("this.stage = 'portal_plan_shown';"), spec.indexOf("this.steps.add('portal_plan_shown');"));
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept).toMatch(/await this\.awaitPortalPlan\(other\);/);
+    expect(kept).not.toMatch(/innerText|textContent|querySelectorAll/);
     // Only visible $10.00 elements, read as visible text (visiblePlanChains), never innerText (which includes hidden content).
-    expect(spec).toMatch(/return this\.page\.getByText\(\/\\\$\\s\?10\\\.00\/\)\.evaluateAll\(visiblePlanChains\);/);
-    const ancestries = spec.slice(spec.indexOf('  async planAncestries(): Promise<string[][]> {'));
+    expect(spec).toMatch(/return page\.getByText\(\/\\\$\\s\?10\\\.00\/\)\.evaluateAll\(visiblePlanChains\);/);
+    const ancestries = spec.slice(spec.indexOf('  async planAncestries(page: Page): Promise<string[][]> {'));
     expect(ancestries.slice(0, ancestries.indexOf('\n  }\n'))).not.toMatch(/innerText|textContent/);
     expect(spec).not.toMatch(/portalShowsPlan\(await this\.page\.locator\('body'\)/);
   });

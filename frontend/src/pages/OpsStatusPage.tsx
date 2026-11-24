@@ -38,17 +38,13 @@ type Service = {
   status: Status;
   headline: string;
   versionVerified?: boolean;
+  reason?: string;
   details: string[];
   checkedAt?: string;
   links?: { label: string; url?: string | null }[];
 };
 
-const STYLES: Record<Status, string> = {
-  pass: 'border-success/30 bg-success/10 text-success',
-  fail: 'border-destructive/35 bg-destructive/10 text-destructive',
-  warn: 'border-primary/35 bg-primary/10 text-signature-text',
-  skip: 'border-neutral-border bg-neutral-band text-neutral-secondary',
-};
+const DOTS = { pass: 'bg-success', warn: 'bg-yellow-500', fail: 'bg-destructive' } as const;
 const LABELS: Record<Status, string> = { pass: 'Working', fail: 'Check failed', warn: 'Review', skip: 'Not checked' };
 const ORDER: Record<Status, number> = { fail: 0, warn: 1, skip: 2, pass: 3 };
 const WORKFLOWS = { ci: 'Latest CI run', canary: 'Latest canary run', release: 'Full live release gate on main' } as const;
@@ -58,7 +54,7 @@ const KNOWN: Record<string, { name: string; checked: string; limits: string; lin
   'Vercel API': { name: 'Vercel', checked: 'Latest production deployment ready', limits: 'Does not verify app features or every deployment.', link: 'Open Vercel deployments' },
   'Supabase API': { name: 'Supabase', checked: 'Auth settings and usage endpoint reachable', limits: 'Reads Auth settings and checks whether the usage endpoint accepts a preflight. Does not sign a user in, run the function or query the database.', link: 'Open Supabase' },
   'Stripe API': { name: 'Stripe', checked: 'Balance and active Pro price readable', limits: 'Read-only. Does not create a charge, exercise checkout or verify webhook delivery.', link: 'Open Stripe' },
-  'Sentry API': { name: 'Sentry', checked: 'Project information readable', limits: 'Does not send a test error or verify ingestion.', link: 'Open Sentry' },
+  'Sentry API': { name: 'Sentry', checked: 'Sentry APIs responsive', limits: 'Does not send a test error or verify ingestion.', link: 'Open Sentry' },
   'PostHog API': { name: 'PostHog', checked: 'Analytics test query responded', limits: 'Does not send a test event or verify ingestion.', link: 'Open PostHog' },
 };
 const MAX_CURRENT_AGE = 26 * 60 * 60 * 1000; // Daily report plus two hours for normal scheduling delay.
@@ -68,7 +64,7 @@ function publishedEndpoint() {
 }
 
 const isStatus = (value: unknown): value is Status =>
-  typeof value === 'string' && Object.hasOwn(LABELS, value);
+  typeof value === 'string' && Object.prototype.hasOwnProperty.call(LABELS, value);
 
 function timestamp(value?: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return null;
@@ -110,7 +106,7 @@ const currentAge = (value?: string | null) => {
 function checksForDisplay(checks: Check[]): Service[] {
   const cards: Service[] = [];
   for (const check of checks) {
-    const scope = Object.hasOwn(KNOWN, check.name) ? KNOWN[check.name] : null;
+    const scope = Object.prototype.hasOwnProperty.call(KNOWN, check.name) ? KNOWN[check.name] : null;
     if (!scope) continue;
     const http = [...evidenceText(check).matchAll(/\b(?:HTTP |(?:auth|check-usage-limit|balance|pro|project|query)=)([1-5]\d{2})\b/g)]
       .map((match) => match[0]);
@@ -123,10 +119,12 @@ function checksForDisplay(checks: Check[]): Service[] {
       return value ? labels[key] + ': HTTP ' + value : item;
     });
     const deployment = check.name === 'Vercel API' ? evidenceText(check).match(/\blatest=(READY|BUILDING|QUEUED|INITIALIZING|ERROR|CANCELED)\b/)?.[1] : null;
-    const details = [scope.checked + ': ' + outcomeText(check.status) + '.', ...readable,
+    const details = [...(check.name === 'Sentry API' ? [] : readable),
       ...(deployment ? ['Deployment state: ' + deployment.toLowerCase() + '.'] : []), scope.limits];
     cards.push({ name: scope.name, status: check.status,
-      headline: check.status === 'pass' ? scope.checked : check.status === 'skip' ? 'No result for this check' : 'See what did not pass',
+      headline: scope.checked,
+      reason: check.status === 'fail' ? (readable.find((item) => /HTTP [45]/.test(item))?.replace('Project:', 'Sentry:') ?? 'Service check failed')
+        : check.status === 'warn' ? (deployment ? 'Deployment ' + deployment.toLowerCase() : 'Check needs review') : 'Check unavailable',
       details, checkedAt: check.checkedAt, links: [{ label: scope.link, url: check.drilldownUrl }] });
   }
 
@@ -152,6 +150,10 @@ function checksForDisplay(checks: Check[]): Service[] {
       : generation?.status === 'pass' && gemini?.status === 'pass' && (validVersion || !sweep) ? 'pass'
         : generation?.status === 'pass' || validVersion || gemini?.status === 'pass' ? 'warn' : 'skip';
     cards.push({ name: 'AI Service -- LLM', status,
+      reason: generation?.status === 'fail' ? 'Configured model generation failed'
+        : gemini?.status === 'fail' ? 'Model list check failed'
+          : sweep?.status === 'fail' ? 'No tested model generated text'
+            : !generation || generation.status === 'skip' ? 'Generation not checked' : 'Model version not verified',
       headline: 'Gemini · Version: ' + (validVersion ?? 'Not reported'), versionVerified: Boolean(validVersion),
       checkedAt: (sweepVersion ? sweep?.checkedAt : generation?.checkedAt) ?? gemini?.checkedAt ?? sweep?.checkedAt,
       details: ['Gemini API: ' + outcomeText(gemini?.status ?? 'skip') + '.',
@@ -175,7 +177,10 @@ function checksForDisplay(checks: Check[]): Service[] {
       : repository === 'pass' && actions === 'pass' ? 'pass'
         : repository === 'pass' || actions === 'warn' ? 'warn' : 'skip';
     cards.push({ name: 'GitHub', status, checkedAt: git.checkedAt,
-      headline: status === 'pass' ? 'Repository and Actions readable' : github ? 'Repository or Actions access not fully verified' : 'Older report did not separate access from workflow results',
+      headline: 'Repository and Actions APIs readable',
+      reason: !github ? 'Older report did not separate access from workflow results'
+        : repository === 'fail' ? 'Repository API did not respond as expected'
+          : actions === 'fail' ? 'Actions run list unavailable' : 'Actions access not fully verified',
       details: ['Repository API: ' + outcomeText(repository) + '.', 'Actions API: ' + outcomeText(actions) + '.',
         'CI, canary and release outcomes are listed separately below.'],
       links: [{ label: 'Open repository', url: github?.repositoryUrl }, { label: 'Open Actions', url: github?.actionsUrl ?? git.drilldownUrl }] });
@@ -217,7 +222,7 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
   const services = checksForDisplay(checks);
   const github = checks.find((check) => check.name === 'GitHub API')?.github;
   const workflows = Array.isArray(github?.workflows)
-    ? github.workflows.filter((row) => row && Object.hasOwn(WORKFLOWS, row.kind) && Object.hasOwn(OUTCOMES, row.outcome))
+    ? github.workflows.filter((row) => row && Object.prototype.hasOwnProperty.call(WORKFLOWS, row.kind) && Object.prototype.hasOwnProperty.call(OUTCOMES, row.outcome))
     : [];
   const blocked = (report?.summary?.fail ?? 0) > 0 || checks.some((check) => check.status === 'fail')
     || workflows.some((workflow) => workflow.outcome === 'failed');
@@ -227,12 +232,11 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
         || checks.some(({ status }) => status !== 'pass') ? 'Not verified' : 'Checks passed';
 
   return (
-    <div className="min-h-screen bg-background px-4 pb-8 pt-24">
-      <div className="mx-auto max-w-4xl space-y-3">
+    <div className="min-h-screen bg-background px-4 pb-4 pt-24 lg:pt-20">
+      <div className="mx-auto max-w-4xl space-y-2 lg:max-w-[min(75vw,56rem)]">
         <header className="flex flex-wrap justify-between gap-4">
           <div>
             <h1 className="text-2xl font-extrabold text-foreground">Software health</h1>
-            <p className="mt-1 text-sm text-muted-foreground">SpeakSharp’s latest checks. Open a service for what was tested.</p>
           </div>
           <Button onClick={() => { void load(); }} disabled={loading}>
             <RefreshCw aria-hidden="true" className={'mr-2 h-4 w-4 ' + (loading ? 'animate-spin' : '')} />
@@ -254,12 +258,23 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
           </div>
         ) : null}
         {services.length > 0 ? (
-          <Card className="divide-y divide-border" data-testid="ops-status-checks">
-            {services.map((service) => (
-              <ServiceCard key={service.name} service={service} historical={historical || (!!service.checkedAt && !currentAge(service.checkedAt))}>
-                {service.name === 'GitHub' ? <ReleaseDetails workflows={workflows} /> : null}
-              </ServiceCard>
-            ))}
+          <Card className="px-3" data-testid="ops-status-checks">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 py-1.5 text-xs text-muted-foreground" aria-label="Status legend">
+              {([['pass', 'Working'], ['warn', 'Review or not checked'], ['fail', 'Check failed']] as const).map(([tone, label]) => (
+                <span key={tone} className="inline-flex items-center gap-1.5"><StatusDot tone={tone} />{label}</span>
+              ))}
+            </div>
+            <table className="w-full table-auto border-collapse text-sm" aria-label="Software API status">
+              <thead className="border-b border-border text-xs text-muted-foreground">
+                <tr><th scope="col" className="py-1 text-left">Service</th><th scope="col" className="w-12 text-center">Status</th>
+                  <th scope="col" className="py-1 text-left">Info</th><th scope="col" className="w-8"><span className="sr-only">Details</span></th></tr>
+              </thead>
+              <tbody>{services.map((service) => (
+                <ServiceRow key={service.name} service={service} historical={historical || (!!service.checkedAt && !currentAge(service.checkedAt))}>
+                  {service.name === 'GitHub' ? <ReleaseDetails workflows={workflows} /> : null}
+                </ServiceRow>
+              ))}</tbody>
+            </table>
           </Card>
         ) : null}
       </div>
@@ -301,30 +316,60 @@ const ReleaseDetails: React.FC<{ workflows: Workflow[] }> = ({ workflows }) => (
   </section>
 );
 
-const ServiceCard: React.FC<React.PropsWithChildren<{ service: Service; historical: boolean }>> = ({ service, historical, children }) => (
-  <details>
-    <summary className="cursor-pointer px-3 py-2 focus-visible:outline focus-visible:outline-2">
-      <span className="inline-grid w-[calc(100%-1.35rem)] grid-cols-[6.8rem_6.6rem_minmax(0,1fr)] items-center gap-2 align-middle sm:grid-cols-[8rem_7rem_minmax(0,1fr)]">
-        <span className="text-sm font-bold text-foreground">{service.name}</span>
-        <span className={'justify-self-start rounded-full border px-2 py-0.5 text-xs font-bold ' + STYLES[historical ? 'skip' : service.status]}>
-          {historical ? 'Historical' : LABELS[service.status]}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {service.headline}{service.versionVerified && !historical ? (
-            <><sup aria-hidden="true">*</sup><span className="block text-[10px] leading-tight">* Latest working version</span></>
-          ) : null}
-        </span>
-      </span>
-    </summary>
-    <div className="space-y-2 border-t border-border px-5 py-3 text-sm">
-      <ul className="list-disc space-y-1 pl-5">{service.details.map((detail) => <li key={detail}>{detail}</li>)}</ul>
-      {timestamp(service.checkedAt) ? <p className="text-muted-foreground">Last checked <time dateTime={service.checkedAt}>{timestamp(service.checkedAt)}</time></p> : null}
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {service.links?.map((link) => <DetailLink key={link.label} {...link} />)}
-      </div>
-      {children}
-    </div>
-  </details>
+const StatusDot: React.FC<{ tone: keyof typeof DOTS }> = ({ tone }) => (
+  <span aria-hidden="true" className={'inline-block h-2.5 w-2.5 rounded-full ' + DOTS[tone]} />
 );
+
+const ServiceRow: React.FC<React.PropsWithChildren<{ service: Service; historical: boolean }>> = ({ service, historical, children }) => {
+  const [open, setOpen] = React.useState(false);
+  const [tooltipOpen, setTooltipOpen] = React.useState(false);
+  const [focused, setFocused] = React.useState(false);
+  const id = React.useId();
+  const ai = service.name === 'AI Service -- LLM';
+  const tone = historical || service.status === 'skip' ? 'warn' : service.status;
+  const reason = historical ? 'Stale report' : service.status === 'pass' ? '' : (service.reason ?? 'Check unavailable');
+  return (
+    <>
+      <tr className="border-b border-border">
+        <th scope="row" className="py-1 pr-2 text-left font-semibold text-foreground">
+          <span className="relative inline-block" onMouseEnter={() => setTooltipOpen(true)} onMouseLeave={() => setTooltipOpen(false)}>
+            <span tabIndex={0} aria-describedby={id + '-tip'} onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)} onKeyDown={(event) => {
+                if (event.key === 'Escape') { setTooltipOpen(false); setFocused(false); }
+              }}>{service.name}</span>
+            <span id={id + '-tip'} role="tooltip"
+              className={'absolute left-0 top-full z-10 w-max max-w-60 rounded border border-border bg-background px-2 py-1 text-xs font-normal shadow ' +
+                (tooltipOpen || focused ? '' : 'sr-only')}>
+              {ai ? 'Gemini model list and test generation checked' : service.headline}
+            </span>
+          </span>
+        </th>
+        <td className="text-center" aria-label={historical ? 'Historical' : LABELS[service.status]}><StatusDot tone={tone} /></td>
+        <td className="py-1 text-xs text-muted-foreground">
+          {ai ? <span className="block">{service.headline}{service.versionVerified && !historical ? (
+            <><sup aria-hidden="true">*</sup><span className="block text-[10px] leading-tight">* Latest working version</span></>
+          ) : null}</span> : null}
+          {reason ? <span className="block">{reason}</span> : null}
+        </td>
+        <td className="text-right">
+          <button type="button" className="min-h-6 min-w-6 px-2 text-xs font-semibold" aria-expanded={open} aria-controls={id + '-details'}
+            aria-label={(open ? 'Hide ' : 'Show ') + service.name + ' details'} onClick={() => setOpen(!open)}>
+            <span aria-hidden="true">{open ? '−' : '+'}</span>
+          </button>
+        </td>
+      </tr>
+      <tr id={id + '-details'} hidden={!open}>
+        <td colSpan={4} className="space-y-2 py-2 pl-3 text-xs">
+          <ul className="list-disc space-y-1 pl-5">{service.details.map((detail) => <li key={detail}>{detail}</li>)}</ul>
+          {timestamp(service.checkedAt) ? <p className="text-muted-foreground">Last checked <time dateTime={service.checkedAt}>{timestamp(service.checkedAt)}</time></p> : null}
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {service.links?.map((link) => <DetailLink key={link.label} {...link} />)}
+          </div>
+          {children}
+        </td>
+      </tr>
+    </>
+  );
+};
 
 export default OpsStatusPage;
