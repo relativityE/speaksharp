@@ -667,6 +667,8 @@ export interface SentEvent {
     fields?: Readonly<Record<string, string | number | boolean>>;
     /** #1593 fail-early: the watched lifecycle events' closed enums (`WATCHED_FIELDS`). Memory only, never in a receipt. */
     watch?: Readonly<Record<string, string>>;
+    /** Non-enumerable; same wire event proof for the watchdog only. Never written to a log or receipt. */
+    readonly recordingDelivery?: { readonly uuid: string; readonly digest: string };
 }
 
 /** #1258 (#1563): the ONLY properties kept from these events, so a press can be paired with its arrival and a feedback
@@ -864,7 +866,7 @@ export class AnalyticsTap {
             const batch = ++this.batchSeq;
             let batchIndex = 0;
             for (const entry of this.decode(body)) {
-                const record = entry as { event?: unknown; properties?: Record<string, unknown>; timestamp?: unknown };
+                const record = entry as { event?: unknown; properties?: Record<string, unknown>; timestamp?: unknown; uuid?: unknown };
                 if (typeof record?.event !== 'string') continue;
                 const props = record.properties ?? {};
                 const text = (key: string) => (typeof props[key] === 'string' ? props[key] as string : undefined);
@@ -897,6 +899,14 @@ export class AnalyticsTap {
                         totalMs: typeof props.total_ms === 'number' ? props.total_ms : null,
                     } } : {}),
                 });
+                // PostHog repeats the same top-level UUID and event body when it retries a failed POST. Keep identity
+                // only as a non-enumerable in-memory field, and digest the complete event, not just its watched enums.
+                if (record.event === 'recording_state' && typeof record.uuid === 'string'
+                    && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(record.uuid)) {
+                    Object.defineProperty(this.events[this.events.length - 1], 'recordingDelivery', {
+                        value: Object.freeze({ uuid: record.uuid, digest: sha256Hex(JSON.stringify(entry)) }), enumerable: false,
+                    });
+                }
             }
             // #1593 (Sam, #1662 RETURN): which page SENT each event, so a watchdog can refuse evidence from pages it does not
             // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.

@@ -4,7 +4,9 @@
  * the fault each scenario injects on purpose. Every signal below is the exact `RWT_FAIL_EARLY` line those runs logged. Each
  * allowance is paired with the nearby signal it must NOT excuse (Sam's review: unrelated errors and stale presentations).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { AnalyticsTap } from '../live/helpers/rwtJourney';
+import { documentTrackerOf } from '../live/helpers/rwtDocumentIdentity';
 import { JourneyWatchdog, PRESENTATION_GRACE_MS, WATCH_PROFILES, fatalSignalOf, presentedFailureOf, watchProfileFor, type StateRecord, type WatchProfile } from '../live/helpers/rwtWatchdog';
 
 const ev = (event: string, watch: Record<string, string> = {}) => ({ event, watch, at: Date.now() });
@@ -472,5 +474,107 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
         w.setFaultPhase(false);
         h.tap.events.push(sent(h.page, { capturedAt: Date.now() + 5 }, acq('aborted')));
         expect(await w.tick()).toMatchObject({ kind: 'model_failed' });
+    });
+});
+
+describe('J7.c offline recording-state request redelivery (AnalyticsTap to watchdog)', () => {
+    const releaseSha = 'a'.repeat(40);
+    const failureUuid = '0192bb9e-9446-7f91-a79a-dc2b6cf1b4ba';
+    const presentationUuid = '0192bb9e-9447-7f91-a79a-dc2b6cf1b4bb';
+    const newUuid = '0192bb9e-9448-7f91-a79a-dc2b6cf1b4bc';
+
+    const harness = (suite = 'adverse-mic-model-offline-mid-download') => {
+        const handlers: ((request: unknown) => void)[] = [];
+        const page = {
+            on: (kind: string, handler: (request: unknown) => void) => { if (kind === 'request') handlers.push(handler); },
+            context: () => ({ close: async () => undefined }), evaluate: async () => null,
+        };
+        const tap = new AnalyticsTap();
+        const provenance = documentTrackerOf(page as never);
+        provenance.attached = provenance.live = true;
+        const start = Date.now();
+        provenance.setMainFrame('main');
+        provenance.onCommitted('loader', 'main');
+        provenance.onInit('loader', 'main', 1);
+        provenance.onClock(1, (start - 100) / 1000);
+        tap.attach(page as never);
+        const w = new JourneyWatchdog({ page: page as never, tap, profile: watchProfileFor(suite), releaseSha, label: 'transport', log: () => undefined });
+        w.setFaultPhase(true);
+        const wire = (uuid: string | undefined, time: number, from_state: string, to_state: string, failure_code?: string) => ({
+            event: 'recording_state', uuid, timestamp: new Date(time).toISOString(), properties: {
+                release_sha: releaseSha, boot_id: 'transport-boot', attempt_id: 'transport-attempt', from_state, to_state,
+                ...(failure_code ? { failure_code } : {}),
+            },
+        });
+        const failed = wire(failureUuid, start + 10, 'ENGINE_INITIALIZING', 'FAILED',
+            suite.includes('save-retry') ? 'session_save_failed' : 'start_model_unavailable');
+        const visible = wire(presentationUuid, start + 15, 'FAILED', 'FAILED_VISIBLE');
+        const post = (key: number, ...events: ReturnType<typeof wire>[]) => {
+            // posthog-js 1.298.1 request() regenerates the URL's cache-buster `_` for each send, even if the body repeats.
+            const url = `https://us.i.posthog.com/e/?ip=1&_=${key}`;
+            const body = Buffer.from(JSON.stringify(events));
+            provenance.onRecord(url, body, provenance.classify('loader'));
+            handlers.forEach((handler) => handler({ url: () => url, method: () => 'POST', postDataBuffer: () => body }));
+        };
+        return { w, tap, failed, visible, start, wire, post, provenance };
+    };
+
+    it('does not invalidate a bound allowed failure when a distinct proven request repeats its identical bytes', async () => {
+        const h = harness();
+        h.post(1, h.failed, h.visible);
+        expect(await h.w.tick()).toBeNull();
+        h.post(2, h.failed, h.visible);
+        expect(h.tap.events).toHaveLength(4); // transport capture remains lossless; only J7.c causal history deduplicates.
+        expect(h.tap.events[0].recordingDelivery?.uuid).toBe(failureUuid);
+        expect(JSON.stringify(h.tap.events)).not.toContain(failureUuid);
+        expect(JSON.stringify(h.tap.events)).not.toContain('recordingDelivery');
+        expect(await h.w.tick()).toBeNull();
+        const rows: { verdict: string; evidence?: unknown }[] = [];
+        await h.w.record({ row: (_s: string, verdict: string, _d: string, evidence?: unknown) => rows.push({ verdict, evidence }) } as never);
+        expect(rows).toEqual([expect.objectContaining({ verdict: 'PASS', evidence: expect.objectContaining({ provenPairRedeliveries: 2 }) })]);
+    });
+
+    it.each(['missing', 'different', 'conflicting', 'between', 'ambiguous'] as const)(
+        'keeps the gate fail-closed for %s late evidence', async (kind) => {
+            const h = harness();
+            h.post(1, h.failed, h.visible);
+            expect(await h.w.tick()).toBeNull();
+            if (kind === 'missing') h.post(2, { ...h.failed, uuid: undefined });
+            if (kind === 'different') h.post(2, { ...h.failed, uuid: newUuid });
+            if (kind === 'conflicting') {
+                // Even a non-watched property cannot change under the same transport identity without tripping.
+                h.post(2, { ...h.failed, properties: Object.assign({}, h.failed.properties, { extra_test_value: 'changed' }) });
+            }
+            if (kind === 'between') h.post(2, h.wire(newUuid, h.start + 12, 'FAILED', 'READY'));
+            if (kind === 'ambiguous') h.post(1, h.failed, h.visible); // identical URL/body, ambiguous browser request join.
+            const signal = await h.w.tick();
+            expect(signal).toMatchObject({ kind: 'recording_failed', fields: { presentationDisposition: 'pair_invalidated',
+                pairInvalidator: kind === 'conflicting' ? 'conflicting_wire_identity' : kind === 'between' ? 'between_endpoints' : 'order_unproven' } });
+            expect(JSON.stringify(signal)).not.toContain(failureUuid);
+        });
+
+    it('never dismisses a genuine Retry failure after the fault window closes', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = harness();
+            h.post(1, h.failed, h.visible);
+            expect(await h.w.tick()).toBeNull();
+            vi.setSystemTime(h.start + 30);
+            h.w.setFaultPhase(false);
+            h.w.noteRetryAdmission();
+            h.post(2, h.failed, h.visible);
+            h.post(3, h.wire(newUuid, h.start + 40, 'ENGINE_INITIALIZING', 'FAILED', 'start_model_unavailable'));
+            expect(await h.w.tick()).toMatchObject({ kind: 'recording_failed', fields: {
+                presentationDisposition: 'unexpected_failed_transition', capturedVsRetryAdmissionMs: 10,
+            } });
+        } finally { vi.useRealTimers(); }
+    });
+
+    it('preserves existing behavior for all other suite profiles', async () => {
+        const h = harness('save-retry-recovery-request-lost');
+        h.post(1, h.failed, h.visible);
+        expect(await h.w.tick()).toBeNull();
+        h.post(2, h.failed, h.visible);
+        expect(await h.w.tick()).toMatchObject({ kind: 'recording_failed' });
     });
 });
