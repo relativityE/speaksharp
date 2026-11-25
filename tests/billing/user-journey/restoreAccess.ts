@@ -117,7 +117,8 @@ const PLAN_CADENCE = /(\bper month|\/\s?month|\bmonthly|\bevery month)\b/i;
  * The heading of the block that names the plan, unchanged here: "Current plan". Run 45361320828 opened the portal and never passed
  * in 120 s, and which condition failed is unread (no page text leaves). A timeout now names it (`portalPlanMiss`); a
  * different heading reads as `no_plan_block`. The portal's "Current subscription" wording passes only through
- * `portalPlanVerdict`, and only from an identified compact card (Akin, 2026-11-25), never through this text rule.
+ * `portalPlanVerdict`, and only through the section rule read from the real portal (`currentSubscriptionSection`), never through
+ * this text rule.
  */
 const PLAN_LABEL = /\bcurrent plan\b/i;
 const MONEY = /\$\s?\d[\d,]*(?:\.\d+)?/g;
@@ -282,7 +283,7 @@ export type PlanSameCard = 'yes' | 'no' | 'unknown';
 export interface PlanCardRead {
   heading: PlanCardHeading; same: PlanSameCard; label: PlanCardHeading; labelSame: PlanSameCard;
   /**
-   * Whether the price's own card carries the portal's plan wording, for `portalPlanVerdict` only: the price element's nearest
+   * Observer only since run 45652762097 (it never matched Stripe's real page; `currentSubscriptionSection` decides now): the price element's nearest
    * card element (itself included) also holds the cadence in its own visible text (never a nested card's), fits the compact limit, names no amount but $10.00, and holds
    * exactly one listed heading or caption of its own, whose whole visible text is "Current subscription" (any case and spacing).
    */
@@ -448,19 +449,18 @@ export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): Pl
 }
 
 /**
- * J9.a and J9.b's verdict on one portal sample (Akin, 2026-11-25: "Yes, bundle the fix"). First the unchanged text rule on the
- * sample's chains (`portalPlanMiss`, "Current plan"). Only when that misses with `no_plan_block`, the portal's own wording can
- * pass instead: one $10.00 monthly candidate whose price's own nearest card holds its cadence line, names no amount but $10.00
- * and holds exactly one listed caption or heading of its own, reading exactly "Current subscription" (`PlanCardRead.subscription`;
- * Sam, 2026-11-25). Nothing else gets looser: price, cadence and line limits are the same checks, a short shared wrapper is never
- * a card, the broad observer labels never decide a pass, and a failed card read is null and passes nothing. Every other miss word is returned as it was.
+ * J9.a and J9.b's verdict on one portal read. First the unchanged text rule on the sample's chains (`portalPlanMiss`, "Current
+ * plan"). Only when that misses with `no_plan_block`, Stripe's own wording can pass instead, through the section rule read from
+ * the real sandbox portal (`currentSubscriptionSection`, Akin's screenshot, 2026-11-25): the one "Current subscription" caption,
+ * then this run's product name, then the $10.00 monthly line, all in one short section that joins no other portal section. Run
+ * 45652762097 showed the compact-card read (`PlanCardRead.subscription`) never matches that page, so it no longer decides; it
+ * stays in the observer only. Every other miss word is returned as it was, and a failed section read passes nothing.
  */
-export function portalPlanVerdict(sample: unknown): PortalPlanMiss | null {
+export function portalPlanVerdict(sample: unknown, section?: unknown): PortalPlanMiss | null {
   const miss = portalPlanMiss(planSampleChains(sample));
   if (miss !== 'no_plan_block') return miss;
-  const cards = (sample as Partial<PlanSample> | null)?.cards;
-  if (!Array.isArray(cards)) return miss;
-  return cards.slice(0, 10).some((c) => c !== null && typeof c === 'object' && (c as PlanCardRead).subscription === 'yes') ? null : miss;
+  const read = section as Partial<SectionRead> | null | undefined;
+  return read !== null && typeof read === 'object' && read.pass === true && read.miss === null ? null : miss;
 }
 
 /** The verdict's input from a sample: its chains, or null (read as `unreadable`, as a failed read always was). */
@@ -503,4 +503,115 @@ export function portalPlanObserver(sample: unknown): string[] {
     `portal_plan_probe_roots_${kinds.length === 0 ? 'none' : kinds.length > 1 ? 'mixed' : kinds[0]}`,
     `portal_plan_probe_kept_${kept}_cap_${(s.shown as number) > 10 ? 'hit' : 'clear'}`,
   ];
+}
+
+/**
+ * J9's "Current subscription" section rule, read from Stripe's real sandbox portal (Akin's screenshot, 2026-11-25): a styled
+ * caption "CURRENT SUBSCRIPTION" (no heading element), then the product name, then "$10.00 per month", then the next billing
+ * date, with "Cancel subscription" beside them; the Payment method, Billing information and Invoice history sections follow,
+ * and the invoice row repeats "$10.00" with no cadence. Self-contained: it runs in the portal page (`evaluateAll`), in the tests'
+ * local DOM, and pasted as-is into Chrome's console, so all three run the same code. It only reads the DOM.
+ *
+ * A $10.00 element passes when, for the one visible caption reading exactly `caption` (any case and spacing, not a control):
+ *  - its line (the element itself or the nearest ancestor whose visible text adds the cadence) is at most `lineMax` long;
+ *  - the caption comes before the product name, and the product name before the line, in document order;
+ *  - their section (the nearest ancestor holding both the caption and the line) is at most `sectionMax` long, holds none of the
+ *    `otherCaptions` (so a short wrapper that joins the subscription to another section never lends it a price), holds exactly one
+ *    cadence, names no amount but $10.00, and holds exactly one visible element reading exactly `product`.
+ * Otherwise the furthest condition reached is one fixed word (`SectionMiss`). Page text leaves only when `showText` is set (the
+ * console check); the spec never sets it.
+ */
+export type SectionMiss = 'no_price' | 'no_caption' | 'caption_not_unique' | 'no_line' | 'line_too_long' | 'line_before_caption'
+  | 'section_too_long' | 'other_section_inside' | 'cadence_not_unique' | 'other_amount' | 'product_not_unique' | 'product_out_of_order';
+export interface SectionArgs {
+  price: [string, string]; cadence: [string, string]; money: [string, string]; caption: string; product: string;
+  otherCaptions: string[]; lineMax: number; sectionMax: number; showText: boolean;
+}
+export interface SectionRead { pass: boolean; miss: SectionMiss | null; text: { caption: string; product: string; line: string } | null }
+
+export function currentSubscriptionSection(elements: Element[], args: SectionArgs): SectionRead {
+  const order: SectionMiss[] = ['no_price', 'no_caption', 'caption_not_unique', 'no_line', 'line_too_long', 'line_before_caption',
+    'section_too_long', 'other_section_inside', 'cadence_not_unique', 'other_amount', 'product_not_unique', 'product_out_of_order'];
+  let furthest: SectionMiss = 'no_price';
+  const reach = (m: SectionMiss): void => { if (order.indexOf(m) > order.indexOf(furthest)) furthest = m; };
+  const rendered = (el: Element): boolean => {
+    const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
+    if (!style || (el as HTMLElement).hidden || style.display === 'none' || style.visibility === 'hidden'
+      || style.visibility === 'collapse' || style.opacity === '0') return false;
+    const check = (el as Element & { checkVisibility?: (options?: object) => boolean }).checkVisibility;
+    return typeof check !== 'function' || check.call(el, { opacityProperty: true, visibilityProperty: true }) || style.display === 'contents';
+  };
+  const shown = (el: Element): boolean => { for (let e: Element | null = el; e; e = e.parentElement) if (!rendered(e)) return false; return true; };
+  const text = (el: Element): string => {
+    const parts: string[] = [];
+    const walk = (node: Node): void => {
+      for (const child of Array.from(node.childNodes)) {
+        if (child.nodeType === 3) parts.push(child.nodeValue ?? '');
+        else if (child.nodeType === 1 && !['SCRIPT', 'STYLE', 'TEMPLATE', 'NOSCRIPT'].includes((child as Element).tagName)
+          && rendered(child as Element)) walk(child);
+      }
+    };
+    walk(el);
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  };
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase();
+  const control = 'a, button, input, select, textarea, label, [role="button"], [role="link"]';
+  // Visible non-control elements whose whole visible text is exactly `want`, innermost only.
+  const exactly = (root: Element, want: string): Element[] => Array.from(root.querySelectorAll('*'))
+    .filter((el) => !el.matches(control) && !el.closest(control) && shown(el) && norm(text(el)) === want)
+    .filter((el, _, all) => !all.some((o) => o !== el && el.contains(o)));
+  const before = (a: Element, b: Element): boolean => (a.compareDocumentPosition(b) & 4) !== 0; // b follows a
+  const re = ([source, flags]: [string, string], global = false) => new RegExp(source, global ? `${flags.replace('g', '')}g` : flags);
+  const price = re(args.price);
+  const cadence = re(args.cadence);
+  const body = elements[0]?.ownerDocument?.body;
+  for (const el of elements.filter(shown).slice(0, 10)) {
+    if (!body || !price.test(text(el))) continue;
+    const captions = exactly(body, norm(args.caption));
+    if (captions.length === 0) { reach('no_caption'); continue; }
+    if (captions.length > 1) { reach('caption_not_unique'); continue; }
+    const caption = captions[0];
+    let line: Element | null = el;
+    while (line && !cadence.test(text(line))) line = line.parentElement;
+    if (!line) { reach('no_line'); continue; }
+    if (text(line).length > args.lineMax) { reach('line_too_long'); continue; }
+    if (!before(caption, line) || line.contains(caption)) { reach('line_before_caption'); continue; }
+    let section: Element | null = line;
+    while (section && !section.contains(caption)) section = section.parentElement;
+    const own = section ? text(section) : '';
+    if (!section || own.length > args.sectionMax) { reach('section_too_long'); continue; }
+    if (args.otherCaptions.some((c) => exactly(section!, norm(c)).length > 0)) { reach('other_section_inside'); continue; }
+    if ((own.match(re(args.cadence, true)) ?? []).length !== 1) { reach('cadence_not_unique'); continue; }
+    const amounts = own.match(re(args.money, true)) ?? [];
+    if (amounts.length === 0 || !amounts.every((a) => /^\$\s?10\.00$/.test(a))) { reach('other_amount'); continue; }
+    const products = exactly(section, norm(args.product));
+    if (products.length !== 1) { reach('product_not_unique'); continue; }
+    if (!before(caption, products[0]) || !before(products[0], line)) { reach('product_out_of_order'); continue; }
+    return { pass: true, miss: null, text: args.showText ? { caption: text(caption), product: text(products[0]), line: text(line) } : null };
+  }
+  return { pass: false, miss: furthest, text: null };
+}
+
+/** The other Stripe portal section captions seen on the real page (Akin's screenshot, 2026-11-25). */
+export const PORTAL_OTHER_CAPTIONS = ['payment method', 'payment methods', 'billing information', 'invoice history'];
+/** The section rule's arguments: the verdict's own price, cadence and money patterns and limits; `product` is the run's own. */
+export const sectionArgs = (product: string, showText = false): SectionArgs => ({
+  price: [PLAN_PRICE.source, PLAN_PRICE.flags], cadence: [PLAN_CADENCE.source, PLAN_CADENCE.flags], money: [MONEY.source, MONEY.flags],
+  caption: PLAN_SUBSCRIPTION_LABEL, product, otherCaptions: PORTAL_OTHER_CAPTIONS, lineMax: PLAN_LINE_MAX, sectionMax: PLAN_BLOCK_MAX, showText,
+});
+
+/**
+ * The portal's visible text for a failed run's evidence file, never the log. Only the part above the Payment method caption is
+ * kept (the subscription section; card, billing details and invoices are dropped). Anything that could identify or unlock
+ * something is replaced: URLs, emails, Stripe ids and secrets, long codes and digit runs of five or more. Capped at 4,000 chars.
+ */
+export function redactPortalText(text: string): string {
+  const cut = text.search(/^[ \t]*payment methods?[ \t]*$/im);
+  return (cut >= 0 ? text.slice(0, cut) : text)
+    .replace(/https?:\/\/\S+/gi, '[url]')
+    .replace(/[^\s@]+@[^\s@]+/g, '[email]')
+    .replace(/\b(?:cus|sub|prod|price|pi|pm|in|ch|cs|bps|seti|si|ii|test|live|sk|pk|rk|whsec)_[A-Za-z0-9_]+/g, '[id]')
+    .replace(/\b[A-Za-z0-9]{24,}\b/g, '[code]')
+    .replace(/\d{5,}/g, '[n]')
+    .slice(0, 4000);
 }

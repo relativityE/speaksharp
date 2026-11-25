@@ -9,6 +9,7 @@ import { Window } from 'happy-dom';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
   portalShowsPlan, portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX,
   visiblePlanSample, planSampleChains, portalPlanObserver, portalPlanVerdict, assertPortalSubscription, PLAN_PROBE_HEADINGS, PLAN_PROBE_ARGS,
+  currentSubscriptionSection, sectionArgs, redactPortalText,
   type PlanSample, type PlanCardRead } from './restoreAccess';
 import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, progressLine, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
@@ -356,7 +357,8 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(portal).toMatch(/waitForURL\(url => url\.origin === 'https:\/\/billing\.stripe\.com'/);
     // The portal check reads per-element ancestries, never the whole page's text, and a timeout names its fixed reason.
     expect(portal).toMatch(/await this\.awaitPortalPlan\(this\.page\);/);
-    expect(spec).toMatch(/\(miss = portalPlanVerdict\(sample = await this\.planSample\(page\)\.catch\(\(\) => null\)\)\)/);
+    expect(spec).toContain('sample = await this.planSample(page).catch(() => null);');
+    expect(spec).toContain('return (miss = portalPlanVerdict(sample, section));');
     expect(spec).toMatch(/throw new Error\(`BILLING_JOURNEY:portal_plan_not_shown_\$\{miss \?\? 'unreadable'\}`\)/);
     // J9.a's paid_account_kept reads the same way in its fresh context: never its own innerText scan.
     const kept = spec.slice(spec.indexOf("this.stage = 'portal_plan_shown';"), spec.indexOf("this.steps.add('portal_plan_shown');"));
@@ -365,7 +367,9 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(kept).not.toMatch(/innerText|textContent|querySelectorAll/);
     // Only visible $10.00 elements, read as visible text (visiblePlanSample's chains), never innerText (which includes hidden content).
     expect(spec).toMatch(/return page\.getByText\(\/\\\$\\s\?10\\\.00\/\)\.evaluateAll\(visiblePlanSample, PLAN_PROBE_ARGS\);/);
-    expect(spec.match(/evaluateAll\(/g)).toHaveLength(1);
+    // Two reads of the same locator: the sample, and the section rule (Stripe's real "Current subscription" layout).
+    expect(spec.match(/evaluateAll\(/g)).toHaveLength(2);
+    expect(spec).toContain('section = await page.getByText(/\\$\\s?10\\.00/).evaluateAll(currentSubscriptionSection, sectionArgs(product)).catch(() => null);');
     const ancestries = spec.slice(spec.indexOf('  async planSample(page: Page): Promise<PlanSample> {'));
     expect(ancestries.slice(0, ancestries.indexOf('\n  }\n'))).not.toMatch(/innerText|textContent/);
     expect(spec).not.toMatch(/portalShowsPlan\(await this\.page\.locator\('body'\)/);
@@ -474,7 +478,11 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const before = JSON.stringify(sample);
     const words = portalPlanObserver(sample);
     expect(JSON.stringify(sample)).toBe(before);
-    const verdict = { miss: portalPlanMiss(sample.chains), split: portalPlanSplit(sample.chains), pass: portalPlanVerdict(sample) === null };
+    const section = currentSubscriptionSection(matched, sectionArgs('SpeakSharp Pro'));
+    // The section rule's read carries no page text unless asked (the console check), and none leaves the spec.
+    expect(section.text).toBeNull();
+    const verdict = { miss: portalPlanMiss(sample.chains), split: portalPlanSplit(sample.chains), pass: portalPlanVerdict(sample, section) === null,
+      section: section.miss };
     void window.happyDOM.close();
     return { sample, words, verdict, card: words.slice(0, 2), label: words.slice(2, 4) };
   };
@@ -494,7 +502,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(page(cardHtml('<div role="heading" aria-level="2">Your subscription</div>')).card).toEqual(said('your_subscription', 'yes'));
     // The current-plan card passes the verdict as it always did; the others still miss.
     expect(page(cardHtml(h2('Current plan'))).verdict.miss).toBeNull();
-    expect(page(cardHtml(h2('Your subscription'))).verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
+    expect(page(cardHtml(h2('Your subscription'))).verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
   });
 
   it('says no, unknown or ambiguous rather than guessing', () => {
@@ -554,7 +562,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(preview.label).toEqual(labelled('current_subscription', 'yes'));
     expect(preview.card).toEqual(said('none', 'no'));
     // The text rule is untouched (no "Current plan" anywhere: label_absent, as on main); the verdict passes it through its card.
-    expect(preview.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: true });
+    expect(preview.verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: true });
     expect(page(caption('Current plan')).label).toEqual(labelled('current_plan', 'yes'));
     expect(page(caption('Your plan')).label).toEqual(labelled('your_plan', 'yes'));
     // A product name as a heading and a caption as a label are read side by side, neither replacing the other.
@@ -590,52 +598,113 @@ describe('the J9 observer reads the heading of the price card from the same samp
       .toEqual(said('current_plan', 'unknown'));
   });
 
-  it('passes "Current subscription" only from one identified compact card with no other amount, and loosens nothing else', () => {
+  it('passes "Current subscription" only through the section rule read from the real portal, and loosens nothing else', () => {
     const priceLine = '<div><span>US$10.00</span> <span>per month</span></div>';
     const passes = (html: string, opts?: Parameters<typeof page>[1]) => page(html, opts).verdict.pass;
-    // The portal-shaped card: caption, product, price, in one section, as a caption or as a heading, any case.
+    const missOf = (html: string) => page(html).verdict.section;
+    // Stripe's real sandbox portal (Akin's screenshot, 2026-11-25), in plain divs: caption, then product, price and next billing
+    // date beside a Cancel control, then Payment method, Billing information and Invoice history (whose $10.00 has no cadence).
+    const real = (sub: string, rest = REST) => `<main><div><div style="text-transform: uppercase">Current subscription</div>${sub}</div>${rest}</main>`;
+    const SUB = `<div><div><div>SpeakSharp Pro</div>${priceLine}<div>Your next billing date is December 25, 2026.</div></div>`
+      + '<div><a href="#">Cancel subscription</a></div></div>';
+    const REST = '<div><div>Payment method</div><div>Visa •••• 4242</div><div>Expires 11/2027</div></div>'
+      + '<div><div>Billing information</div><div>Name</div><div>J9 run</div></div>'
+      + '<div><div>Invoice history</div><div><span>Nov 25, 2026</span> <span>US$10.00</span> <span>Paid</span> <span>SpeakSharp Pro</span></div></div>';
+    expect(passes(real(SUB))).toBe(true);
+    expect(passes(real(SUB).replace('Current subscription', 'CURRENT SUBSCRIPTION'))).toBe(true);
+    expect(passes(real(SUB.replace('<a href="#">Cancel subscription</a>', '<div>Cancel subscription</div>')))).toBe(true);
+    expect(passes(real(SUB.replace('<a href="#">Cancel subscription</a>', '<button>Cancel subscription</button>')))).toBe(true);
+    // The same page flattened (caption, product and price as siblings) or wrapped in section elements: still one section.
+    expect(passes(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`)).toBe(true);
     expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</section>`)).toBe(true);
-    expect(passes(`<section>${h2('Current subscription')}<div>SpeakSharp Pro</div>${priceLine}</section>`)).toBe(true);
-    expect(passes(`<article><div>current subscription</div>${priceLine}<button>Cancel subscription</button></article>`)).toBe(true);
     // "Current plan" passes as it always did, through the unchanged text rule.
     expect(passes(cardHtml(h2('Current plan')))).toBe(true);
-    // A sibling card under a short wrapper, a nested card, or plain divs with no identified card: never.
-    for (const wrapper of ['div', 'main']) {
-      expect(passes(`<${wrapper}><section><div>CURRENT SUBSCRIPTION</div></section><section>${priceLine}</section></${wrapper}>`)).toBe(false);
+    // No current subscription: only the invoice's $10.00 (no cadence), or no caption at all.
+    expect(passes(`<main>${REST}</main>`)).toBe(false);
+    expect(passes(real('').replace('Current subscription', ''))).toBe(false);
+    expect(passes(real(SUB).replace('Current subscription', 'Subscription'))).toBe(false);
+    // Other wording: the whole caption must read "Current subscription"; a heading or caption that only contains it never passes.
+    for (const caption of ['Current subscription canceled', 'Current subscription history', 'Current subscriptions', 'Your subscription']) {
+      expect(passes(real(SUB).replace('Current subscription', caption))).toBe(false);
     }
-    expect(passes(`<section><article><div>CURRENT SUBSCRIPTION</div></article>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><article>Current subscription</article>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`)).toBe(false);
-    // Other wording, two captions, another amount in the card, or no cadence: never.
-    expect(passes(cardHtml(h2('Your subscription')))).toBe(false);
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div>Your subscription</div>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${priceLine}<div>Add-on US$5.00</div></section>`)).toBe(false);
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div><span>US$10.00</span> paid</div></section>`)).toBe(false);
-    // A card past the compact limit is no card; a failed card read passes nothing.
-    const long = `<p>${'Payment method Visa ending 4242. '.repeat(25)}</p>`;
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${long}${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${priceLine}</section>`, { args: undefined })).toBe(false);
-    // Sam's controls: the whole caption or heading must read "Current subscription"; the broad probe phrase never decides.
-    expect(passes(`<section>${h2('Current subscription canceled')}${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>Current subscription history</div>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>Current subscriptions</div>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>  Current   SUBSCRIPTION </div>${priceLine}</section>`)).toBe(true);
-    // Price, cadence and caption bound to the price's own nearest card: a nearer card around the price alone never passes.
-    expect(passes(`<section>${h2('Current subscription')}<article><span>US$10.00</span></article><aside>per month</aside></section>`)).toBe(false);
-    expect(passes(`<section>${h2('Current subscription')}<article>${priceLine}</article></section>`)).toBe(false);
-    expect(passes(`<section><article>${h2('Current subscription')}${priceLine}</article></section>`)).toBe(true);
-    // Sam's mirror case: the cadence in a nested card is that card's, never the price card's.
-    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span></div><article>per month</article></section>`)).toBe(false);
-    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span><article>per month</article></div></section>`)).toBe(false);
-    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span></div><div>per month</div></section>`)).toBe(true);
-    // A product heading beside the caption is not a second label; a caption wrapping its own heading counts once.
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${h2('Premium')}${priceLine}</section>`)).toBe(true);
-    expect(passes(`<section><div>${h2('Current subscription')}</div>${priceLine}</section>`)).toBe(true);
-    // Every miss word other than no_plan_block is returned exactly as the text rule gives it.
-    for (const bad of [null, 'x', {}, { chains: [] }]) expect(portalPlanVerdict(bad)).toBe(portalPlanMiss(planSampleChains(bad)));
+    expect(passes(real(SUB).replace('Current subscription', '  Current   SUBSCRIPTION '))).toBe(true);
+    // Another price, cadence or product: never.
+    expect(passes(real(SUB.replace('US$10.00', 'US$12.00')))).toBe(false);
+    expect(passes(real(SUB.replace('per month', 'per year')))).toBe(false);
+    expect(passes(real(SUB.replace('SpeakSharp Pro', 'SpeakSharp Team')))).toBe(false);
+    expect(passes(real(`${SUB}<div>Add-on US$5.00 per month</div>`))).toBe(false);
+    // Sam's false-pass control: a short wrapper never lends the caption a $10/month line from another row or section.
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>Storage add-on</div>${priceLine}</div>`)).toBe('product_not_unique');
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}<div>Seats</div>${priceLine}</div>`))
+      .toBe('cadence_not_unique');
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>Payment method</div><div>SpeakSharp Pro</div>${priceLine}</div>`))
+      .toBe('other_section_inside');
+    expect(missOf(`<main><div><div>Current subscription</div><div>SpeakSharp Pro</div></div>${REST}`
+      + `<div><div>Invoice history</div>${priceLine}</div></main>`)).toBe('other_section_inside');
+    // Order: the caption, then the product, then the price; a price above its caption, or a product below its price, never.
+    expect(missOf(`<div>${priceLine}<div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div></div>`)).toBe('line_before_caption');
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div>${priceLine}<div>SpeakSharp Pro</div></div>`)).toBe('product_out_of_order');
+    // Two captions, a hidden caption or price, or a section past the compact limit: never.
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}<div>Current subscription</div></div>`))
+      .toBe('caption_not_unique');
+    expect(passes(`<div><div hidden>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`)).toBe(false);
+    expect(passes(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div><div style="display:none">${priceLine}</div></div>`)).toBe(false);
+    const long = `<p>${'Visa ending 4242 renews soon. '.repeat(25)}</p>`;
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${long}${priceLine}</div>`)).toBe('section_too_long');
+    // The section read alone never passes the verdict: a failed or malformed read passes nothing, and every miss word other than
+    // no_plan_block is returned exactly as the text rule gives it, whatever the section read says.
+    const empty: PlanSample = { chains: [], roots: [], shown: 0, cards: [] };
+    const plain = page(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`).sample;
+    expect(portalPlanVerdict(plain, null)).toBe('no_plan_block');
+    expect(portalPlanVerdict(plain, { pass: true })).toBe('no_plan_block');
+    expect(portalPlanVerdict(plain, { pass: 'yes', miss: null })).toBe('no_plan_block');
+    expect(portalPlanVerdict(plain, { pass: true, miss: null, text: null })).toBeNull();
+    expect(portalPlanVerdict(empty, { pass: true, miss: null, text: null })).toBe('no_visible_price');
+    for (const bad of [null, 'x', {}, { chains: [] }]) expect(portalPlanVerdict(bad, { pass: true, miss: null })).toBe(portalPlanMiss(planSampleChains(bad)));
     const lineTooLong: PlanSample = { chains: [[`$10.00 per month ${'x'.repeat(PLAN_LINE_MAX)}`]], roots: ['document'], shown: 1,
       cards: [{ heading: 'current_subscription', same: 'yes', label: 'current_subscription', labelSame: 'yes', subscription: 'yes' }] };
-    expect(portalPlanVerdict(lineTooLong)).toBe('line_too_long');
+    expect(portalPlanVerdict(lineTooLong, { pass: true, miss: null })).toBe('line_too_long');
+    // The old compact-card read no longer decides: a card read of "yes" with no section pass is still a miss.
+    const cardOnly = { ...plain, cards: plain.cards.map((c) => (c ? { ...c, subscription: 'yes' as const } : c)) };
+    expect(portalPlanVerdict(cardOnly)).toBe('no_plan_block');
+  });
+
+  it('the console check runs the same section rule and may show page text; the spec never asks it to', () => {
+    const window = new Window();
+    const doc = window.document as unknown as Document;
+    doc.body.innerHTML = '<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div><div><span>US$10.00</span> per month</div></div>';
+    const matched = Array.from(doc.querySelectorAll('span'));
+    expect(currentSubscriptionSection(matched, sectionArgs('SpeakSharp Pro', true))).toEqual({ pass: true, miss: null,
+      text: { caption: 'CURRENT SUBSCRIPTION', product: 'SpeakSharp Pro', line: 'US$10.00 per month' } });
+    expect(currentSubscriptionSection([], sectionArgs('SpeakSharp Pro', true))).toEqual({ pass: false, miss: 'no_price', text: null });
+    void window.happyDOM.close();
+    const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
+    expect(spec).not.toMatch(/sectionArgs\([^)]*,\s*true\)/);
+  });
+
+  it('a failed portal check keeps its evidence for the artifact only: cut above the card, no URL, ids or emails', () => {
+    const text = ['Sandbox', 'CURRENT SUBSCRIPTION', 'SpeakSharp Pro', '$10.00 per month', 'Your next billing date is December 25, 2026.',
+      'Cancel subscription', 'see https://billing.stripe.com/p/session/test_abcDEF123 for run-j9@example.test cus_Vh7g89m3KVKNeQ',
+      'ref 1234567 code AbCdEfGhIjKlMnOpQrStUvWx12', 'PAYMENT METHOD', 'Visa •••• 4242', 'BILLING INFORMATION', 'Email', 'a@b.test',
+      'INVOICE HISTORY', 'Nov 25, 2026 $10.00 Paid'].join('\n');
+    const kept = redactPortalText(text);
+    expect(kept).toContain('CURRENT SUBSCRIPTION\nSpeakSharp Pro\n$10.00 per month\nYour next billing date is December 25, 2026.');
+    expect(kept).not.toMatch(/PAYMENT METHOD|4242|BILLING|INVOICE|a@b\.test|https?:|stripe\.com|test_|cus_|run-j9@|1234567|AbCdEf/);
+    expect(kept).toContain('[url]');
+    expect(kept).toContain('[email]');
+    expect(kept).toContain('[id]');
+    expect(redactPortalText('x'.repeat(9000)).length).toBeLessThanOrEqual(4000);
+    const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
+    const body = spec.slice(spec.indexOf('  async portalEvidence('), spec.indexOf('\n  }\n', spec.indexOf('  async portalEvidence(')));
+    expect(body).toContain("const cut = await page.getByText(/^\\s*payment methods?\\s*$/i).first().boundingBox");
+    expect(body).toContain('clip: { x: 0, y: 0, width: size.width, height: cut.y }');
+    expect(body).toContain("mask: [page.locator('input, iframe'), page.getByText(/@|•|\\d{4}/)]");
+    expect(body).toContain('redactPortalText(await page.locator(\'body\').innerText(');
+    expect(body).not.toMatch(/page\.url\(\)|checkpoint\(`|throw /);
+    expect(body).toContain("this.checkpoint('portal_evidence_kept');");
+    expect(body).toContain("this.checkpoint('portal_evidence_not_kept');");
+    const workflow = readFileSync(new URL('../../../.github/workflows/billing-local-stack-journey.yml', import.meta.url), 'utf8');
+    expect(workflow).toMatch(/name: billing-portal-evidence-\$\{\{ github\.run_id \}\}\n\s+path: billing-portal-evidence\/\n\s+retention-days: 1\n\s+if-no-files-found: ignore/);
   });
 
   it('10 versus 11: labels come only from the ten elements the verdict reads, and a cap hit is said, not read past', () => {
@@ -648,7 +717,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(eleven.words).toEqual([...said('not_reached', 'not_reached'), ...labelled('not_reached', 'not_reached'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_hit']);
     const ten = page(receipts(9) + cardHtml(h2('Your subscription')));
     expect([ten.sample.shown, ten.sample.chains.length]).toEqual([10, 10]);
-    expect(ten.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
+    expect(ten.verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(ten.words).toEqual([...said('your_subscription', 'yes'), ...labelled('none', 'no'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_clear']);
     expect(page(receipts(10, 'hidden') + cardHtml(h2('Your subscription'))).words.slice(4))
       .toEqual(['portal_plan_probe_roots_document', 'portal_plan_probe_kept_1_cap_clear']);
@@ -669,7 +738,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const contents = (style: string) => (h: string) => `<div style="${style}">${h}</div>`;
     const wrapped = page(cardHtml(h2('Current plan'), contents('display:contents')), { chrome: true });
     // In Chrome the wrapper reads as not visible (no box), so the verdict's text skips the heading: label_absent, unchanged.
-    expect(wrapped.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
+    expect(wrapped.verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(wrapped.card).toEqual(said('current_plan', 'yes'));
     // Hidden wrappers and hidden headings stay hidden for the observer too.
     for (const style of ['display:contents;visibility:hidden', 'display:contents;opacity:0', 'display:none']) {
@@ -687,7 +756,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const outside = page(`<section>${h2('Current plan')}<plan-card></plan-card></section>`, { build: (doc) => {
       doc.querySelector('plan-card')!.attachShadow({ mode: 'open' }).innerHTML = `<div>SpeakSharp Pro</div><div>${line}</div>`;
     } });
-    expect(outside.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
+    expect(outside.verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(outside.words).toEqual([...said('none', 'unknown'), ...labelled('none', 'unknown'), 'portal_plan_probe_roots_shadow', 'portal_plan_probe_kept_1_cap_clear']);
     const inside = page('<plan-card></plan-card>', { build: (doc) => {
       doc.querySelector('plan-card')!.attachShadow({ mode: 'open' }).innerHTML = cardHtml(h2('Your plan'));
@@ -745,18 +814,28 @@ describe('the J9 observer reads the heading of the price card from the same samp
     for (const w of portalPlanObserver(s)) expect(names).toContain(w);
   });
 
-  it('the spec reads once, gives the verdict only the chains, and runs the observer on that same sample after the miss', () => {
+  it('the spec reads the sample and the section each poll, and runs the observer on that same sample after the miss', () => {
     const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
-    const body = spec.slice(spec.indexOf('async awaitPortalPlan('), spec.indexOf('async planSample('));
-    expect(body).toContain('(miss = portalPlanVerdict(sample = await this.planSample(page).catch(() => null)))');
-    expect(body).toMatch(/\(m\) => m === null, 'portal_plan_not_shown'\)\.catch\(\(\) => \{/);
+    const body = spec.slice(spec.indexOf('async awaitPortalPlan('), spec.indexOf('async planProduct('));
+    expect(body).toContain('const product = await this.planProduct();');
+    expect(body).toContain('sample = await this.planSample(page).catch(() => null);');
+    expect(body).toContain('section = await page.getByText(/\\$\\s?10\\.00/).evaluateAll(currentSubscriptionSection, sectionArgs(product)).catch(() => null);');
+    expect(body).toContain('return (miss = portalPlanVerdict(sample, section));');
+    expect(body).toMatch(/\(m\) => m === null, 'portal_plan_not_shown'\)\.catch\(async \(\) => \{/);
     expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(planSampleChains(sample))));");
     expect(body).toContain("if (miss === 'no_plan_block') this.portalPlanProbe(sample);");
-    expect(body.indexOf('this.portalPlanProbe(sample)')).toBeLessThan(body.indexOf('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_'));
+    expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(`portal_plan_section_${(section as SectionRead | null)?.miss ?? 'unreadable'}`);");
+    expect(body.indexOf('this.portalPlanProbe(sample)')).toBeLessThan(body.indexOf('await this.portalEvidence(page);'));
+    expect(body.indexOf('await this.portalEvidence(page);')).toBeLessThan(body.indexOf('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_'));
     expect(body).toContain('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? \'unreadable\'}`);');
     expect(body.match(/throw new Error/g)).toHaveLength(1);
-    expect(body).not.toMatch(/await this\.portalPlanProbe|evaluateAll/);
-    expect(spec.match(/evaluateAll\(/g)).toHaveLength(1);
+    expect(body).not.toMatch(/await this\.portalPlanProbe/);
+    // The product name comes from Stripe's test-mode record of this run's own subscription, never from the page.
+    const product = spec.slice(spec.indexOf('  async planProduct('), spec.indexOf('\n  }\n', spec.indexOf('  async planProduct(')));
+    expect(product).toContain('await this.stripe(`subscriptions/${this.subscription}`)');
+    expect(product).toContain('await this.stripe(`products/${id}`)');
+    expect(product).toContain("product.livemode === false");
+    expect(product).not.toMatch(/checkpoint|page|console/);
     const probe = spec.slice(spec.indexOf('  portalPlanProbe('), spec.indexOf('\n  }\n', spec.indexOf('  portalPlanProbe(')));
     expect(probe).toMatch(/^\s+portalPlanProbe\(sample: unknown\): void \{\n\s+try \{\n\s+for \(const name of portalPlanObserver\(sample\)\) this\.checkpoint\(name\);/);
     expect(probe).toContain("} catch {\n      this.checkpoint('portal_plan_probe_unreadable');");
