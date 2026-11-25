@@ -215,6 +215,12 @@ export const DOM_READ_TIMEOUT_MS = 5_000;
 /** The closed watched fields of one decoded event, from the tap's in-memory record. */
 export const watchedFieldsOf = (e: Pick<SentEvent, 'watch'>): Record<string, string> => ({ ...(e.watch ?? {}) });
 
+/** The failure allowances shared by the verdict and the offline diagnostic. */
+function allowsRecordingFailure(fields: Readonly<Record<string, string>>, profile: WatchProfile): boolean {
+    return (profile.allowFailureCodes ?? []).includes(fields.failure_code ?? '')
+        || (profile.allowUnclassifiedWhilePreparing === true && fields.failure_code === 'other' && PREPARING_STATES.has(fields.from_state ?? ''));
+}
+
 /**
  * Pure: the fatal signal an event carries for this profile, or null. `forbidRecording` is set by the spec around a step
  * whose truthful outcome is NOT a recording (a denied microphone).
@@ -233,9 +239,7 @@ export function fatalSignalOf(e: Pick<SentEvent, 'event' | 'watch'>, profile: Wa
                 f = { ...presentedFailure };
             }
             if (f.to_state === 'FAILED' || f.to_state === 'FAILED_VISIBLE') {
-                if ((profile.allowFailureCodes ?? []).includes(f.failure_code ?? '')) return null;
-                if (profile.allowUnclassifiedWhilePreparing && f.failure_code === 'other' && PREPARING_STATES.has(f.from_state ?? '')) return null;
-                return 'recording_failed';
+                return allowsRecordingFailure(f, profile) ? null : 'recording_failed';
             }
             return f.to_state === 'RECORDING' && forbidRecording ? 'recording_while_forbidden' : null;
         case 'session_save_latency_measured':
@@ -377,6 +381,7 @@ export class JourneyWatchdog {
      * had its fault phase open — recorded as time intervals and judged by the event's own capture time, never by the phase
      * at scan time. An expected event scanned late stays excused; an earlier unexpected one scanned inside stays fatal.
      */
+    private retryAdmissionAt?: number;
     private readonly faultIntervals: { from: number; to: number }[] = [];
     /** Every `recording_state` seen, per attempt (boot + attempt id), so a presentation binds to its own predecessor. */
     private readonly stateHistory = new Map<string, StateRecord[]>();
@@ -470,6 +475,41 @@ export class JourneyWatchdog {
         const last = this.faultIntervals[this.faultIntervals.length - 1];
         if (open && (!last || last.to !== Infinity)) this.faultIntervals.push({ from: now, to: Infinity });
         if (!open && last && last.to === Infinity) last.to = now;
+    }
+
+    /** Diagnostic only: the consent readback just passed at the Retry press boundary. */
+    noteRetryAdmission(): void { this.retryAdmissionAt ??= Date.now(); }
+
+    private offlineRecordingDiagnostic(disposition: string, captured: number | undefined, seen: number, attempt: string | null, presentation?: StateRecord): WatchSignal['fields'] {
+        if (!this.o.profile.bindLatePresentation) return {};
+        const faultEnd = this.faultIntervals[this.faultIntervals.length - 1]?.to;
+        const retry = this.retryAdmissionAt;
+        const delta = (a: number | undefined, b: number | undefined) =>
+            a !== undefined && Number.isFinite(a) && b !== undefined && Number.isFinite(b) ? a - b : 'unknown';
+        // Evidence only. A single tied record in a different request can describe transport, not prove order.
+        const history = attempt === null ? [] : (this.stateHistory.get(attempt) ?? []).filter((r) => r !== presentation);
+        const coded = (r: StateRecord) => r.fields.to_state === 'FAILED' && Boolean(r.fields.failure_code);
+        const proved = presentation && disposition !== 'pair_invalidated' ? presentedFailureOf(presentation, history) : undefined;
+        const predecessor = history.find((r) => r.fields === proved && coded(r));
+        const tied = presentation && disposition !== 'pair_invalidated' ? history.filter((r) => r.capturedAt === presentation.capturedAt) : [];
+        const tiedCandidate = presentation?.batch !== undefined && tied.length === 1 && coded(tied[0])
+            && tied[0].batch !== undefined && tied[0].batch !== presentation.batch ? tied[0] : undefined;
+        const transport = predecessor ?? tiedCandidate;
+        const firstSeenGap = delta(seen, transport ? this.firstSeen.get(transport) : undefined);
+        const observedFaultAttempts = [...this.stateHistory].filter(([, records]) => records.some((r) =>
+            r.fields.to_state === 'FAILED' && this.inFaultAt(r.capturedAt)
+            && allowsRecordingFailure(r.fields, this.o.profile)));
+        return {
+            presentationDisposition: disposition,
+            retryAdmissionOrigin: retry === undefined ? 'unknown' : 'consent_confirmed_before_retry',
+            firstSeenGapMs: typeof firstSeenGap === 'number' && Math.abs(firstSeenGap) <= 60_000 ? firstSeenGap : 'unknown',
+            sameRequest: presentation?.batch !== undefined && transport?.batch !== undefined ? presentation.batch === transport.batch : 'unknown',
+            causalCaptureGapMs: predecessor ? delta(captured, predecessor.capturedAt) : 'unknown',
+            capturedVsFaultEndMs: delta(captured, faultEnd), seenVsFaultEndMs: delta(seen, faultEnd),
+            capturedVsRetryAdmissionMs: delta(captured, retry), seenVsRetryAdmissionMs: delta(seen, retry),
+            sameObservedFaultAttempt: attempt !== null && observedFaultAttempts.length === 1
+                ? observedFaultAttempts[0][0] === attempt : 'unknown',
+        };
     }
 
     /** Around a step whose truthful outcome is no recording (a denied microphone): a RECORDING captured then trips. */
@@ -624,7 +664,8 @@ export class JourneyWatchdog {
             // A late same-attempt event that is not provably outside an excused pair voids that binding.
             for (const pair of this.boundPresentations.get(attempt) ?? []) {
                 if (!precedes(pair.visible, record) && !precedes(record, pair.failed)) {
-                    return { kind: 'recording_failed', event: e.event, fields: pair.visible.fields, elapsedMs: now - this.started };
+                    return { kind: 'recording_failed', event: e.event, fields: { ...pair.visible.fields, ...this.offlineRecordingDiagnostic('pair_invalidated', pair.visible.capturedAt,
+                        this.firstSeen.get(pair.visible) ?? now, attempt, pair.visible) }, elapsedMs: now - this.started };
                 }
             }
             const history = this.stateHistory.get(attempt) ?? [];
@@ -651,6 +692,13 @@ export class JourneyWatchdog {
             const failed = (this.stateHistory.get(attempt) ?? []).find((r) => r.fields === ctx.presentedFailure);
             if (failed) this.boundPresentations.set(attempt, [...(this.boundPresentations.get(attempt) ?? []), { failed, visible: record }]);
         }
+        if (kind === 'recording_failed') {
+            const presentation = fields.to_state === 'FAILED_VISIBLE' && fields.from_state === 'FAILED' && fields.failure_code === undefined;
+            const disposition = !presentation ? 'unexpected_failed_transition' : attempt === null ? 'missing_attempt_identity'
+                : ctx.presentedFailure ? 'bound_predecessor_unexpected' : 'unbound_outside_fault';
+            return { kind, event: e.event, fields: { ...fields,
+                ...this.offlineRecordingDiagnostic(disposition, e.capturedAt, now, attempt, presentation ? record ?? undefined : undefined) }, elapsedMs: now - this.started };
+        }
         return kind ? { kind, event: e.event, fields, elapsedMs: now - this.started } : null;
     }
 
@@ -671,7 +719,10 @@ export class JourneyWatchdog {
             const sourcePage = (p.e as { sourcePage?: unknown }).sourcePage;
             const kind = fatalSignalOf(p.e, this.profileAt(p.e.capturedAt, sourcePage), this.forbiddenAt(p.e.capturedAt),
                 presented ? { presentedFailure: presented } : {});
-            if (kind) return { kind, event: p.e.event, fields: p.record.fields, elapsedMs: now - this.started };
+            if (kind) return { kind, event: p.e.event, fields: { ...p.record.fields,
+                ...this.offlineRecordingDiagnostic(presented ? 'bound_predecessor_unexpected'
+                    : now >= p.deadline ? 'grace_expired' : 'finalized_unbound', p.record.capturedAt,
+                this.firstSeen.get(p.record) ?? now, p.attempt, p.record) }, elapsedMs: now - this.started };
             const failed = history.find((r) => r.fields === presented);
             if (failed) this.boundPresentations.set(p.attempt, [...(this.boundPresentations.get(p.attempt) ?? []), { failed, visible: p.record }]);
         }
