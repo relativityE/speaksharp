@@ -476,12 +476,13 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(JSON.stringify(sample)).toBe(before);
     const verdict = { miss: portalPlanMiss(sample.chains), split: portalPlanSplit(sample.chains) };
     void window.happyDOM.close();
-    return { sample, words, verdict, card: words.slice(0, 2) };
+    return { sample, words, verdict, card: words.slice(0, 2), label: words.slice(2, 4) };
   };
   const cardHtml = (heading: string, wrap = (h: string) => h) =>
     `<section>${wrap(heading)}<div>SpeakSharp Pro</div><div><span>US$10.00</span> <span>per month</span></div></section>`;
   const h2 = (text: string) => `<h2>${text}</h2>`;
   const said = (heading: string, same: string) => [`portal_plan_probe_card_heading_${heading}`, `portal_plan_probe_same_card_${same}`];
+  const labelled = (label: string, same: string) => [`portal_plan_probe_card_label_${label}`, `portal_plan_probe_label_same_card_${same}`];
 
   it('names the one semantic heading in the price card with a closed label, and says it is in the same card', () => {
     expect(page(cardHtml(h2('Current plan'))).card).toEqual(said('current_plan', 'yes'));
@@ -499,8 +500,10 @@ describe('the J9 observer reads the heading of the price card from the same samp
   it('says no, unknown or ambiguous rather than guessing', () => {
     // A plain page with no heading at all, read to its root within the card limit: no heading, not in the card.
     expect(page(cardHtml('')).card).toEqual(said('none', 'no'));
-    // Only semantic headings count: the same words as plain text are not a heading.
+    expect(page('<div><span>US$10.00</span> <span>per month</span></div>').card).toEqual(said('none', 'no'));
+    // Only semantic headings count as a heading: the same words as plain text are read as a label instead.
     expect(page(cardHtml('<div>Current plan</div>')).card).toEqual(said('none', 'no'));
+    expect(page(cardHtml('<div>Current plan</div>')).label).toEqual(labelled('current_plan', 'yes'));
     // A heading elsewhere on the page, past the compact card limit, is never claimed: overflow is unknown.
     const pad = `<p>${'Payment method Visa ending 4242. '.repeat(25)}</p>`;
     const far = page(`<main>${h2('Current plan')}${pad}${cardHtml('')}</main>`);
@@ -513,6 +516,60 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(page(cardHtml(h2('Your plan')) + cardHtml(h2('Your plan'))).card).toEqual(said('your_plan', 'yes'));
   });
 
+  it('says yes only from a card element of its own, never from a short wrapper that joins two separate cards', () => {
+    const priceLine = '<div><span>US$10.00</span> <span>per month</span></div>';
+    // Sam's control: the heading in one card, the $10.00 monthly line in a sibling card, under a short common wrapper.
+    for (const wrapper of ['div', 'main']) {
+      const siblings = page(`<${wrapper}><section>${h2('Current plan')}</section><section>${priceLine}</section></${wrapper}>`);
+      expect(siblings.card).toEqual(said('current_plan', 'unknown'));
+      // The verdict is untouched: its existing rule reads the short wrapper as the current-plan block and passes, as on main.
+      expect(siblings.verdict.miss).toBeNull();
+    }
+    // The same with plain div cards: no card element at all, so the heading is named but never claimed for the card.
+    expect(page(`<main><div>${h2('Current plan')}</div><div>${priceLine}</div></main>`).card).toEqual(said('current_plan', 'unknown'));
+    expect(page(`<div>${h2('Current plan')}${priceLine}</div>`).card).toEqual(said('current_plan', 'unknown'));
+    // A list item is its own card: the heading above the list is outside it.
+    expect(page(`<div>${h2('Your plan')}<ul><li>${priceLine}</li></ul></div>`).card).toEqual(said('your_plan', 'unknown'));
+    // Card elements that do hold their one heading say yes.
+    expect(page(`<div role="region" aria-labelledby="t"><h2 id="t">Current plan</h2>${priceLine}</div>`).card).toEqual(said('current_plan', 'yes'));
+    expect(page(`<article>${h2('Your subscription')}${priceLine}</article>`).card).toEqual(said('your_subscription', 'yes'));
+    expect(page(`<ul><li><h3>Current plan</h3>${priceLine}</li></ul>`).card).toEqual(said('current_plan', 'yes'));
+    // The nearest card element decides: an outer section with one heading cannot vouch for an inner card without one.
+    expect(page(`<section>${h2('Current plan')}<article>${priceLine}</article></section>`).card).toEqual(said('current_plan', 'unknown'));
+  });
+
+  it('reads a styled section label such as the portal preview caption, closed words only, under the same card rule', () => {
+    // Shaped like Stripe's preview: an uppercase caption, the product, then the monthly price, in one section.
+    const caption = (text: string) => `<section><div style="text-transform: uppercase">${text}</div><div>SpeakSharp Pro</div>`
+      + '<div><span>US$10.00</span> <span>per month</span></div><div>Your next billing date is Dec 25</div>'
+      + '<button>Cancel subscription</button></section>';
+    const preview = page(caption('CURRENT SUBSCRIPTION'));
+    expect(preview.label).toEqual(labelled('current_subscription', 'yes'));
+    expect(preview.card).toEqual(said('none', 'no'));
+    // The verdict is untouched: no "Current plan" anywhere, so it misses with label_absent exactly as on main.
+    expect(preview.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' } });
+    expect(page(caption('Current plan')).label).toEqual(labelled('current_plan', 'yes'));
+    expect(page(caption('Your plan')).label).toEqual(labelled('your_plan', 'yes'));
+    // A product name as a heading and a caption as a label are read side by side, neither replacing the other.
+    const both = page(`<section><div>CURRENT SUBSCRIPTION</div>${h2('Premium')}<div><span>US$10.00</span> <span>per month</span></div></section>`);
+    expect(both.card).toEqual(said('other_text', 'yes'));
+    expect(both.label).toEqual(labelled('current_subscription', 'yes'));
+    // No caption: none. A button, link or long sentence is never a label, even when it names a listed phrase.
+    expect(page(cardHtml('')).label).toEqual(labelled('none', 'no'));
+    expect(page(caption('')).label).toEqual(labelled('none', 'no'));
+    expect(page(cardHtml('<a href="#">Your plan</a>')).label).toEqual(labelled('none', 'no'));
+    expect(page(cardHtml('<p>Your subscription renews every month unless you cancel it first.</p>')).label).toEqual(labelled('none', 'no'));
+    // Two captions in one card: ambiguous, named by the most specific listed phrase.
+    expect(page(caption('CURRENT SUBSCRIPTION</div><div>Your plan')).label).toEqual(labelled('current_subscription', 'unknown'));
+    // Sam's control holds for labels too: a caption in a sibling card under a short wrapper is named, never claimed.
+    const priceLine = '<div><span>US$10.00</span> <span>per month</span></div>';
+    for (const wrapper of ['div', 'main']) {
+      const siblings = page(`<${wrapper}><section><div>CURRENT SUBSCRIPTION</div></section><section>${priceLine}</section></${wrapper}>`);
+      expect(siblings.label).toEqual(labelled('current_subscription', 'unknown'));
+    }
+    expect(page(`<main><div><div>Current plan</div></div><div>${priceLine}</div></main>`).label).toEqual(labelled('current_plan', 'unknown'));
+  });
+
   it('10 versus 11: labels come only from the ten elements the verdict reads, and a cap hit is said, not read past', () => {
     const receipts = (n: number, attrs = '') => Array.from({ length: n }, () => `<p ${attrs}>US$10.00 paid with Visa</p>`).join('');
     const eleven = page(receipts(10) + cardHtml(h2('Your subscription')));
@@ -520,12 +577,12 @@ describe('the J9 observer reads the heading of the price card from the same samp
     // The page-level ancestor joins all eleven, so the verdict stops at line_too_long, never at the card's no_plan_block.
     expect(eleven.verdict.miss).toBe('line_too_long');
     expect(eleven.sample.cards).toEqual(Array(10).fill(null));
-    expect(eleven.words).toEqual([...said('not_reached', 'not_reached'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_hit']);
+    expect(eleven.words).toEqual([...said('not_reached', 'not_reached'), ...labelled('not_reached', 'not_reached'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_hit']);
     const ten = page(receipts(9) + cardHtml(h2('Your subscription')));
     expect([ten.sample.shown, ten.sample.chains.length]).toEqual([10, 10]);
     expect(ten.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' } });
-    expect(ten.words).toEqual([...said('your_subscription', 'yes'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_clear']);
-    expect(page(receipts(10, 'hidden') + cardHtml(h2('Your subscription'))).words.slice(2))
+    expect(ten.words).toEqual([...said('your_subscription', 'yes'), ...labelled('none', 'no'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_clear']);
+    expect(page(receipts(10, 'hidden') + cardHtml(h2('Your subscription'))).words.slice(4))
       .toEqual(['portal_plan_probe_roots_document', 'portal_plan_probe_kept_1_cap_clear']);
   });
 
@@ -563,7 +620,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
       doc.querySelector('plan-card')!.attachShadow({ mode: 'open' }).innerHTML = `<div>SpeakSharp Pro</div><div>${line}</div>`;
     } });
     expect(outside.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' } });
-    expect(outside.words).toEqual([...said('none', 'unknown'), 'portal_plan_probe_roots_shadow', 'portal_plan_probe_kept_1_cap_clear']);
+    expect(outside.words).toEqual([...said('none', 'unknown'), ...labelled('none', 'unknown'), 'portal_plan_probe_roots_shadow', 'portal_plan_probe_kept_1_cap_clear']);
     const inside = page('<plan-card></plan-card>', { build: (doc) => {
       doc.querySelector('plan-card')!.attachShadow({ mode: 'open' }).innerHTML = cardHtml(h2('Your plan'));
     } });
@@ -571,8 +628,8 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const mixed = page(`<div>${line}</div><x-card></x-card>`, { build: (doc) => {
       doc.querySelector('x-card')!.attachShadow({ mode: 'open' }).innerHTML = `<div>${line}</div>`;
     } });
-    expect(mixed.words[2]).toBe('portal_plan_probe_roots_mixed');
-    expect(page('<p>Nothing priced here</p>').words).toEqual([...said('not_reached', 'not_reached'), 'portal_plan_probe_roots_none',
+    expect(mixed.words[4]).toBe('portal_plan_probe_roots_mixed');
+    expect(page('<p>Nothing priced here</p>').words).toEqual([...said('not_reached', 'not_reached'), ...labelled('not_reached', 'not_reached'), 'portal_plan_probe_roots_none',
       'portal_plan_probe_kept_0_cap_clear']);
   });
 
@@ -589,12 +646,13 @@ describe('the J9 observer reads the heading of the price card from the same samp
   it('leaves pass/fail, the miss word and the split exactly as they were, and reads anything malformed as unreadable', () => {
     expect(planSampleChains(null)).toBeNull();
     for (const bad of [null, 'x', {}, 3]) expect(portalPlanMiss(planSampleChains(bad))).toBe('unreadable');
-    const yes: PlanCardRead = { heading: 'your_plan', same: 'yes' };
+    const yes: PlanCardRead = { heading: 'your_plan', same: 'yes', label: 'none', labelSame: 'no' };
     const good: PlanSample = { chains: [[line, 'Your plan']], roots: ['document'], shown: 1, cards: [yes] };
-    expect(portalPlanObserver(good)).toHaveLength(4);
+    expect(portalPlanObserver(good)).toHaveLength(6);
     for (const bad of [null, undefined, 'x', {}, { ...good, cards: [] }, { ...good, roots: ['frame'] }, { ...good, roots: [] },
-      { ...good, shown: 0 }, { ...good, shown: 1.5 }, { ...good, cards: [{ heading: 'Current plan', same: 'yes' }] },
-      { ...good, cards: [{ heading: 'your_plan', same: 'maybe' }] }, { ...good, chains: Array(11).fill([line]),
+      { ...good, shown: 0 }, { ...good, shown: 1.5 }, { ...good, cards: [{ ...yes, heading: 'Current plan' }] },
+      { ...good, cards: [{ ...yes, same: 'maybe' }] }, { ...good, cards: [{ ...yes, label: 'CURRENT SUBSCRIPTION' }] },
+      { ...good, cards: [{ ...yes, labelSame: 'maybe' }] }, { ...good, cards: [{ heading: 'your_plan', same: 'yes' }] }, { ...good, chains: Array(11).fill([line]),
         roots: Array(11).fill('document'), cards: Array(11).fill(null), shown: 11 }]) {
       expect(portalPlanObserver(bad)).toEqual(['portal_plan_probe_unreadable']);
     }
@@ -605,13 +663,16 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const headings = [...PLAN_PROBE_HEADINGS.map(([name]) => name), 'other_text', 'none', 'unknown', 'mixed', 'not_reached'];
     const names = [...headings.map((h) => `portal_plan_probe_card_heading_${h}`),
       ...['yes', 'no', 'unknown', 'not_reached'].map((v) => `portal_plan_probe_same_card_${v}`),
+      ...headings.map((h) => `portal_plan_probe_card_label_${h}`),
+      ...['yes', 'no', 'unknown', 'not_reached'].map((v) => `portal_plan_probe_label_same_card_${v}`),
       ...['document', 'shadow', 'other', 'mixed', 'none'].map((r) => `portal_plan_probe_roots_${r}`),
       ...Array.from({ length: 11 }, (_, n) => [`portal_plan_probe_kept_${n}_cap_clear`, `portal_plan_probe_kept_${n}_cap_hit`]).flat(),
       'portal_plan_probe_unreadable'];
     for (const name of names) expect(progressLine('checkpoint', name, 0)).not.toContain('=invalid');
     expect(new Set(names).size).toBe(names.length);
     const s: PlanSample = { chains: [[line], [line]], roots: ['other', 'shadow'], shown: 12,
-      cards: [{ heading: 'other_text', same: 'unknown' }, { heading: 'none', same: 'no' }] };
+      cards: [{ heading: 'other_text', same: 'unknown', label: 'current_subscription', labelSame: 'yes' },
+        { heading: 'none', same: 'no', label: 'none', labelSame: 'no' }] };
     for (const w of portalPlanObserver(s)) expect(names).toContain(w);
   });
 

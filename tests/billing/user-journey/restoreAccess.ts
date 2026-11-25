@@ -258,16 +258,22 @@ export const PLAN_PROBE_HEADINGS = [
 ] as const;
 export type PlanCardHeading = typeof PLAN_PROBE_HEADINGS[number][0] | 'other_text' | 'none' | 'unknown';
 export type PlanSameCard = 'yes' | 'no' | 'unknown';
-/** One candidate's card read: the closed label of the visible semantic heading in its compact card, and whether it is there. */
-export interface PlanCardRead { heading: PlanCardHeading; same: PlanSameCard }
+/**
+ * One candidate's card read: the closed label of the visible semantic heading near it and whether that heading is in the same
+ * card, and the same two for a short visible section label (styled text, not a heading element; e.g. a small uppercase caption).
+ */
+export interface PlanCardRead { heading: PlanCardHeading; same: PlanSameCard; label: PlanCardHeading; labelSame: PlanSameCard }
 /** What the observer needs inside the page, as plain data (patterns travel as source and flags; no code). */
 export interface PlanProbeArgs {
-  price: [string, string]; cadence: [string, string]; lineMax: number; cardMax: number; headings: Array<[string, string, string]>;
+  price: [string, string]; cadence: [string, string]; lineMax: number; cardMax: number; labelMax: number;
+  headings: Array<[string, string, string]>;
 }
-/** The verdict's own price, cadence and line limit, and PLAN_BLOCK_MAX as the compact card's limit. */
+/** Longest visible text of an element read as a section label (a caption such as "CURRENT SUBSCRIPTION", not a sentence). */
+export const PLAN_LABEL_TEXT_MAX = 40;
+/** The verdict's own price, cadence and line limit, PLAN_BLOCK_MAX as the compact card's limit, and the label text limit. */
 export const PLAN_PROBE_ARGS: PlanProbeArgs = {
   price: [PLAN_PRICE.source, PLAN_PRICE.flags], cadence: [PLAN_CADENCE.source, PLAN_CADENCE.flags], lineMax: PLAN_LINE_MAX,
-  cardMax: PLAN_BLOCK_MAX, headings: PLAN_PROBE_HEADINGS.map(([name, re]) => [name, re.source, re.flags]),
+  cardMax: PLAN_BLOCK_MAX, labelMax: PLAN_LABEL_TEXT_MAX, headings: PLAN_PROBE_HEADINGS.map(([name, re]) => [name, re.source, re.flags]),
 };
 
 /**
@@ -278,15 +284,21 @@ export const PLAN_PROBE_ARGS: PlanProbeArgs = {
  * ten elements and nothing else on the page, and with no text leaving the page:
  *  - `shown`: how many matches were visible before the ten-element cap (a cap hit is said, never read past);
  *  - `roots`: where each lives, `document`, `shadow` (an open shadow root, whose chain stops at the boundary) or `other`;
- *  - `cards`: for each element that passes the verdict's own price, cadence and line checks (null otherwise), its compact card:
- *    the nearest ancestor, from the price/cadence line up, that holds a visible semantic heading (h1 to h6, or role=heading)
- *    while its visible text is within `cardMax`. One heading there is `same: yes` with its closed label; more than one is
- *    `same: unknown` (ambiguous), labelled by the most specific listed phrase among them. Passing `cardMax` first is `unknown`
- *    (overflow: any heading is outside the compact card). Reaching the page root with no heading is `none`/`no`; reaching a shadow
- *    root or a detached root is `none`/`unknown`, since a heading outside it cannot be seen. A heading counts as visible when it and
- *    every ancestor up to the card are rendered, where a box-less (display: contents) wrapper with otherwise visible style counts:
- *    Chrome's `checkVisibility` reports such a wrapper as not visible because it has no box, and the verdict's text skips it.
- *    A failure here leaves that card null and the chains untouched.
+ *  - `cards`: for each element that passes the verdict's own price, cadence and line checks (null otherwise), two reads.
+ *    `heading`: the closed label of the visible semantic heading (h1 to h6, or role=heading) in the nearest ancestor, from the
+ *    price/cadence line up, that holds one while its visible text is within `cardMax` (the most specific listed phrase when it holds
+ *    several); `unknown` if `cardMax` is passed first; `none` if the root is reached first. `same`: `yes` only when the plan region
+ *    is identified on its own, as the nearest ancestor at or above the line that is a card element (section, article, li,
+ *    fieldset, or role region, group, listitem or article, or aria-labelledby) within `cardMax`, and that element holds exactly one
+ *    visible heading. A short wrapper that merely joins two cards is never such an element, so it never yields `yes` (Sam,
+ *    2026-11-25). `no` only when no heading is visible anywhere up to the page root within `cardMax`. Everything else, including
+ *    no card element, a card element without exactly one heading, overflow, or a shadow or detached root, is `unknown`.
+ *    `label` and `labelSame`: the same two reads for a section label, an element that is not a heading, link, button or form
+ *    control, whose own visible text is at most `labelMax` and names a listed phrase, counting only the innermost such element.
+ *    Stripe's portal may draw its caption as styled text rather than a heading element, so this is read alongside, never instead.
+ *    A heading or label counts as visible when it and every ancestor up to the region are rendered, where a box-less (display: contents)
+ *    wrapper with otherwise visible style counts: Chrome's `checkVisibility` reports such a wrapper as not visible because it has
+ *    no box, and the verdict's text skips it. A failure here leaves that card null and the chains untouched.
  */
 export interface PlanSample { chains: string[][]; roots: Array<'document' | 'shadow' | 'other'>; shown: number; cards: Array<PlanCardRead | null> }
 
@@ -329,23 +341,45 @@ export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): Pl
     const line = chain.findIndex((t) => cadence.test(t));
     if (line < 0 || chain[line].length > args.lineMax) return null;
     const labels = args.headings.map(([name, source, flags]) => [name, new RegExp(source, flags)] as const);
-    for (let i = line; i < path.length; i++) {
-      if (chain[i].length > args.cardMax) return { heading: 'unknown', same: 'unknown' };
-      const region = path[i];
-      const heads = Array.from(region.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]')).filter((h) => {
-        for (let e: Element | null = h; e && e !== region; e = e.parentElement) if (!boxTolerant(e)) return false;
-        return true;
-      });
-      if (heads.length === 0) continue;
+    const visibleIn = (region: Element, el: Element): boolean => {
+      for (let e: Element | null = el; e && e !== region; e = e.parentElement) if (!boxTolerant(e)) return false;
+      return true;
+    };
+    const headsIn = (region: Element): Element[] => Array.from(region.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]'))
+      .filter((h) => visibleIn(region, h));
+    const listed = (text: string): number => {
+      const hit = labels.findIndex(([, phrase]) => phrase.test(text));
+      return hit < 0 ? labels.length : hit;
+    };
+    const notLabel = 'h1, h2, h3, h4, h5, h6, [role="heading"], a, button, input, select, textarea, label, [role="button"], [role="link"]';
+    const isLabel = (el: Element): boolean => {
+      if (el.matches(notLabel) || el.closest('a, button, [role="button"], [role="link"]')) return false;
+      const text = textOf(el, boxTolerant);
+      return text.length > 0 && text.length <= args.labelMax && listed(text) < labels.length;
+    };
+    const labelsIn = (region: Element): Element[] => Array.from(region.querySelectorAll('*'))
+      .filter((el) => isLabel(el) && visibleIn(region, el) && !Array.from(el.querySelectorAll('*')).some(isLabel));
+    const labelOf = (found: Element[]): PlanCardHeading => {
       let best = labels.length;
-      for (const h of heads) {
-        const hit = labels.findIndex(([, phrase]) => phrase.test(textOf(h, boxTolerant)));
-        if (hit >= 0 && hit < best) best = hit;
+      for (const el of found) best = Math.min(best, listed(textOf(el, boxTolerant)));
+      return (best < labels.length ? labels[best][0] : 'other_text') as PlanCardHeading;
+    };
+    const cardElement = 'section, article, li, fieldset, [role="region"], [role="group"], [role="listitem"], [role="article"], [aria-labelledby]';
+    // Only the nearest card element counts, and only with exactly one visible heading (or label) of its own.
+    const region = path.slice(line).find((e, k) => chain[line + k].length <= args.cardMax && e.matches(cardElement));
+    const readWith = (find: (r: Element) => Element[]): [PlanCardHeading, PlanSameCard] => {
+      let name: PlanCardHeading = 'none';
+      for (let i = line; i < path.length; i++) {
+        if (chain[i].length > args.cardMax) { name = 'unknown'; break; }
+        const found = find(path[i]);
+        if (found.length > 0) { name = labelOf(found); break; }
       }
-      const heading = (best < labels.length ? labels[best][0] : 'other_text') as PlanCardHeading;
-      return { heading, same: heads.length === 1 ? 'yes' : 'unknown' };
-    }
-    return { heading: 'none', same: root === 'document' ? 'no' : 'unknown' };
+      if (region && find(region).length === 1) return [name, 'yes'];
+      return [name, name === 'none' && root === 'document' ? 'no' : 'unknown'];
+    };
+    const [heading, same] = readWith(headsIn);
+    const [label, labelSame] = readWith(labelsIn);
+    return { heading, same, label, labelSame };
   };
   const visible = elements.filter(shown);
   const sample: PlanSample = { chains: [], roots: [], shown: visible.length, cards: [] };
@@ -373,7 +407,7 @@ const CARD_HEADINGS: readonly string[] = [...PLAN_PROBE_HEADINGS.map(([name]) =>
 
 /**
  * The observer's fixed words for one sample: the card heading's closed label, whether it is in the same compact card as the
- * $10.00 monthly line, where the ten elements live, and how many were kept against the cap. Across candidates, one shared read is
+ * $10.00 monthly line, the same two for a section label, where the ten elements live, and how many were kept against the cap. Across candidates, one shared read is
  * reported as is; candidates that disagree read `mixed` and `unknown`; no candidate reads `not_reached`. Every word fits
  * `progressLine`'s checkpoint alphabet; anything malformed reads `portal_plan_probe_unreadable`. Diagnostic only: it reads the
  * sample the verdict already judged and changes nothing about it.
@@ -381,17 +415,25 @@ const CARD_HEADINGS: readonly string[] = [...PLAN_PROBE_HEADINGS.map(([name]) =>
 export function portalPlanObserver(sample: unknown): string[] {
   const s = sample as Partial<PlanSample> | null;
   const kept = Array.isArray(s?.chains) ? s.chains.length : -1;
+  const sameWord = (v: unknown) => v === 'yes' || v === 'no' || v === 'unknown';
   const isCard = (c: unknown): c is PlanCardRead | null => c === null || (typeof c === 'object' && CARD_HEADINGS.includes((c as PlanCardRead).heading)
-    && ['yes', 'no', 'unknown'].includes((c as PlanCardRead).same));
+    && sameWord((c as PlanCardRead).same) && CARD_HEADINGS.includes((c as PlanCardRead).label) && sameWord((c as PlanCardRead).labelSame));
   if (!s || typeof s !== 'object' || kept < 0 || kept > 10 || !Array.isArray(s.cards) || s.cards.length !== kept || !s.cards.every(isCard)
     || !Array.isArray(s.roots) || s.roots.length !== kept || !Number.isInteger(s.shown) || (s.shown as number) < kept
     || !s.roots.every((r) => r === 'document' || r === 'shadow' || r === 'other')) return ['portal_plan_probe_unreadable'];
-  const reads = Array.from(new Set(s.cards.filter((c): c is PlanCardRead => c !== null).map((c) => `${c.heading} ${c.same}`)));
-  const [heading, same] = reads.length === 0 ? ['not_reached', 'not_reached'] : reads.length === 1 ? reads[0].split(' ') : ['mixed', 'unknown'];
+  const cards = s.cards.filter((c): c is PlanCardRead => c !== null);
+  const agree = (key: (c: PlanCardRead) => string): string[] => {
+    const reads = Array.from(new Set(cards.map(key)));
+    return reads.length === 0 ? ['not_reached', 'not_reached'] : reads.length === 1 ? reads[0].split(' ') : ['mixed', 'unknown'];
+  };
+  const [heading, same] = agree((c) => `${c.heading} ${c.same}`);
+  const [label, labelSame] = agree((c) => `${c.label} ${c.labelSame}`);
   const kinds = (['document', 'shadow', 'other'] as const).filter((k) => s.roots!.includes(k));
   return [
     `portal_plan_probe_card_heading_${heading}`,
     `portal_plan_probe_same_card_${same}`,
+    `portal_plan_probe_card_label_${label}`,
+    `portal_plan_probe_label_same_card_${labelSame}`,
     `portal_plan_probe_roots_${kinds.length === 0 ? 'none' : kinds.length > 1 ? 'mixed' : kinds[0]}`,
     `portal_plan_probe_kept_${kept}_cap_${(s.shown as number) > 10 ? 'hit' : 'clear'}`,
   ];
