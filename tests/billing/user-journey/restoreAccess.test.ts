@@ -7,8 +7,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Window } from 'happy-dom';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
-  portalShowsPlan, portalPlanMiss, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX } from './restoreAccess';
-import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
+  portalShowsPlan, portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX } from './restoreAccess';
+import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, progressLine, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
 import { sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 
@@ -351,7 +351,7 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(portal).toMatch(/waitForURL\(url => url\.origin === 'https:\/\/billing\.stripe\.com'/);
     // The portal check reads per-element ancestries, never the whole page's text, and a timeout names its fixed reason.
     expect(portal).toMatch(/await this\.awaitPortalPlan\(this\.page\);/);
-    expect(spec).toMatch(/portalPlanMiss\(await this\.planAncestries\(page\)\.catch\(\(\) => null\)\)/);
+    expect(spec).toMatch(/portalPlanMiss\(last = await this\.planAncestries\(page\)\.catch\(\(\) => null\)\)/);
     expect(spec).toMatch(/throw new Error\(`BILLING_JOURNEY:portal_plan_not_shown_\$\{miss \?\? 'unreadable'\}`\)/);
     // J9.a's paid_account_kept reads the same way in its fresh context: never its own innerText scan.
     const kept = spec.slice(spec.indexOf("this.stage = 'portal_plan_shown';"), spec.indexOf("this.steps.add('portal_plan_shown');"));
@@ -370,5 +370,64 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(spec).toMatch(/this\.trialHistory = await this\.history\(this\.member\);/);
     expect(spec).not.toMatch(/functions\/v1\/stripe-webhook|invoke\('stripe-webhook'/);
     expect(spec).not.toMatch(/stripe\('charges'?,\s*'POST'/);
+  });
+});
+
+describe('a no_plan_block miss splits into its two causes, content-free, without changing the verdict', () => {
+  const line = 'US$10.00 per month';
+  const plan = `Current plan\nSpeakSharp Pro\n${line}`;
+  // Cause 1: the label is not visible text anywhere in the ancestry (another heading), up to the page root.
+  const labelAbsent = [line, `Your subscription\nSpeakSharp Pro\n${line}`, `Account\nYour subscription\nSpeakSharp Pro\n${line}\nPayment method`];
+  // Cause 2: the label is there, but only in an ancestor whose visible text is over PLAN_BLOCK_MAX (a separate section).
+  const bigBlock = (n: number) => `Current plan\n${'Payment method Visa ending 4242. '.repeat(n)}\n${line}`;
+  const labelTooFar = [line, `SpeakSharp Pro\n${line}`, bigBlock(25)];
+
+  it('negative control, cause 1: label absent reads label_absent_block_none, and the miss stays no_plan_block', () => {
+    expect(portalPlanMiss([labelAbsent])).toBe('no_plan_block');
+    expect(portalPlanSplit([labelAbsent])).toEqual({ label: 'absent', block: 'none' });
+    expect(portalPlanSplitCheckpoint(portalPlanSplit([labelAbsent]))).toBe('portal_plan_split_label_absent_block_none');
+  });
+  it('negative control, cause 2: label only in an oversized ancestor reads label_present with its size bucket, miss unchanged', () => {
+    expect(bigBlock(25).length).toBeGreaterThan(PLAN_BLOCK_MAX);
+    expect(bigBlock(25).length).toBeLessThanOrEqual(2 * PLAN_BLOCK_MAX);
+    expect(portalPlanMiss([labelTooFar])).toBe('no_plan_block');
+    expect(portalPlanSplit([labelTooFar])).toEqual({ label: 'present', block: 'up_to_2x' });
+    expect(portalPlanSplit([[line, bigBlock(50)]])).toEqual({ label: 'present', block: 'up_to_4x' });
+    expect(portalPlanSplit([[line, bigBlock(100)]])).toEqual({ label: 'present', block: 'over_4x' });
+  });
+  it('takes the smallest labelled block across chains, in either order, and a passing chain reads within_limit', () => {
+    expect(portalPlanSplit([labelAbsent, labelTooFar])).toEqual({ label: 'present', block: 'up_to_2x' });
+    expect(portalPlanSplit([labelTooFar, labelAbsent])).toEqual({ label: 'present', block: 'up_to_2x' });
+    expect(portalPlanSplit([[line, bigBlock(100)], labelTooFar])).toEqual({ label: 'present', block: 'up_to_2x' });
+    expect(portalPlanSplit([[line, plan]])).toEqual({ label: 'present', block: 'within_limit' });
+  });
+  it('counts only chains that passed price, cadence and line, and never changes portalPlanMiss or portalShowsPlan', () => {
+    expect(portalPlanSplit(null)).toBeNull();
+    expect(portalPlanSplit([])).toBeNull();
+    expect(portalPlanSplit([['$10.00', 'Current plan\n$10.00 Paid']])).toBeNull();
+    expect(portalPlanSplit([[`$10.00 per month ${'x'.repeat(PLAN_LINE_MAX)}`, plan]])).toBeNull();
+    expect(portalPlanSplitCheckpoint(null)).toBe('portal_plan_split_not_reached');
+    // The same verdicts as before for every input the split reads.
+    const inputs: unknown[] = [null, [], [labelAbsent], [labelTooFar], [[line, plan]], [labelAbsent, [line, plan]],
+      [['$10.00 per month', 'Current plan\n$10.00 per month\nUpgrade to Team $25.00 per month']]];
+    for (const input of inputs) {
+      const before = [portalPlanMiss(input), portalShowsPlan(input)];
+      portalPlanSplit(input);
+      expect([portalPlanMiss(input), portalShowsPlan(input)]).toEqual(before);
+    }
+  });
+  it('leaves only fixed words that fit the progress line alphabet', () => {
+    for (const label of ['present', 'absent'] as const) {
+      for (const block of ['none', 'within_limit', 'up_to_2x', 'up_to_4x', 'over_4x'] as const) {
+        expect(progressLine('checkpoint', portalPlanSplitCheckpoint({ label, block }), 0)).not.toContain('=invalid');
+      }
+    }
+    expect(progressLine('checkpoint', portalPlanSplitCheckpoint(null), 0)).not.toContain('=invalid');
+  });
+  it('the spec emits the split only after a no_plan_block miss, and still throws the same failure code', () => {
+    const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
+    const body = spec.slice(spec.indexOf('async awaitPortalPlan('), spec.indexOf('async planAncestries('));
+    expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(last)));");
+    expect(body).toContain('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? \'unreadable\'}`);');
   });
 });

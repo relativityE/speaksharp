@@ -156,6 +156,42 @@ export function portalPlanMiss(ancestries: unknown): PortalPlanMiss | null {
   return furthest;
 }
 
+/** Length bucket of the smallest current-plan block, in multiples of PLAN_BLOCK_MAX; `none` when no ancestor names it. */
+export type PlanBlockBucket = 'none' | 'within_limit' | 'up_to_2x' | 'up_to_4x' | 'over_4x';
+const BUCKET_ORDER: readonly PlanBlockBucket[] = ['within_limit', 'up_to_2x', 'up_to_4x', 'over_4x', 'none'];
+const blockBucket = (length: number): PlanBlockBucket => length <= PLAN_BLOCK_MAX ? 'within_limit'
+  : length <= 2 * PLAN_BLOCK_MAX ? 'up_to_2x' : length <= 4 * PLAN_BLOCK_MAX ? 'up_to_4x' : 'over_4x';
+
+/**
+ * Splits a `no_plan_block` miss into its two possible causes, content-free (Sam, 2026-11-24, after run 45496024399). Only chains
+ * that already passed the price, cadence and line checks count. `label` says whether any element at or above such a line names the
+ * current plan (each chain runs to the page root, so `absent` means the label is not visible text anywhere on the page). `block`
+ * is the length bucket of the smallest such element across those chains. Diagnostic only: it never changes `portalPlanMiss` or
+ * `portalShowsPlan`, and only these fixed words leave; null when no chain reached the block check.
+ */
+export function portalPlanSplit(ancestries: unknown): { label: 'present' | 'absent'; block: PlanBlockBucket } | null {
+  if (!Array.isArray(ancestries)) return null;
+  let reached = false;
+  let best: PlanBlockBucket = 'none';
+  for (const chain of ancestries) {
+    if (!Array.isArray(chain) || chain.length === 0 || !chain.every((t) => typeof t === 'string')) continue;
+    if (!PLAN_PRICE.test(chain[0])) continue;
+    const line = chain.findIndex((t: string) => PLAN_CADENCE.test(t));
+    if (line < 0 || chain[line].length > PLAN_LINE_MAX) continue;
+    reached = true;
+    const block = chain.slice(line).find((t: string) => PLAN_LABEL.test(t));
+    if (typeof block !== 'string') continue;
+    const bucket = blockBucket(block.length);
+    if (BUCKET_ORDER.indexOf(bucket) < BUCKET_ORDER.indexOf(best)) best = bucket;
+  }
+  return reached ? { label: best === 'none' ? 'absent' : 'present', block: best } : null;
+}
+
+/** The split as one progress checkpoint name (`progressLine`'s alphabet), e.g. `portal_plan_split_label_present_block_up_to_2x`. */
+export function portalPlanSplitCheckpoint(split: ReturnType<typeof portalPlanSplit>): string {
+  return split === null ? 'portal_plan_split_not_reached' : `portal_plan_split_label_${split.label}_block_${split.block}`;
+}
+
 /**
  * Manage billing (the Stripe portal) shows the plan: one element holds the $10.00 price and its monthly cadence together,
  * inside the current-plan block (Sam on #1937). The spec passes, for each VISIBLE element showing $10.00, the visible text of
