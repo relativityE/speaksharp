@@ -110,6 +110,17 @@ export function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary
   lines.push('', '| Area | Status | Meaning | Evidence | Next Action | Drill-down |', '|---|---|---|---|---|---|');
 
   for (const check of checks) {
+    if (check.github) {
+      const { repository, actions, actionsUrl } = check.github;
+      const status = repository === 'fail' || actions === 'fail' ? 'fail'
+        : repository === 'pass' && actions === 'pass' ? 'pass' : 'warn';
+      const read = { pass: 'readable', fail: 'could not read', skip: 'not checked', warn: 'partially readable' };
+      lines.push(['GitHub access', statusBadge({ status }), 'Repository and workflow run lists',
+        'Repository: ' + read[repository] + '; Actions: ' + read[actions],
+        'Workflow outcomes are listed separately below.', actionsUrl ? '[Open Actions](' + actionsUrl + ')' : '',
+      ].map(esc).join(' | '));
+      continue;
+    }
     lines.push(
       [
         esc(check.name),
@@ -120,6 +131,18 @@ export function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary
         check.drilldownUrl ? `[Open](${check.drilldownUrl})` : '',
       ].join(' | '),
     );
+  }
+
+  const gh = checks.find((check) => check.github)?.github;
+  if (gh?.workflows?.length) {
+    lines.push('', '## SpeakSharp workflow results', '', 'These results affect release readiness, not GitHub availability.');
+    const names = { ci: 'Latest CI', canary: 'Latest canary', release: 'Full live release gate on main' };
+    const outcomes = { passed: 'passed', failed: 'failed', pending: 'in progress', missing: 'no qualifying run', unavailable: 'could not read' };
+    for (const item of gh.workflows) {
+      const scope = item.branch === 'other' ? ' (other branch)' : item.branch === 'main' && item.kind !== 'release' ? ' (main)' : '';
+      lines.push('- ' + names[item.kind] + scope + ': ' + outcomes[item.outcome]
+        + (item.runAt ? ' · recorded ' + item.runAt : '') + (item.url ? ' · [Open in Actions](' + item.url + ')' : ''));
+    }
   }
 
   if (canaryActivity) renderCanaryActivity(lines, canaryActivity);
@@ -137,6 +160,9 @@ export function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary
   );
   return `${lines.join('\n')}\n`;
 }
+
+const PUBLIC_GEMINI_GENERATION = new Set(['Gemini generation', 'Gemini highest working model']);
+const PUBLIC_GEMINI_VERSION = /^gemini-\d{1,3}\.\d{1,3}-flash(?:-lite)?(?:-\d{3})?$/;
 
 export function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, summary, checks, canaryActivity }) {
   return {
@@ -158,6 +184,10 @@ export function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, su
       latencyMs: check.latencyMs,
       checkedAt: check.checkedAt,
       drilldownUrl: check.drilldownUrl,
+      ...(check.github ? { github: check.github } : {}),
+      ...(PUBLIC_GEMINI_GENERATION.has(check.name) && check.status === 'pass'
+        && typeof check.providerModelVersion === 'string' && PUBLIC_GEMINI_VERSION.test(check.providerModelVersion)
+        ? { providerModelVersion: check.providerModelVersion } : {}),
     })),
   };
 }

@@ -94,9 +94,11 @@ describe('Private-only public product copy contract (#1254)', () => {
     expect(surfaces.faq).toContain('sent to an AI service to write your review');
     const landingPrivate = read('frontend/src/components/landing/PrivateRepeatSection.tsx');
     expect(landingPrivate).toContain('Saved transcripts are stored in your account and sent to an AI service for coaching.');
-    // Only the Privacy Policy names the provider.
+    // The Privacy Policy and the exact protected Ops Health page name the provider.
+    // All other customer copy assertions still scan the Ops Health page.
+    const opsHealthPage = resolve(process.cwd(), 'frontend/src/pages/OpsStatusPage.tsx');
     const productCopyOutsidePolicy = customerSourceFiles
-      .filter((path) => !path.endsWith('LegalPage.tsx'))
+      .filter((path) => !path.endsWith('LegalPage.tsx') && path !== opsHealthPage)
       .flatMap((path) => stringLiterals(readFileSync(path, 'utf8')))
       .join('\n');
     expect(productCopyOutsidePolicy).not.toMatch(/Gemini/);

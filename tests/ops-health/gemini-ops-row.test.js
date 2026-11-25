@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderPublicSummary, summarize } from '../../scripts/lib/ops-health-report.mjs';
 import { evaluateGeminiGeneration, evaluateHighestWorkingGemini } from '../../scripts/lib/gemini-ops-row.mjs';
 
 const { model } = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)),
@@ -26,6 +27,7 @@ describe('Ops Health Gemini generation', () => {
     expect(init.redirect).toBe('error');
     expect(JSON.parse(init.body).contents).toEqual([{ parts: [{ text: 'Reply with one word: ready.' }] }]);
     expect(result).toMatchObject({ status: 'pass', detail: 'generation=generated' });
+    expect(result.providerModelVersion).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain(hidden);
     expect(JSON.stringify(result)).not.toContain(key);
   });
@@ -104,6 +106,7 @@ describe('Ops Health highest working Gemini', () => {
       ['/v1beta/models/gemini-3.5-flash-lite:generateContent', 'POST', key],
     ]);
     expect(result.status).toBe('pass');
+    expect(result.providerModelVersion).toBe('gemini-3.5-flash-lite-001');
     expect(result.detail).toContain('Gemini: 200 · gemini-3.5-flash-lite-001');
     expect(result.detail).toContain('highest_working=gemini-3.5-flash-lite; provider_model_version=gemini-3.5-flash-lite-001');
     expect(result.detail).toContain('gemini-3.10-flash:503:unavailable_503,gemini-3.7-flash:200:empty,gemini-3.6-flash:504:http_error,gemini-3.5-flash:504:http_error,gemini-3.5-flash-lite:200:generated');
@@ -144,4 +147,22 @@ describe('Ops Health highest working Gemini', () => {
     expect(partial.detail).toContain('catalog_unavailable');
     expect(partial.detail).not.toContain(hidden);
   });
+});
+
+
+it('publishes a safe observed version from the highest versioned success but preserves the raw probe verdict', async () => {
+  const result = await evaluateHighestWorkingGemini(key, { fetchImpl: async (url, init) => {
+    if (init.method === 'GET') return Response.json({ models: catalog(['gemini-3.6-flash', 'gemini-3.5-flash-lite']) });
+    const candidates = [{ content: { parts: [{ text: hidden }] } }];
+    return Response.json(String(url).includes('3.6-flash') ? { candidates } : { candidates, modelVersion: 'gemini-3.5-flash-lite-001' });
+  } });
+  expect(result.status).toBe('pass');
+  expect(result.detail).toContain('highest_working=gemini-3.6-flash; provider_model_version=unreported;');
+  const row = { ...result, name: 'Gemini highest working model' };
+  const checks = [row, { ...row, name: 'Gemini generation', providerModelVersion: 'gemini-3.6-flash?key=hidden' },
+    { ...row, name: 'Gemini API' }, { ...row, name: 'Gemini generation', status: 'fail' }];
+  const { checks: publicChecks } = renderPublicSummary({ checks, summary: summarize(checks) });
+  expect(publicChecks.map((check) => check.providerModelVersion)).toEqual(['gemini-3.5-flash-lite-001', undefined, undefined, undefined]);
+  expect(JSON.stringify(publicChecks)).not.toContain('key=hidden');
+  expect(JSON.stringify(publicChecks)).not.toContain(hidden);
 });
