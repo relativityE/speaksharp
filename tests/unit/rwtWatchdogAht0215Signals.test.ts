@@ -275,6 +275,29 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
             firstSeenGapMs: 'unknown', sameRequest: 'unknown', causalCaptureGapMs: 'unknown', sameObservedFaultAttempt: 'unknown' } });
     });
 
+    it.each([false, true])('J7.c observes allowed preparing other (second allowed attempt: %s)', async (secondAttempt) => {
+        const h = harness(); const w = watchdog(h, OFFLINE);
+        const t = Date.now();
+        h.tap.events.push(sent(h.page, { capturedAt: t, attempt: 'cold' }, state('ENGINE_INITIALIZING', 'FAILED', 'other')));
+        if (secondAttempt) h.tap.events.push(sent(h.page, { capturedAt: t, attempt: 'other-cold' }, coldFailed()));
+        expect(await w.tick(t)).toBeNull();
+        w.setFaultPhase(false);
+        const capturedAt = Date.now() + 5;
+        h.tap.events.push(sent(h.page, { capturedAt, attempt: 'cold' }, coldFailed()));
+        expect(await w.tick(capturedAt)).toMatchObject({ kind: 'recording_failed', fields: {
+            sameObservedFaultAttempt: secondAttempt ? 'unknown' : true,
+        } });
+    });
+
+    it('J7.c does not count a disallowed non-preparing other as an observed fault attempt', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE);
+        const t = Date.now();
+        h.tap.events.push(sent(h.page, { capturedAt: t, attempt: 'cold' }, state('RECORDING', 'FAILED', 'other')));
+        expect(await w.tick(t)).toMatchObject({ kind: 'recording_failed', fields: {
+            presentationDisposition: 'unexpected_failed_transition', failure_code: 'other', sameObservedFaultAttempt: 'unknown',
+        } });
+    });
+
     it.each([null, 'cold'] as const)('J7.c fatal after Retry with reported attempt %s does not prove a Start origin', async (attempt) => {
         const h = harness(); const w = watchdog(h, OFFLINE);
         const t = Date.now();

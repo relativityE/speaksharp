@@ -215,6 +215,12 @@ export const DOM_READ_TIMEOUT_MS = 5_000;
 /** The closed watched fields of one decoded event, from the tap's in-memory record. */
 export const watchedFieldsOf = (e: Pick<SentEvent, 'watch'>): Record<string, string> => ({ ...(e.watch ?? {}) });
 
+/** The failure allowances shared by the verdict and the offline diagnostic. */
+function allowsRecordingFailure(fields: Readonly<Record<string, string>>, profile: WatchProfile): boolean {
+    return (profile.allowFailureCodes ?? []).includes(fields.failure_code ?? '')
+        || (profile.allowUnclassifiedWhilePreparing === true && fields.failure_code === 'other' && PREPARING_STATES.has(fields.from_state ?? ''));
+}
+
 /**
  * Pure: the fatal signal an event carries for this profile, or null. `forbidRecording` is set by the spec around a step
  * whose truthful outcome is NOT a recording (a denied microphone).
@@ -233,9 +239,7 @@ export function fatalSignalOf(e: Pick<SentEvent, 'event' | 'watch'>, profile: Wa
                 f = { ...presentedFailure };
             }
             if (f.to_state === 'FAILED' || f.to_state === 'FAILED_VISIBLE') {
-                if ((profile.allowFailureCodes ?? []).includes(f.failure_code ?? '')) return null;
-                if (profile.allowUnclassifiedWhilePreparing && f.failure_code === 'other' && PREPARING_STATES.has(f.from_state ?? '')) return null;
-                return 'recording_failed';
+                return allowsRecordingFailure(f, profile) ? null : 'recording_failed';
             }
             return f.to_state === 'RECORDING' && forbidRecording ? 'recording_while_forbidden' : null;
         case 'session_save_latency_measured':
@@ -494,7 +498,7 @@ export class JourneyWatchdog {
         const firstSeenGap = delta(seen, transport ? this.firstSeen.get(transport) : undefined);
         const observedFaultAttempts = [...this.stateHistory].filter(([, records]) => records.some((r) =>
             r.fields.to_state === 'FAILED' && this.inFaultAt(r.capturedAt)
-            && this.o.profile.allowFailureCodes?.includes(r.fields.failure_code)));
+            && allowsRecordingFailure(r.fields, this.o.profile)));
         return {
             presentationDisposition: disposition,
             retryAdmissionOrigin: retry === undefined ? 'unknown' : 'consent_confirmed_before_retry',
