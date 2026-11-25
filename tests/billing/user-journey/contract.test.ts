@@ -6,7 +6,7 @@ import { RUNNER_JOURNEYS, POLICY_PENDING_STEPS, REQUIRED_STEPS, receipt, assertT
   hostedFieldUnavailable, hostedEmailDecision, assertCheckoutIdentity, type HostedField, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, hostedEmailFieldAction,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken ,
   APP_MIN_SESSION_DURATION_SECONDS, RECORDING_HOLD_MS, recordingHoldRemainingMs, holdThenStop, observeCaptureLive, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, takeOutcome, optInThroughPrompt,
-  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded, historySeedFailure,
+  privacyOptInFact, PRIVACY_PROMPT, privacyBuildState, PRIVACY_MIGRATION, privacyAnswerRecorded, historySeedFailure, seedProgressFailure,
   retentionActive, retentionActivationFailure, retentionRowsFailure, retentionViewFailure, RETENTION_POLICY_VERSION, type RetentionRowFacts,
   type RetentionDetailFacts } from './contract';
 import { finaliseLocalStackReceipt, RECEIPT_KEYS } from './localStackReceipt.mjs';
@@ -993,6 +993,36 @@ test('decline scan trusts only the hosted Checkout page and Stripe frames; an un
   // Not on the hosted Checkout page (the app, a redirect, a look-alike host): no frame counts, Stripe's included.
   for (const page of ['http://127.0.0.1:5173/practice', 'https://checkout.stripe.com.evil.example/c/pay', 'about:blank']) {
     assert.equal(trustedCheckoutFrame(page, 'https://js.stripe.com/v3/x.html'), false, page);
+  }
+});
+
+test('J9.a history seed: the seeded take owes no Progress before the member records (run 45700227820)', () => {
+  const spec = readFileSync('tests/billing/user-journey/journey.billing.spec.ts', 'utf8');
+  const seed = spec.slice(spec.indexOf('async seedHistory()'), spec.indexOf("this.steps.add('history_seeded');"));
+  // Settled right after the insert, before the sign-in and the recording whose Start the obligation held.
+  const insert = seed.indexOf("this.member.from('sessions').insert(");
+  const settle = seed.indexOf('await this.settleSeededProgress(this.older);');
+  assert.ok(insert > 0 && settle > insert, 'settled after the insert');
+  assert.ok(settle < seed.indexOf('await this.login();') && settle < seed.indexOf('await this.record();'), 'settled before recording');
+  const start = spec.indexOf('async settleSeededProgress(');
+  const body = spec.slice(start, spec.indexOf('\n  }\n', start));
+  assert.ok(start > 0 && body.length > 0, 'settleSeededProgress found');
+  // The server's own resolver for a take with no runtime evidence (service role only), then the app's own evaluator as
+  // the member; never a hand-written evaluation row.
+  assert.match(body, /this\.admin\.rpc\('resolve_session_unattributed_v1'/);
+  assert.match(body, /this\.member\.rpc\('record_progress_evaluation'/);
+  assert.doesNotMatch(body, /from\('session_progress_evaluations'\)|from\('session_attribution_unattributed'\)/);
+  // Nothing owed: the same list the app reads before it lets Start run, and it must be empty.
+  assert.match(body, /this\.member\.rpc\('get_progress_obligations'/);
+  assert.match(body, /owed\.data\.length === 0/);
+  for (const [step, error, expected] of [
+    ['unresolved', { code: '42501', message: 'permission denied' }, 'history_seed_progress_unresolved_42501'],
+    ['unsettled', null, 'history_seed_progress_unsettled_none'],
+    ['still_owed', { code: 'P0001', message: 'payment_required' }, 'history_seed_progress_still_owed_p0001'],
+    ['still_owed', { code: 'row text', message: 'x' }, 'history_seed_progress_still_owed_other'],
+  ] as const) {
+    assert.equal(seedProgressFailure(step, error), expected);
+    assert.equal(safeFailureReason(new Error(`BILLING_JOURNEY:${expected}`)), expected, `${expected} survives the receipt`);
   }
 });
 

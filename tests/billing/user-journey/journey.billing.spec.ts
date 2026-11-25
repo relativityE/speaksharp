@@ -13,7 +13,7 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
-  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, historySeedFailure,
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, historySeedFailure, seedProgressFailure,
   retentionActive, retentionActivationFailure, retentionRowsFailure, retentionViewFailure, RETENTION_ROW_COLUMNS, type RetentionDetailFacts } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
@@ -852,6 +852,7 @@ class SandboxJourney {
     }).select('id').single();
     requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), historySeedFailure(error));
     this.older = data.id;
+    await this.settleSeededProgress(this.older);
     await this.login();
     await this.record();
     this.newest = this.savedSession;
@@ -860,6 +861,25 @@ class SandboxJourney {
       { p_transcript_save: true, p_ai_coaching: true, p_expected_revision: revision });
     requireFact(!coaching.error, 'history_privacy_choice_failed');
     this.steps.add('history_seeded');
+  }
+
+  /**
+   * J9.a (run 45700227820): the app owes Progress for every completed take of the last 14 days that has no evaluation
+   * (get_progress_obligations), and holds Start until it is settled. A take written straight into the table has no
+   * attribution, so it is listed `pending` forever, record_progress_evaluation writes nothing for it, and the next
+   * recording's Start (with its model download button) stays disabled. A real take with no runtime evidence is resolved
+   * as unattributed by the server and then evaluated; this seed is settled the same way, by the same two functions, and
+   * nothing may be owed before the member records.
+   */
+  async settleSeededProgress(sessionId: string): Promise<void> {
+    const resolved = await this.admin.rpc('resolve_session_unattributed_v1',
+      { p_session_id: sessionId, p_reason: 'missing_runtime_evidence' });
+    requireFact(!resolved.error && resolved.data === 'unattributed', seedProgressFailure('unresolved', resolved.error));
+    const evaluated = await this.member.rpc('record_progress_evaluation', { p_session_id: sessionId });
+    requireFact(!evaluated.error && /^[0-9a-f-]{36}$/i.test(String(evaluated.data ?? '')),
+      seedProgressFailure('unsettled', evaluated.error));
+    const owed = await this.member.rpc('get_progress_obligations', { p_limit: 50 });
+    requireFact(!owed.error && Array.isArray(owed.data) && owed.data.length === 0, seedProgressFailure('still_owed', owed.error));
   }
 
   /** The reviewed policy version, and active, read back from the database (service role; the member cannot call either). */
