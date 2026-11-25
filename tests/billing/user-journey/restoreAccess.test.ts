@@ -624,6 +624,10 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(passes(`<section>${h2('Current subscription')}<article><span>US$10.00</span></article><aside>per month</aside></section>`)).toBe(false);
     expect(passes(`<section>${h2('Current subscription')}<article>${priceLine}</article></section>`)).toBe(false);
     expect(passes(`<section><article>${h2('Current subscription')}${priceLine}</article></section>`)).toBe(true);
+    // Sam's mirror case: the cadence in a nested card is that card's, never the price card's.
+    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span></div><article>per month</article></section>`)).toBe(false);
+    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span><article>per month</article></div></section>`)).toBe(false);
+    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span></div><div>per month</div></section>`)).toBe(true);
     // A product heading beside the caption is not a second label; a caption wrapping its own heading counts once.
     expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${h2('Premium')}${priceLine}</section>`)).toBe(true);
     expect(passes(`<section><div>${h2('Current subscription')}</div>${priceLine}</section>`)).toBe(true);

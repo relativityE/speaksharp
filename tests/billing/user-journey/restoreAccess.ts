@@ -283,7 +283,7 @@ export interface PlanCardRead {
   heading: PlanCardHeading; same: PlanSameCard; label: PlanCardHeading; labelSame: PlanSameCard;
   /**
    * Whether the price's own card carries the portal's plan wording, for `portalPlanVerdict` only: the price element's nearest
-   * card element (itself included) also holds the cadence line, fits the compact limit, names no amount but $10.00, and holds
+   * card element (itself included) also holds the cadence in its own visible text (never a nested card's), fits the compact limit, names no amount but $10.00, and holds
    * exactly one listed heading or caption of its own, whose whole visible text is "Current subscription" (any case and spacing).
    */
   subscription: 'yes' | 'no';
@@ -415,8 +415,12 @@ export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): Pl
     // For the verdict only: bound to the price's own nearest card, which must hold the cadence line and one exact caption.
     const subscription = ((): 'yes' | 'no' => {
       const at = path.findIndex((e) => e.matches(cardElement));
-      if (at < 0 || line > at || chain[at].length > args.cardMax) return 'no';
+      if (at < 0 || chain[at].length > args.cardMax) return 'no';
       const card = path[at];
+      // The cadence must be the card's own visible text: text inside a nested card region never counts (Sam's mirror case).
+      const owned = (e: Element): boolean => rendered(e) && !e.matches(cardElement);
+      const own = path.slice(0, at + 1).find((e) => cadence.test(textOf(e, owned)));
+      if (!own || textOf(own, owned).length > args.lineMax) return 'no';
       const amounts = chain[at].match(re(args.money)) ?? [];
       if (amounts.length === 0 || !amounts.every((a) => /^\$\s?10\.00$/.test(a))) return 'no';
       const heads = headsIn(card).filter((h) => h.closest(cardElement) === card && listed(textOf(h, boxTolerant)) < labels.length);
