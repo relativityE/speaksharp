@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { Window } from 'happy-dom';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
   portalShowsPlan, portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX,
-  visiblePlanSample, planSampleChains, portalPlanObserver, portalPlanVerdict, PLAN_PROBE_HEADINGS, PLAN_PROBE_ARGS,
+  visiblePlanSample, planSampleChains, portalPlanObserver, portalPlanVerdict, assertPortalSubscription, PLAN_PROBE_HEADINGS, PLAN_PROBE_ARGS,
   type PlanSample, type PlanCardRead } from './restoreAccess';
 import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, progressLine, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
@@ -745,5 +745,41 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(probe).toMatch(/^\s+portalPlanProbe\(sample: unknown\): void \{\n\s+try \{\n\s+for \(const name of portalPlanObserver\(sample\)\) this\.checkpoint\(name\);/);
     expect(probe).toContain("} catch {\n      this.checkpoint('portal_plan_probe_unreadable');");
     expect(probe).not.toMatch(/await|page|innerText|textContent|throw |steps\.add|requireFact/);
+  });
+});
+
+describe('option 1: at the portal step, Stripe\'s own test-mode record must still show this run\'s plan current', () => {
+  const price = { id: 'price_test_10', livemode: false, active: true, unit_amount: 1000, currency: 'usd', recurring: { interval: 'month', interval_count: 1 } };
+  const sub = { id: 'sub_run', livemode: false, customer: 'cus_run', status: 'active', cancel_at_period_end: false, items: { data: [{ price }] } };
+  const facts = { subscription: 'sub_run', customer: 'cus_run', price: 'price_test_10' };
+  const code = (input: unknown, f: typeof facts | { subscription: string; customer: string; price: string | undefined } = facts) => {
+    try { assertPortalSubscription(input, f); return 'ok'; } catch (e) { return (e as Error).message.replace(/^BILLING_JOURNEY:/, ''); }
+  };
+
+  it('passes only the run\'s active, test-mode, not-cancelling subscription on its one $10.00 monthly test price', () => {
+    expect(code(sub)).toBe('ok');
+    for (const bad of [null, {}, 'x', { ...sub, id: 'sub_other' }, { ...sub, livemode: true }, { ...sub, customer: 'cus_other' },
+      { ...sub, status: 'past_due' }, { ...sub, status: 'canceled' }, { ...sub, status: 'trialing' }, { ...sub, cancel_at_period_end: true },
+      { ...sub, cancel_at_period_end: undefined }, { ...sub, items: { data: [] } }, { ...sub, items: { data: [{ price }, { price }] } },
+      { ...sub, items: { data: [{ price: { ...price, id: 'price_other' } }] } }, { ...sub, items: undefined }]) {
+      expect(code(bad)).toBe('portal_subscription_not_current');
+    }
+    expect(code(sub, { ...facts, price: undefined })).toBe('portal_subscription_not_current');
+    expect(code(sub, { ...facts, subscription: '' })).toBe('portal_subscription_not_current');
+    // The price itself is bound exactly as at checkout.
+    expect(code({ ...sub, items: { data: [{ price: { ...price, unit_amount: 2000 } }] } })).toBe('wrong_price');
+    expect(code({ ...sub, items: { data: [{ price: { ...price, livemode: true } }] } })).toBe('price_not_active_test');
+  });
+
+  it('the spec reads the subscription once the portal shows the plan, in J9.a and J9.b alike, and loosens nothing', () => {
+    const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
+    const body = spec.slice(spec.indexOf('async awaitPortalPlan('), spec.indexOf('async planSample('));
+    const check = body.indexOf('assertPortalSubscription(await this.stripe(`subscriptions/${this.subscription}`),');
+    expect(check).toBeGreaterThan(body.indexOf("'portal_plan_not_shown').catch("));
+    expect(body.slice(check)).toContain('{ subscription: this.subscription, customer: this.customer, price: env.BILLING_SANDBOX_PRICE_ID });');
+    expect(body.match(/assertPortalSubscription\(/g)).toHaveLength(1);
+    expect(spec.match(/await this\.awaitPortalPlan\(/g)).toHaveLength(2);
+    // The checkout-time subscription assertions are untouched.
+    expect(spec).toContain("requireFact(sub.items?.data?.length === 1 && sub.items.data[0].price.id === env.BILLING_SANDBOX_PRICE_ID, 'subscription_price_identity');");
   });
 });

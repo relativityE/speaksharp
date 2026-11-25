@@ -19,7 +19,7 @@ import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
-  portalPlanVerdict, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanSample, planSampleChains, portalPlanObserver, PLAN_PROBE_ARGS, type PortalPlanMiss,
+  portalPlanVerdict, assertPortalSubscription, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanSample, planSampleChains, portalPlanObserver, PLAN_PROBE_ARGS, type PortalPlanMiss,
   type PlanSample } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
@@ -240,6 +240,9 @@ class SandboxJourney {
       if (miss === 'no_plan_block') this.portalPlanProbe(sample);
       throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? 'unreadable'}`);
     });
+    // Option 1: the plan the portal shows is still this run's current $10.00 monthly test subscription in Stripe's own record.
+    assertPortalSubscription(await this.stripe(`subscriptions/${this.subscription}`),
+      { subscription: this.subscription, customer: this.customer, price: env.BILLING_SANDBOX_PRICE_ID });
   }
 
   /**

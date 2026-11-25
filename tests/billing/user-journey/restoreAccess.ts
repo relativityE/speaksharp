@@ -16,7 +16,7 @@
  * duplicate delivery through the real webhook handler into the migrated ledger is proven offline, with no Stripe call, in
  * scripts/billing-qualification/runner.test.ts ("the same event delivered twice").
  */
-import { requireFact } from './contract';
+import { requireFact, assertTestPrice } from './contract';
 import { compareSessionRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 
 /** Our test price: $10.00 a month (assertTestPrice binds the price itself; this binds the one charge to it). */
@@ -155,6 +155,22 @@ export function portalPlanMiss(ancestries: unknown): PortalPlanMiss | null {
     return null;
   }
   return furthest;
+}
+
+/**
+ * Option 1 (Akin, 2026-11-25: "Yes, add option 1", "Yes, bundle the fix"): when the portal is checked, Stripe's own test-mode
+ * record of this run's subscription must still show the plan current: this run's subscription and customer, test mode, active,
+ * not set to cancel at period end, exactly one item on the run's test price, and that price $10.00 monthly (`assertTestPrice`).
+ * It only adds requirements to the portal step; any miss is `portal_subscription_not_current` (or assertTestPrice's own code).
+ */
+export function assertPortalSubscription(input: unknown, f: { subscription: string; customer: string; price: string | undefined }): void {
+  const sub = (input ?? {}) as { id?: unknown; livemode?: unknown; customer?: unknown; status?: unknown; cancel_at_period_end?: unknown;
+    items?: { data?: unknown } };
+  const items = Array.isArray(sub.items?.data) ? sub.items.data as Array<{ price?: { id?: unknown } } | null> : [];
+  requireFact(typeof f.subscription === 'string' && f.subscription.startsWith('sub_') && typeof f.price === 'string' && f.price.length > 0
+    && sub.id === f.subscription && sub.livemode === false && sub.customer === f.customer && sub.status === 'active'
+    && sub.cancel_at_period_end === false && items.length === 1 && items[0]?.price?.id === f.price, 'portal_subscription_not_current');
+  assertTestPrice(items[0]?.price);
 }
 
 /** Length bucket of the smallest current-plan block, in multiples of PLAN_BLOCK_MAX; `none` when no ancestor names it. */
