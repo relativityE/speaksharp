@@ -19,7 +19,7 @@ import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
-  portalPlanMiss, visiblePlanChains, type PortalPlanMiss } from './restoreAccess';
+  portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanChains, type PortalPlanMiss } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
 
@@ -229,8 +229,13 @@ class SandboxJourney {
    */
   async awaitPortalPlan(page: Page): Promise<void> {
     let miss: PortalPlanMiss | null = 'unreadable';
-    await this.poll(async () => (miss = portalPlanMiss(await this.planAncestries(page).catch(() => null))), (m) => m === null,
-      'portal_plan_not_shown').catch(() => { throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? 'unreadable'}`); });
+    let last: unknown = null;
+    await this.poll(async () => (miss = portalPlanMiss(last = await this.planAncestries(page).catch(() => null))), (m) => m === null,
+      'portal_plan_not_shown').catch(() => {
+      // Diagnostic only, after the verdict is already a miss: which of no_plan_block's two causes the last read shows (fixed words).
+      if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(last)));
+      throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? 'unreadable'}`);
+    });
   }
 
   /** Visible $10.00 elements only, each with its own and its ancestors' visible text, innermost first (`visiblePlanChains`). */
