@@ -615,10 +615,22 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const long = `<p>${'Payment method Visa ending 4242. '.repeat(25)}</p>`;
     expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${long}${priceLine}</section>`)).toBe(false);
     expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${priceLine}</section>`, { args: undefined })).toBe(false);
+    // Sam's controls: the whole caption or heading must read "Current subscription"; the broad probe phrase never decides.
+    expect(passes(`<section>${h2('Current subscription canceled')}${priceLine}</section>`)).toBe(false);
+    expect(passes(`<section><div>Current subscription history</div>${priceLine}</section>`)).toBe(false);
+    expect(passes(`<section><div>Current subscriptions</div>${priceLine}</section>`)).toBe(false);
+    expect(passes(`<section><div>  Current   SUBSCRIPTION </div>${priceLine}</section>`)).toBe(true);
+    // Price, cadence and caption bound to the price's own nearest card: a nearer card around the price alone never passes.
+    expect(passes(`<section>${h2('Current subscription')}<article><span>US$10.00</span></article><aside>per month</aside></section>`)).toBe(false);
+    expect(passes(`<section>${h2('Current subscription')}<article>${priceLine}</article></section>`)).toBe(false);
+    expect(passes(`<section><article>${h2('Current subscription')}${priceLine}</article></section>`)).toBe(true);
+    // A product heading beside the caption is not a second label; a caption wrapping its own heading counts once.
+    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${h2('Premium')}${priceLine}</section>`)).toBe(true);
+    expect(passes(`<section><div>${h2('Current subscription')}</div>${priceLine}</section>`)).toBe(true);
     // Every miss word other than no_plan_block is returned exactly as the text rule gives it.
     for (const bad of [null, 'x', {}, { chains: [] }]) expect(portalPlanVerdict(bad)).toBe(portalPlanMiss(planSampleChains(bad)));
     const lineTooLong: PlanSample = { chains: [[`$10.00 per month ${'x'.repeat(PLAN_LINE_MAX)}`]], roots: ['document'], shown: 1,
-      cards: [{ heading: 'current_subscription', same: 'yes', label: 'current_subscription', labelSame: 'yes', amounts: 'only_ten' }] };
+      cards: [{ heading: 'current_subscription', same: 'yes', label: 'current_subscription', labelSame: 'yes', subscription: 'yes' }] };
     expect(portalPlanVerdict(lineTooLong)).toBe('line_too_long');
   });
 
@@ -698,14 +710,14 @@ describe('the J9 observer reads the heading of the price card from the same samp
   it('leaves pass/fail, the miss word and the split exactly as they were, and reads anything malformed as unreadable', () => {
     expect(planSampleChains(null)).toBeNull();
     for (const bad of [null, 'x', {}, 3]) expect(portalPlanMiss(planSampleChains(bad))).toBe('unreadable');
-    const yes: PlanCardRead = { heading: 'your_plan', same: 'yes', label: 'none', labelSame: 'no', amounts: 'only_ten' };
+    const yes: PlanCardRead = { heading: 'your_plan', same: 'yes', label: 'none', labelSame: 'no', subscription: 'yes' };
     const good: PlanSample = { chains: [[line, 'Your plan']], roots: ['document'], shown: 1, cards: [yes] };
     expect(portalPlanObserver(good)).toHaveLength(6);
     for (const bad of [null, undefined, 'x', {}, { ...good, cards: [] }, { ...good, roots: ['frame'] }, { ...good, roots: [] },
       { ...good, shown: 0 }, { ...good, shown: 1.5 }, { ...good, cards: [{ ...yes, heading: 'Current plan' }] },
       { ...good, cards: [{ ...yes, same: 'maybe' }] }, { ...good, cards: [{ ...yes, label: 'CURRENT SUBSCRIPTION' }] },
       { ...good, cards: [{ ...yes, labelSame: 'maybe' }] }, { ...good, cards: [{ heading: 'your_plan', same: 'yes' }] },
-      { ...good, cards: [{ ...yes, amounts: 'some' }] }, { ...good, chains: Array(11).fill([line]),
+      { ...good, cards: [{ ...yes, subscription: 'maybe' }] }, { ...good, chains: Array(11).fill([line]),
         roots: Array(11).fill('document'), cards: Array(11).fill(null), shown: 11 }]) {
       expect(portalPlanObserver(bad)).toEqual(['portal_plan_probe_unreadable']);
     }
@@ -724,8 +736,8 @@ describe('the J9 observer reads the heading of the price card from the same samp
     for (const name of names) expect(progressLine('checkpoint', name, 0)).not.toContain('=invalid');
     expect(new Set(names).size).toBe(names.length);
     const s: PlanSample = { chains: [[line], [line]], roots: ['other', 'shadow'], shown: 12,
-      cards: [{ heading: 'other_text', same: 'unknown', label: 'current_subscription', labelSame: 'yes', amounts: 'only_ten' },
-        { heading: 'none', same: 'no', label: 'none', labelSame: 'no', amounts: 'no_region' }] };
+      cards: [{ heading: 'other_text', same: 'unknown', label: 'current_subscription', labelSame: 'yes', subscription: 'yes' },
+        { heading: 'none', same: 'no', label: 'none', labelSame: 'no', subscription: 'no' }] };
     for (const w of portalPlanObserver(s)) expect(names).toContain(w);
   });
 
