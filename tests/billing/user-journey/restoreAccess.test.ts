@@ -682,6 +682,56 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(spec).not.toMatch(/sectionArgs\([^)]*,\s*true\)/);
   });
 
+  // Stripe's real sandbox portal as Akin saved it from Chrome on 2026-11-25 while the console check printed PASS there (scrubbed of
+  // secrets, ids, email and address; see the fixture's header). Every variant below is that page with one thing changed.
+  const realPortal = readFileSync(new URL('./fixtures/stripe-portal-current-subscription.html', import.meta.url), 'utf8');
+  const realPage = (change?: (doc: Document) => void) => page(realPortal, { build: change }).verdict;
+  const planSection = (doc: Document) => doc.querySelector('[data-testid="content-section"]')!;
+  const leaf = (doc: Document, text: string) => Array.from(planSection(doc).querySelectorAll('*'))
+    .find((el) => el.children.length === 0 && el.textContent === text)!;
+  const planLine = (doc: Document) => leaf(doc, '$10.00 per month');
+  const nextBilling = (doc: Document) => planSection(doc).querySelector('p')!;
+  const cancelLink = (doc: Document) => doc.querySelector('[data-test="cancel-subscription"]')!;
+
+  it('passes on Stripe\'s real saved portal page, with the same texts Chrome printed, and fails each real-page variant', () => {
+    expect(realPortal).not.toMatch(/secret=test_(?!REDACTED)|sub_(?!REDACTED)[A-Za-z0-9]|acct_(?!REDACTED)[A-Za-z0-9]|cus_[A-Za-z0-9]|@(?!example\.com)|Itera|Oyster/);
+    // #1976's rule alone misses this page exactly as run 45652762097 did; the section rule is what passes it.
+    expect(realPage()).toMatchObject({ miss: 'no_plan_block', pass: true, section: null });
+    // The console check's own selection and output on the saved page match what Akin's Chrome printed on the live one.
+    const window = new Window();
+    const doc = window.document as unknown as Document;
+    doc.body.innerHTML = realPortal;
+    const prices = Array.from(doc.querySelectorAll('body *'))
+      .filter((e) => Array.from(e.childNodes).some((n) => n.nodeType === 3 && /\$\s?10\.00/.test(n.nodeValue ?? '')));
+    expect(currentSubscriptionSection(prices, sectionArgs('SpeakSharp Pro', true))).toEqual({ pass: true, miss: null,
+      text: { caption: 'Current subscription', product: 'SpeakSharp Pro', line: '$10.00 per month' } });
+    void window.happyDOM.close();
+
+    const variants: Record<string, [(doc: Document) => void, string]> = {
+      'no Current subscription section (invoice row only)': [(d) => planSection(d).remove(), 'no_caption'],
+      'plan line gone, invoice $10.00 left': [(d) => planLine(d).remove(), 'no_line'],
+      'different price': [(d) => { planLine(d).textContent = '$12.00 per month'; }, 'line_too_long'],
+      'yearly price': [(d) => { planLine(d).textContent = '$10.00 per year'; }, 'no_line'],
+      'another product': [(d) => { leaf(d, 'SpeakSharp Pro').textContent = 'SpeakSharp Team'; }, 'product_not_unique'],
+      'caption renamed': [(d) => { planSection(d).querySelector('span span')!.textContent = 'Subscription'; }, 'no_caption'],
+      'caption hidden': [(d) => { (planSection(d).querySelector('span') as HTMLElement).style.display = 'none'; }, 'no_caption'],
+      'plan line hidden': [(d) => { (planLine(d).parentElement as HTMLElement).style.visibility = 'hidden'; }, 'no_line'],
+      'add-on item in the section': [(d) => { planLine(d).parentElement!.insertAdjacentHTML('afterend',
+        '<div><span>Extra seats</span> <span>$5.00 per month</span></div>'); }, 'cadence_not_unique'],
+      'second $10.00 subscription in the section': [(d) => { planLine(d).parentElement!.insertAdjacentHTML('afterend',
+        '<div><span>$10.00 per month</span></div>'); }, 'cadence_not_unique'],
+      'cancel at period end: will be canceled': [(d) => { nextBilling(d).textContent = 'Your subscription will be canceled on December 25, 2026.'; },
+        'not_current'],
+      'cancel at period end: Cancels badge': [(d) => { nextBilling(d).textContent = 'Cancels December 25, 2026'; }, 'not_current'],
+      'cancel at period end: Renew subscription': [(d) => { cancelLink(d).textContent = 'Renew subscription'; }, 'not_current'],
+      'canceled': [(d) => { nextBilling(d).textContent = 'Canceled'; }, 'not_current'],
+      'past due': [(d) => { nextBilling(d).textContent = 'Past due'; }, 'not_current'],
+      'unpaid': [(d) => { nextBilling(d).textContent = 'Unpaid'; }, 'not_current'],
+    };
+    const read = Object.entries(variants).map(([name, [change]]) => { const v = realPage(change); return [name, v.pass, v.section]; });
+    expect(read).toEqual(Object.entries(variants).map(([name, [, miss]]) => [name, false, miss]));
+  });
+
   it('a failed portal check keeps its evidence for the artifact only: cut above the card, no URL, ids or emails', () => {
     const text = ['Sandbox', 'CURRENT SUBSCRIPTION', 'SpeakSharp Pro', '$10.00 per month', 'Your next billing date is December 25, 2026.',
       'Cancel subscription', 'see https://billing.stripe.com/p/session/test_abcDEF123 for run-j9@example.test cus_Vh7g89m3KVKNeQ',

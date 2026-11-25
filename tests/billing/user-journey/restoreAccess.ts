@@ -517,21 +517,24 @@ export function portalPlanObserver(sample: unknown): string[] {
  *  - the caption comes before the product name, and the product name before the line, in document order;
  *  - their section (the nearest ancestor holding both the caption and the line) is at most `sectionMax` long, holds none of the
  *    `otherCaptions` (so a short wrapper that joins the subscription to another section never lends it a price), holds exactly one
- *    cadence, names no amount but $10.00, and holds exactly one visible element reading exactly `product`.
+ *    cadence, names no amount but $10.00, and holds exactly one visible element reading exactly `product`;
+ *  - nothing in the section says the subscription is ending or behind (`ending`: canceled, cancels, ends on, past due, unpaid,
+ *    or a Renew subscription offer; the "Cancel subscription" link itself is not one of these).
  * Otherwise the furthest condition reached is one fixed word (`SectionMiss`). Page text leaves only when `showText` is set (the
  * console check); the spec never sets it.
  */
 export type SectionMiss = 'no_price' | 'no_caption' | 'caption_not_unique' | 'no_line' | 'line_too_long' | 'line_before_caption'
-  | 'section_too_long' | 'other_section_inside' | 'cadence_not_unique' | 'other_amount' | 'product_not_unique' | 'product_out_of_order';
+  | 'section_too_long' | 'other_section_inside' | 'cadence_not_unique' | 'other_amount' | 'product_not_unique' | 'product_out_of_order'
+  | 'not_current';
 export interface SectionArgs {
-  price: [string, string]; cadence: [string, string]; money: [string, string]; caption: string; product: string;
-  otherCaptions: string[]; lineMax: number; sectionMax: number; showText: boolean;
+  price: [string, string]; cadence: [string, string]; money: [string, string]; ending: [string, string]; caption: string;
+  product: string; otherCaptions: string[]; lineMax: number; sectionMax: number; showText: boolean;
 }
 export interface SectionRead { pass: boolean; miss: SectionMiss | null; text: { caption: string; product: string; line: string } | null }
 
 export function currentSubscriptionSection(elements: Element[], args: SectionArgs): SectionRead {
   const order: SectionMiss[] = ['no_price', 'no_caption', 'caption_not_unique', 'no_line', 'line_too_long', 'line_before_caption',
-    'section_too_long', 'other_section_inside', 'cadence_not_unique', 'other_amount', 'product_not_unique', 'product_out_of_order'];
+    'section_too_long', 'other_section_inside', 'cadence_not_unique', 'other_amount', 'product_not_unique', 'product_out_of_order', 'not_current'];
   let furthest: SectionMiss = 'no_price';
   const reach = (m: SectionMiss): void => { if (order.indexOf(m) > order.indexOf(furthest)) furthest = m; };
   const rendered = (el: Element): boolean => {
@@ -587,6 +590,7 @@ export function currentSubscriptionSection(elements: Element[], args: SectionArg
     const products = exactly(section, norm(args.product));
     if (products.length !== 1) { reach('product_not_unique'); continue; }
     if (!before(caption, products[0]) || !before(products[0], line)) { reach('product_out_of_order'); continue; }
+    if (re(args.ending).test(own)) { reach('not_current'); continue; }
     return { pass: true, miss: null, text: args.showText ? { caption: text(caption), product: text(products[0]), line: text(line) } : null };
   }
   return { pass: false, miss: furthest, text: null };
@@ -594,10 +598,13 @@ export function currentSubscriptionSection(elements: Element[], args: SectionArg
 
 /** The other Stripe portal section captions seen on the real page (Akin's screenshot, 2026-11-25). */
 export const PORTAL_OTHER_CAPTIONS = ['payment method', 'payment methods', 'billing information', 'invoice history'];
+/** Words that mean the subscription shown is ending or behind; "Cancel subscription" (the link) does not match. */
+export const PLAN_ENDING = /\bcancel(?:s|ed|led|ing|ling)\b|\bends on\b|\brenew subscription\b|\bpast due\b|\bunpaid\b/i;
 /** The section rule's arguments: the verdict's own price, cadence and money patterns and limits; `product` is the run's own. */
 export const sectionArgs = (product: string, showText = false): SectionArgs => ({
   price: [PLAN_PRICE.source, PLAN_PRICE.flags], cadence: [PLAN_CADENCE.source, PLAN_CADENCE.flags], money: [MONEY.source, MONEY.flags],
-  caption: PLAN_SUBSCRIPTION_LABEL, product, otherCaptions: PORTAL_OTHER_CAPTIONS, lineMax: PLAN_LINE_MAX, sectionMax: PLAN_BLOCK_MAX, showText,
+  ending: [PLAN_ENDING.source, PLAN_ENDING.flags], caption: PLAN_SUBSCRIPTION_LABEL, product, otherCaptions: PORTAL_OTHER_CAPTIONS,
+  lineMax: PLAN_LINE_MAX, sectionMax: PLAN_BLOCK_MAX, showText,
 });
 
 /**
