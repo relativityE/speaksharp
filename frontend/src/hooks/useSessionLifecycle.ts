@@ -1029,6 +1029,7 @@ export const useSessionLifecycle = ({
                     const choice = captureCoachingConsent();
                     if (!choice || choice.ownerId !== user?.id || !leaseOfStart) return;
                     startMicCoachingCheck({
+                        enabled: import.meta.env.VITE_COACHING_MODEL_READINESS_ENABLED === 'true',
                         recordingConfirmed: true,
                         consentStillHolds: () => currentStartAttempt()?.id === startAttempt.id
                             && useSessionStore.getState().runtimeState === 'RECORDING'

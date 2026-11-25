@@ -42,6 +42,10 @@ async function runMonitor({ statuses = {}, rejects = [], environment = {} } = {}
     path, performance, AbortController, setTimeout, clearTimeout,
     console: { log: () => {} },
     summarize, renderMarkdown, renderPublicSummary, exitCodeForRows,
+    readDeployedCoachingModel: async ({ serviceKey }) => {
+      assert.equal(serviceKey, null);
+      return null;
+    },
     evaluateGeminiGeneration: (key) => evaluateGeminiGeneration(key, { fetchImpl: rejectUnexpectedGemini }),
     evaluateHighestWorkingGemini: (key) => evaluateHighestWorkingGemini(key, { fetchImpl: rejectUnexpectedGemini }),
     evaluateGithubRow: async () => { throw new Error('Unexpected GitHub evaluation'); },

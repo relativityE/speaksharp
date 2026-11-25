@@ -101,7 +101,8 @@ Deno.test('quick Stop waits for the committed revision; freshness expiry does no
     }) };
     return q;
   } };
-  assert.equal(await readReadyCoachingModel(client as unknown as Parameters<typeof readReadyCoachingModel>[0], new AbortController().signal), 'committed-fallback');
+  assert.deepEqual(await readReadyCoachingModel(client as unknown as Parameters<typeof readReadyCoachingModel>[0], new AbortController().signal),
+    { kind: 'ready', model: 'committed-fallback' });
   assert.equal(reads, 2);
 });
 

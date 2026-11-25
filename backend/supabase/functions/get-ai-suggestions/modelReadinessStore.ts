@@ -44,17 +44,26 @@ export function createReadinessStore(client: SupabaseClient): ReadinessStore {
 }
 
 /** Report exactly the active row for a fresh request. Do not use a stale or configured candidate while a check is pending. */
-export async function readReadyCoachingModel(client: SupabaseClient, signal: AbortSignal): Promise<string | null> {
+export type CoachingModelReadiness =
+  | { kind: 'ready'; model: string }
+  | { kind: 'pending' }
+  | { kind: 'unavailable' };
+
+export async function readReadyCoachingModel(client: SupabaseClient, signal: AbortSignal): Promise<CoachingModelReadiness> {
   const deadline = Date.now() + 1500;
-  do {
+  let probeUntil = 0;
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (signal.aborted) return { kind: 'unavailable' };
+    if (remaining <= 0) return { kind: probeUntil > Date.now() ? 'pending' : 'unavailable' };
     const { data, error } = await client.from('coaching_model_selection').select('model,verified,probe_deadline')
-      .eq('single', true).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(700)])).maybeSingle();
-    if (error || !data || signal.aborted) return null;
-    // Probe-sharing freshness is not a recording duration cap. Keep using the last verified selection
-    // for a long take unless a newer probe actually marks it unavailable.
-    if (!data.probe_deadline) return data.verified === true && typeof data.model === 'string' ? data.model : null;
-    if (Date.parse(data.probe_deadline) <= Date.now()) return null;
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  } while (!signal.aborted && Date.now() < deadline);
-  return null;
+      .eq('single', true).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(Math.min(700, remaining))])).maybeSingle();
+    if (error || !data || signal.aborted) return { kind: 'unavailable' };
+    // Probe-sharing freshness is not a recording duration cap.
+    if (data.probe_deadline === null) return data.verified === true && typeof data.model === 'string'
+      ? { kind: 'ready', model: data.model } : { kind: 'unavailable' };
+    probeUntil = typeof data.probe_deadline === 'string' ? Date.parse(data.probe_deadline) : NaN;
+    if (!(probeUntil > Date.now())) return { kind: 'unavailable' };
+    await new Promise((resolve) => setTimeout(resolve, Math.min(150, Math.max(0, deadline - Date.now()))));
+  }
 }

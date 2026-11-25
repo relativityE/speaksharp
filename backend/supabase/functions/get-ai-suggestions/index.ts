@@ -245,7 +245,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/i;
 const CLIENT_RELEASE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const DIAGNOSTIC_REASONS = new Set([
   'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
-  'focus_context_unavailable', 'focus_results_pending', 'transcript_unavailable', 'product_unknown', 'service_configuration',
+  'focus_context_unavailable', 'focus_results_pending', 'coaching_model_pending', 'transcript_unavailable', 'product_unknown', 'service_configuration',
   'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded', 'provider_http_4xx',
   'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
   'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed', 'internal_error',
@@ -910,9 +910,14 @@ export async function handler(
     // The reviewed selection (providers/registry.ts), resolved before admission, quota and any provider call. A missing, unknown or
     // not-yet-persistable provider is the same configuration failure as a missing key: nothing is admitted, consumed or sent.
     const liveReadiness = micStartReadinessEnabled();
-    const activeModel = liveReadiness
+    const readiness = liveReadiness
       ? await readReadyCoachingModel(createServiceRoleSupabase(), req.signal)
-      : coachingContract.model;
+      : { kind: 'ready', model: coachingContract.model } as const;
+    if (readiness.kind === 'pending') {
+      // Same pre-admission 425 wait path as saved Focus results: no quota, provider call, or write.
+      return finish({ error: 'AI coaching is getting ready. Please try again.', code: 'coaching_model_pending' }, 425);
+    }
+    const activeModel = readiness.kind === 'ready' ? readiness.model : null;
     configuredProviderModel = activeModel;
     const expectedModelVersions = liveReadiness
       ? APPROVED_COACHING_MODELS.find((candidate) => candidate.id === activeModel)?.observedVersions : undefined;

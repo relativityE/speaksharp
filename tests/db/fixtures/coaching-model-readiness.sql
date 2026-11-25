@@ -1,3 +1,4 @@
+-- Isolated PGlite contract fixture, not a release migration. Do not apply to deployed databases.
 -- Shared service-owned model selection. No model is selected or activated by installing this migration.
 CREATE TABLE public.coaching_model_selection (
   single boolean PRIMARY KEY DEFAULT true CHECK (single),

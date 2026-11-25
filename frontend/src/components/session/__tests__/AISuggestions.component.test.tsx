@@ -141,6 +141,25 @@ describe('AISuggestions Integration', () => {
             expect(screen.queryByTestId('ai-suggestions-retry')).not.toBeInTheDocument();
         });
 
+        it('waits for the model and renders coaching for the same saved take', async () => {
+            const pending = Object.assign(new Error('readiness pending'), {
+                name: 'FunctionsHttpError',
+                context: Response.json({ code: 'coaching_model_pending', diagnostics: { reason: 'coaching_model_pending' } }, { status: 425 }),
+            });
+            mockSupabaseClient.functions.invoke
+                .mockResolvedValueOnce({ data: null, error: pending })
+                .mockResolvedValueOnce({ data: { suggestions: {
+                    version: 'gemini_coaching_v1', what_worked: 'The opening was clear.', what_to_try_next: 'Name the next action.',
+                } }, error: null });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-model-pending" product="open_mic" retryBackoffMs={10} />);
+            expect(await screen.findByText('Name the next action.')).toBeInTheDocument();
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
+            for (const [, options] of mockSupabaseClient.functions.invoke.mock.calls) {
+                expect(options?.body).toMatchObject({ sessionId: 's-model-pending', client_attempt: 1 });
+            }
+            expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalled();
+        });
+
         it('#1258: the pending wait is BOUNDED — after it, the ordinary terminal "unavailable" with a manual retry', async () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue(httpError(425));
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-pending-forever" product="focus_points" retryBackoffMs={10} />);

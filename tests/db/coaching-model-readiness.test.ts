@@ -6,7 +6,7 @@ it('keeps one service-owned active model and rejects stale promotion', async () 
 const pg = new PGlite();
 try {
   await pg.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;');
-  await pg.exec(await readFile('./backend/supabase/migrations/20261125135500_coaching_model_readiness.sql','utf8'));
+  await pg.exec(await readFile('./tests/db/fixtures/coaching-model-readiness.sql','utf8'));
   const one = async <T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await pg.query<T>(sql, params)).rows[0];
   assert.equal((await one("SELECT public.claim_coaching_model_probe_v1() AS result")).result,null);
   assert.equal((await one("SELECT has_function_privilege('authenticated','public.claim_coaching_model_probe_v1()','EXECUTE') AS result")).result,false);

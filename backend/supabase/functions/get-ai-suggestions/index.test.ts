@@ -3000,8 +3000,9 @@ Deno.test('live readiness: only the selected model is persisted; no send while t
   const previous = Deno.env.get(flag);
   Deno.env.set(flag, 'true');
   try {
-    for (const outcome of ['exact', 'wrong', 'pending'] as const) {
+    for (const outcome of ['exact', 'wrong', 'pending', 'expired'] as const) {
       resetProvider();
+      let probePending = outcome === 'pending';
       const mock = mockSupabase();
       const base = mock.create();
       let reads = 0;
@@ -3011,16 +3012,27 @@ Deno.test('live readiness: only the selected model is persisted; no send while t
           maybeSingle: async () => {
             reads++;
             return { data: { model: coachingContract.model, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(),
-              probe_deadline: outcome === 'pending' ? new Date(Date.now() + 25_000).toISOString() : null }, error: null };
+              probe_deadline: probePending ? new Date(Date.now() + 25_000).toISOString()
+                : outcome === 'expired' ? new Date(Date.now() - 1_000).toISOString() : null }, error: null };
           } };
         return selection;
       };
       if (outcome === 'wrong') geminiModelVersion = 'gemini-other-model';
       const response = await handler(request(), mock.create, () => ({ ...base, from }));
       assertEquals(reads > 0, true);
-      assertEquals(response.status, outcome === 'exact' ? 200 : outcome === 'wrong' ? 502 : 503);
-      assertEquals(fetchCount, outcome === 'pending' ? 0 : 1);
-      if (outcome === 'pending') assertEquals(mock.state.quotaCount, 0);
+      assertEquals(response.status, outcome === 'exact' ? 200 : outcome === 'wrong' ? 502 : outcome === 'pending' ? 425 : 503);
+      assertEquals(fetchCount, outcome === 'pending' || outcome === 'expired' ? 0 : 1);
+      if (outcome === 'expired') {
+        assertEquals((await response.json()).code, 'service_configuration');
+        assertEquals(mock.state.quotaCount, 0);
+      }
+      if (outcome === 'pending') {
+        assertEquals((await response.json()).code, 'coaching_model_pending');
+        assertEquals([mock.state.quotaCount, mock.state.updated], [0, null]);
+        probePending = false;
+        assertEquals((await handler(request(), mock.create, () => ({ ...base, from }))).status, 200);
+        assertEquals([fetchCount, mock.state.quotaCount], [1, 1]);
+      }
       if (outcome === 'wrong') {
         const value = await response.json();
         assertEquals(value.suggestions, undefined);
