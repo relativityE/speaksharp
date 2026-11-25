@@ -580,6 +580,14 @@ describe('the J9 observer reads the heading of the price card from the same samp
       .toEqual(labelled('current_subscription', 'unknown'));
     expect(page(`<section><div>CURRENT SUBSCRIPTION</div><article><div>Your plan</div></article><div>${priceLine}</div></section>`).label)
       .toEqual(labelled('current_subscription', 'yes'));
+    // Sam's boundary: the caption element is itself a nested card, so it is that card's caption, not the outer card's.
+    expect(page('<section><article>Current subscription</article><div><span>US$10.00</span> per month</div></section>').label)
+      .toEqual(labelled('current_subscription', 'unknown'));
+    expect(page('<section><div>Current subscription</div><div><span>US$10.00</span> per month</div></section>').label)
+      .toEqual(labelled('current_subscription', 'yes'));
+    // The same for a heading that is itself a card element.
+    expect(page('<section><h2 role="region">Current plan</h2><div><span>US$10.00</span> per month</div></section>').card)
+      .toEqual(said('current_plan', 'unknown'));
   });
 
   it('10 versus 11: labels come only from the ten elements the verdict reads, and a cap hit is said, not read past', () => {

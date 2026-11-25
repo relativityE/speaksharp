@@ -375,9 +375,9 @@ export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): Pl
         const found = find(path[i]);
         if (found.length > 0) { name = labelOf(found); break; }
       }
-      // A heading or caption counts for the region only when the region is its own nearest card element too: one inside a
-      // nested card belongs to that card, never to the outer one that also holds the price.
-      const own = region ? find(region).filter((e) => e.parentElement?.closest(cardElement) === region) : [];
+      // A heading or caption counts for the region only when the region is its own nearest card element too, counting the
+      // element itself: one inside, or itself, a nested card belongs to that card, never to the outer one that holds the price.
+      const own = region ? find(region).filter((e) => e.closest(cardElement) === region) : [];
       if (own.length === 1) return [labelOf(own), 'yes'];
       return [name, name === 'none' && root === 'document' ? 'no' : 'unknown'];
     };
