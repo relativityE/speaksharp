@@ -365,7 +365,8 @@ export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): Pl
       return (best < labels.length ? labels[best][0] : 'other_text') as PlanCardHeading;
     };
     const cardElement = 'section, article, li, fieldset, [role="region"], [role="group"], [role="listitem"], [role="article"], [aria-labelledby]';
-    // Only the nearest card element counts, and only with exactly one visible heading (or label) of its own.
+    // Only the price's nearest card element counts, and only with exactly one visible heading (or label) whose own nearest card
+    // element is that same one.
     const region = path.slice(line).find((e, k) => chain[line + k].length <= args.cardMax && e.matches(cardElement));
     const readWith = (find: (r: Element) => Element[]): [PlanCardHeading, PlanSameCard] => {
       let name: PlanCardHeading = 'none';
@@ -374,7 +375,10 @@ export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): Pl
         const found = find(path[i]);
         if (found.length > 0) { name = labelOf(found); break; }
       }
-      if (region && find(region).length === 1) return [name, 'yes'];
+      // A heading or caption counts for the region only when the region is its own nearest card element too: one inside a
+      // nested card belongs to that card, never to the outer one that also holds the price.
+      const own = region ? find(region).filter((e) => e.parentElement?.closest(cardElement) === region) : [];
+      if (own.length === 1) return [labelOf(own), 'yes'];
       return [name, name === 'none' && root === 'document' ? 'no' : 'unknown'];
     };
     const [heading, same] = readWith(headsIn);

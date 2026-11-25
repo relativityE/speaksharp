@@ -536,6 +536,13 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(page(`<ul><li><h3>Current plan</h3>${priceLine}</li></ul>`).card).toEqual(said('current_plan', 'yes'));
     // The nearest card element decides: an outer section with one heading cannot vouch for an inner card without one.
     expect(page(`<section>${h2('Current plan')}<article>${priceLine}</article></section>`).card).toEqual(said('current_plan', 'unknown'));
+    // Sam's nested control: the heading in a nested card and the price in a plain block of the outer card are not one card.
+    expect(page(`<section><article>${h2('Current plan')}</article>${priceLine}</section>`).card).toEqual(said('current_plan', 'unknown'));
+    expect(page(`<section><div role="group">${h2('Your plan')}<p>Seat add-on</p></div><div>${priceLine}</div></section>`).card)
+      .toEqual(said('your_plan', 'unknown'));
+    // The outer card's own heading still counts when a nested card sits beside the price without one.
+    expect(page(`<section>${h2('Current plan')}<article><p>Seat add-on</p></article>${priceLine}</section>`).card)
+      .toEqual(said('current_plan', 'yes'));
   });
 
   it('reads a styled section label such as the portal preview caption, closed words only, under the same card rule', () => {
@@ -568,6 +575,11 @@ describe('the J9 observer reads the heading of the price card from the same samp
       expect(siblings.label).toEqual(labelled('current_subscription', 'unknown'));
     }
     expect(page(`<main><div><div>Current plan</div></div><div>${priceLine}</div></main>`).label).toEqual(labelled('current_plan', 'unknown'));
+    // Sam's nested control for captions: a caption inside a nested card is that card's, not the outer card's.
+    expect(page(`<section><article><div>CURRENT SUBSCRIPTION</div></article><div>${priceLine}</div></section>`).label)
+      .toEqual(labelled('current_subscription', 'unknown'));
+    expect(page(`<section><div>CURRENT SUBSCRIPTION</div><article><div>Your plan</div></article><div>${priceLine}</div></section>`).label)
+      .toEqual(labelled('current_subscription', 'yes'));
   });
 
   it('10 versus 11: labels come only from the ten elements the verdict reads, and a cap hit is said, not read past', () => {
