@@ -245,3 +245,154 @@ export function visiblePlanChains(elements: Element[]): string[][] {
   }
   return chains;
 }
+
+/**
+ * Closed heading labels the J9 observer can report, most specific first. Diagnostic only: the verdict still needs "Current plan".
+ */
+export const PLAN_PROBE_HEADINGS = [
+  ['current_plan', /\bcurrent plan\b/i],
+  ['current_subscription', /\bcurrent subscriptions?\b/i],
+  ['your_subscription', /\byour subscriptions?\b/i],
+  ['your_plan', /\byour plan\b/i],
+  ['plan_or_subscription_word', /\b(?:plan|subscription)s?\b/i],
+] as const;
+export type PlanCardHeading = typeof PLAN_PROBE_HEADINGS[number][0] | 'other_text' | 'none' | 'unknown';
+export type PlanSameCard = 'yes' | 'no' | 'unknown';
+/** One candidate's card read: the closed label of the visible semantic heading in its compact card, and whether it is there. */
+export interface PlanCardRead { heading: PlanCardHeading; same: PlanSameCard }
+/** What the observer needs inside the page, as plain data (patterns travel as source and flags; no code). */
+export interface PlanProbeArgs {
+  price: [string, string]; cadence: [string, string]; lineMax: number; cardMax: number; headings: Array<[string, string, string]>;
+}
+/** The verdict's own price, cadence and line limit, and PLAN_BLOCK_MAX as the compact card's limit. */
+export const PLAN_PROBE_ARGS: PlanProbeArgs = {
+  price: [PLAN_PRICE.source, PLAN_PRICE.flags], cadence: [PLAN_CADENCE.source, PLAN_CADENCE.flags], lineMax: PLAN_LINE_MAX,
+  cardMax: PLAN_BLOCK_MAX, headings: PLAN_PROBE_HEADINGS.map(([name, re]) => [name, re.source, re.flags]),
+};
+
+/**
+ * The portal sample the J9 check reads, with a local-only observer beside it (Sam, 2026-11-25: PO approved preparing and testing
+ * it locally). Runs in the portal page (the spec's single `evaluateAll`) and in a local DOM in the tests, so it is self-contained.
+ * `chains` is computed by the same code as `visiblePlanChains`, over the same elements (same visibility rule, same first ten), and
+ * is the only thing the verdict reads: the tests prove it equals `visiblePlanChains` on every fixture. Beside it, for those same
+ * ten elements and nothing else on the page, and with no text leaving the page:
+ *  - `shown`: how many matches were visible before the ten-element cap (a cap hit is said, never read past);
+ *  - `roots`: where each lives, `document`, `shadow` (an open shadow root, whose chain stops at the boundary) or `other`;
+ *  - `cards`: for each element that passes the verdict's own price, cadence and line checks (null otherwise), its compact card:
+ *    the nearest ancestor, from the price/cadence line up, that holds a visible semantic heading (h1 to h6, or role=heading)
+ *    while its visible text is within `cardMax`. One heading there is `same: yes` with its closed label; more than one is
+ *    `same: unknown` (ambiguous), labelled by the most specific listed phrase among them. Passing `cardMax` first is `unknown`
+ *    (overflow: any heading is outside the compact card). Reaching the page root with no heading is `none`/`no`; reaching a shadow
+ *    root or a detached root is `none`/`unknown`, since a heading outside it cannot be seen. A heading counts as visible when it and
+ *    every ancestor up to the card are rendered, where a box-less (display: contents) wrapper with otherwise visible style counts:
+ *    Chrome's `checkVisibility` reports such a wrapper as not visible because it has no box, and the verdict's text skips it.
+ *    A failure here leaves that card null and the chains untouched.
+ */
+export interface PlanSample { chains: string[][]; roots: Array<'document' | 'shadow' | 'other'>; shown: number; cards: Array<PlanCardRead | null> }
+
+export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): PlanSample {
+  const rendered = (el: Element): boolean => {
+    const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
+    if (!style || (el as HTMLElement).hidden || style.display === 'none' || style.visibility === 'hidden'
+      || style.visibility === 'collapse' || style.opacity === '0') return false;
+    const check = (el as Element & { checkVisibility?: (options?: object) => boolean }).checkVisibility;
+    return typeof check !== 'function' || check.call(el, { opacityProperty: true, visibilityProperty: true });
+  };
+  const shown = (el: Element): boolean => {
+    for (let e: Element | null = el; e; e = e.parentElement) if (!rendered(e)) return false;
+    return true;
+  };
+  const textOf = (el: Element, keep: (e: Element) => boolean): string => {
+    const parts: string[] = [];
+    const walk = (node: Node): void => {
+      for (const child of Array.from(node.childNodes)) {
+        if (child.nodeType === 3) parts.push(child.nodeValue ?? '');
+        else if (child.nodeType === 1 && !['SCRIPT', 'STYLE', 'TEMPLATE', 'NOSCRIPT'].includes((child as Element).tagName)
+          && keep(child as Element)) walk(child);
+      }
+    };
+    walk(el);
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  };
+  // Observer only: a box-less element counts as rendered when its style is otherwise visible; every other rule is unchanged.
+  const boxTolerant = (el: Element): boolean => {
+    if (rendered(el)) return true;
+    const style = el.ownerDocument?.defaultView?.getComputedStyle(el);
+    return !!style && style.display === 'contents' && !(el as HTMLElement).hidden && style.visibility !== 'hidden'
+      && style.visibility !== 'collapse' && style.opacity !== '0';
+  };
+  const card = (path: Element[], chain: string[], root: 'document' | 'shadow' | 'other'): PlanCardRead | null => {
+    if (!args) return null;
+    const re = ([source, flags]: [string, string]) => new RegExp(source, flags);
+    if (!re(args.price).test(chain[0])) return null;
+    const cadence = re(args.cadence);
+    const line = chain.findIndex((t) => cadence.test(t));
+    if (line < 0 || chain[line].length > args.lineMax) return null;
+    const labels = args.headings.map(([name, source, flags]) => [name, new RegExp(source, flags)] as const);
+    for (let i = line; i < path.length; i++) {
+      if (chain[i].length > args.cardMax) return { heading: 'unknown', same: 'unknown' };
+      const region = path[i];
+      const heads = Array.from(region.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]')).filter((h) => {
+        for (let e: Element | null = h; e && e !== region; e = e.parentElement) if (!boxTolerant(e)) return false;
+        return true;
+      });
+      if (heads.length === 0) continue;
+      let best = labels.length;
+      for (const h of heads) {
+        const hit = labels.findIndex(([, phrase]) => phrase.test(textOf(h, boxTolerant)));
+        if (hit >= 0 && hit < best) best = hit;
+      }
+      const heading = (best < labels.length ? labels[best][0] : 'other_text') as PlanCardHeading;
+      return { heading, same: heads.length === 1 ? 'yes' : 'unknown' };
+    }
+    return { heading: 'none', same: root === 'document' ? 'no' : 'unknown' };
+  };
+  const visible = elements.filter(shown);
+  const sample: PlanSample = { chains: [], roots: [], shown: visible.length, cards: [] };
+  for (const el of visible.slice(0, 10)) {
+    const chain: string[] = [];
+    const path: Element[] = [];
+    for (let e: Element | null = el; e; e = e.parentElement) { chain.push(textOf(e, rendered)); path.push(e); }
+    sample.chains.push(chain);
+    const rootNode = el.getRootNode();
+    const root = rootNode.nodeType === 9 ? 'document' : rootNode.nodeType === 11 && 'host' in rootNode ? 'shadow' : 'other';
+    sample.roots.push(root);
+    let read: PlanCardRead | null = null;
+    try { read = card(path, chain, root); } catch { read = null; }
+    sample.cards.push(read);
+  }
+  return sample;
+}
+
+/** The verdict's input from a sample: its chains, or null (read as `unreadable`, as a failed read always was). */
+export function planSampleChains(sample: unknown): unknown {
+  return sample !== null && typeof sample === 'object' && 'chains' in sample ? (sample as { chains: unknown }).chains : null;
+}
+
+const CARD_HEADINGS: readonly string[] = [...PLAN_PROBE_HEADINGS.map(([name]) => name), 'other_text', 'none', 'unknown'];
+
+/**
+ * The observer's fixed words for one sample: the card heading's closed label, whether it is in the same compact card as the
+ * $10.00 monthly line, where the ten elements live, and how many were kept against the cap. Across candidates, one shared read is
+ * reported as is; candidates that disagree read `mixed` and `unknown`; no candidate reads `not_reached`. Every word fits
+ * `progressLine`'s checkpoint alphabet; anything malformed reads `portal_plan_probe_unreadable`. Diagnostic only: it reads the
+ * sample the verdict already judged and changes nothing about it.
+ */
+export function portalPlanObserver(sample: unknown): string[] {
+  const s = sample as Partial<PlanSample> | null;
+  const kept = Array.isArray(s?.chains) ? s.chains.length : -1;
+  const isCard = (c: unknown): c is PlanCardRead | null => c === null || (typeof c === 'object' && CARD_HEADINGS.includes((c as PlanCardRead).heading)
+    && ['yes', 'no', 'unknown'].includes((c as PlanCardRead).same));
+  if (!s || typeof s !== 'object' || kept < 0 || kept > 10 || !Array.isArray(s.cards) || s.cards.length !== kept || !s.cards.every(isCard)
+    || !Array.isArray(s.roots) || s.roots.length !== kept || !Number.isInteger(s.shown) || (s.shown as number) < kept
+    || !s.roots.every((r) => r === 'document' || r === 'shadow' || r === 'other')) return ['portal_plan_probe_unreadable'];
+  const reads = Array.from(new Set(s.cards.filter((c): c is PlanCardRead => c !== null).map((c) => `${c.heading} ${c.same}`)));
+  const [heading, same] = reads.length === 0 ? ['not_reached', 'not_reached'] : reads.length === 1 ? reads[0].split(' ') : ['mixed', 'unknown'];
+  const kinds = (['document', 'shadow', 'other'] as const).filter((k) => s.roots!.includes(k));
+  return [
+    `portal_plan_probe_card_heading_${heading}`,
+    `portal_plan_probe_same_card_${same}`,
+    `portal_plan_probe_roots_${kinds.length === 0 ? 'none' : kinds.length > 1 ? 'mixed' : kinds[0]}`,
+    `portal_plan_probe_kept_${kept}_cap_${(s.shown as number) > 10 ? 'hit' : 'clear'}`,
+  ];
+}

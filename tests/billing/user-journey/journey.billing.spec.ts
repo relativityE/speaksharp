@@ -19,7 +19,8 @@ import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
-  portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanChains, type PortalPlanMiss } from './restoreAccess';
+  portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanSample, planSampleChains, portalPlanObserver, PLAN_PROBE_ARGS, type PortalPlanMiss,
+  type PlanSample } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
 
@@ -230,17 +231,32 @@ class SandboxJourney {
   async awaitPortalPlan(page: Page): Promise<void> {
     let miss: PortalPlanMiss | null = 'unreadable';
     let last: unknown = null;
-    await this.poll(async () => (miss = portalPlanMiss(last = await this.planAncestries(page).catch(() => null))), (m) => m === null,
-      'portal_plan_not_shown').catch(() => {
+    let sample: unknown = null;
+    await this.poll(async () => (miss = portalPlanMiss(last = planSampleChains(sample = await this.planSample(page).catch(() => null)))),
+      (m) => m === null, 'portal_plan_not_shown').catch(() => {
       // Diagnostic only, after the verdict is already a miss: which of no_plan_block's two causes the last read shows (fixed words).
       if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(last)));
+      // Local-only observer, from the same sample that judged the miss: no second read, never throws, same failure code below.
+      if (miss === 'no_plan_block') this.portalPlanProbe(sample);
       throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? 'unreadable'}`);
     });
   }
 
-  /** Visible $10.00 elements only, each with its own and its ancestors' visible text, innermost first (`visiblePlanChains`). */
-  async planAncestries(page: Page): Promise<string[][]> {
-    return page.getByText(/\$\s?10\.00/).evaluateAll(visiblePlanChains);
+  /**
+   * Visible $10.00 elements only, each with its own and its ancestors' visible text, innermost first: the sample's `chains`, the
+   * same text `visiblePlanChains` gives and the only part the verdict reads. The rest of the sample feeds the observer.
+   */
+  async planSample(page: Page): Promise<PlanSample> {
+    return page.getByText(/\$\s?10\.00/).evaluateAll(visiblePlanSample, PLAN_PROBE_ARGS);
+  }
+
+  /** J9 observer, diagnostic only (`portalPlanObserver`): fixed words from the sample that judged a no_plan_block miss. */
+  portalPlanProbe(sample: unknown): void {
+    try {
+      for (const name of portalPlanObserver(sample)) this.checkpoint(name);
+    } catch {
+      this.checkpoint('portal_plan_probe_unreadable');
+    }
   }
 
   async account(label: RegExp): Promise<void> {
