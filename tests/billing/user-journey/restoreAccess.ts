@@ -114,9 +114,10 @@ export function firstInvoiceCharge(invoice: InvoiceRow | null, f: { firstInvoice
 const PLAN_PRICE = /\$\s?10\.00(?!\d)/;
 const PLAN_CADENCE = /(\bper month|\/\s?month|\bmonthly|\bevery month)\b/i;
 /**
- * The heading of the block that names the plan, unchanged: "Current plan". Run 45361320828 opened the portal and never passed
+ * The heading of the block that names the plan, unchanged here: "Current plan". Run 45361320828 opened the portal and never passed
  * in 120 s, and which condition failed is unread (no page text leaves). A timeout now names it (`portalPlanMiss`); a
- * different heading reads as `no_plan_block`. The check is widened only after a run shows why (Sam, 2026-11-24).
+ * different heading reads as `no_plan_block`. The portal's "Current subscription" wording passes only through
+ * `portalPlanVerdict`, and only from an identified compact card (Akin, 2026-11-25), never through this text rule.
  */
 const PLAN_LABEL = /\bcurrent plan\b/i;
 const MONEY = /\$\s?\d[\d,]*(?:\.\d+)?/g;
@@ -262,17 +263,22 @@ export type PlanSameCard = 'yes' | 'no' | 'unknown';
  * One candidate's card read: the closed label of the visible semantic heading near it and whether that heading is in the same
  * card, and the same two for a short visible section label (styled text, not a heading element; e.g. a small uppercase caption).
  */
-export interface PlanCardRead { heading: PlanCardHeading; same: PlanSameCard; label: PlanCardHeading; labelSame: PlanSameCard }
+export interface PlanCardRead {
+  heading: PlanCardHeading; same: PlanSameCard; label: PlanCardHeading; labelSame: PlanSameCard;
+  /** The amounts in the price's own card (`no_region` when none was identified): only $10.00, or some other amount too. */
+  amounts: 'only_ten' | 'other' | 'no_region';
+}
 /** What the observer needs inside the page, as plain data (patterns travel as source and flags; no code). */
 export interface PlanProbeArgs {
-  price: [string, string]; cadence: [string, string]; lineMax: number; cardMax: number; labelMax: number;
+  price: [string, string]; cadence: [string, string]; money: [string, string]; lineMax: number; cardMax: number; labelMax: number;
   headings: Array<[string, string, string]>;
 }
 /** Longest visible text of an element read as a section label (a caption such as "CURRENT SUBSCRIPTION", not a sentence). */
 export const PLAN_LABEL_TEXT_MAX = 40;
 /** The verdict's own price, cadence and line limit, PLAN_BLOCK_MAX as the compact card's limit, and the label text limit. */
 export const PLAN_PROBE_ARGS: PlanProbeArgs = {
-  price: [PLAN_PRICE.source, PLAN_PRICE.flags], cadence: [PLAN_CADENCE.source, PLAN_CADENCE.flags], lineMax: PLAN_LINE_MAX,
+  price: [PLAN_PRICE.source, PLAN_PRICE.flags], cadence: [PLAN_CADENCE.source, PLAN_CADENCE.flags], money: [MONEY.source, MONEY.flags],
+  lineMax: PLAN_LINE_MAX,
   cardMax: PLAN_BLOCK_MAX, labelMax: PLAN_LABEL_TEXT_MAX, headings: PLAN_PROBE_HEADINGS.map(([name, re]) => [name, re.source, re.flags]),
 };
 
@@ -383,7 +389,10 @@ export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): Pl
     };
     const [heading, same] = readWith(headsIn);
     const [label, labelSame] = readWith(labelsIn);
-    return { heading, same, label, labelSame };
+    const regionText = region ? chain[path.indexOf(region)] : null;
+    const found = regionText === null ? [] : regionText.match(re(args.money)) ?? [];
+    const amounts = regionText === null ? 'no_region' : found.length > 0 && found.every((a) => /^\$\s?10\.00$/.test(a)) ? 'only_ten' : 'other';
+    return { heading, same, label, labelSame, amounts };
   };
   const visible = elements.filter(shown);
   const sample: PlanSample = { chains: [], roots: [], shown: visible.length, cards: [] };
@@ -400,6 +409,28 @@ export function visiblePlanSample(elements: Element[], args?: PlanProbeArgs): Pl
     sample.cards.push(read);
   }
   return sample;
+}
+
+/**
+ * J9.a and J9.b's verdict on one portal sample (Akin, 2026-11-25: "Yes, bundle the fix"). First the unchanged text rule on the
+ * sample's chains (`portalPlanMiss`, "Current plan"). Only when that misses with `no_plan_block`, the portal's own wording can
+ * pass instead: one $10.00 monthly candidate whose identified compact card (`cards`) holds exactly one "Current subscription"
+ * caption or heading of its own and names no amount but $10.00. Nothing else gets looser: price, cadence and line limits are
+ * the same checks, the card is the observer's independently identified region (a short shared wrapper never counts), and a
+ * failed card read is null and passes nothing. Every other miss word is returned as it was.
+ */
+export function portalPlanVerdict(sample: unknown): PortalPlanMiss | null {
+  const miss = portalPlanMiss(planSampleChains(sample));
+  if (miss !== 'no_plan_block') return miss;
+  const cards = (sample as Partial<PlanSample> | null)?.cards;
+  if (!Array.isArray(cards)) return miss;
+  const subscriptionCard = (c: unknown): boolean => {
+    if (c === null || typeof c !== 'object') return false;
+    const r = c as PlanCardRead;
+    return r.amounts === 'only_ten' && ((r.label === 'current_subscription' && r.labelSame === 'yes')
+      || (r.heading === 'current_subscription' && r.same === 'yes'));
+  };
+  return cards.slice(0, 10).some(subscriptionCard) ? null : miss;
 }
 
 /** The verdict's input from a sample: its chains, or null (read as `unreadable`, as a failed read always was). */
@@ -421,7 +452,8 @@ export function portalPlanObserver(sample: unknown): string[] {
   const kept = Array.isArray(s?.chains) ? s.chains.length : -1;
   const sameWord = (v: unknown) => v === 'yes' || v === 'no' || v === 'unknown';
   const isCard = (c: unknown): c is PlanCardRead | null => c === null || (typeof c === 'object' && CARD_HEADINGS.includes((c as PlanCardRead).heading)
-    && sameWord((c as PlanCardRead).same) && CARD_HEADINGS.includes((c as PlanCardRead).label) && sameWord((c as PlanCardRead).labelSame));
+    && sameWord((c as PlanCardRead).same) && CARD_HEADINGS.includes((c as PlanCardRead).label) && sameWord((c as PlanCardRead).labelSame)
+    && ['only_ten', 'other', 'no_region'].includes((c as PlanCardRead).amounts));
   if (!s || typeof s !== 'object' || kept < 0 || kept > 10 || !Array.isArray(s.cards) || s.cards.length !== kept || !s.cards.every(isCard)
     || !Array.isArray(s.roots) || s.roots.length !== kept || !Number.isInteger(s.shown) || (s.shown as number) < kept
     || !s.roots.every((r) => r === 'document' || r === 'shadow' || r === 'other')) return ['portal_plan_probe_unreadable'];

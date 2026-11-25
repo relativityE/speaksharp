@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { Window } from 'happy-dom';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
   portalShowsPlan, portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX,
-  visiblePlanSample, planSampleChains, portalPlanObserver, PLAN_PROBE_HEADINGS, PLAN_PROBE_ARGS,
+  visiblePlanSample, planSampleChains, portalPlanObserver, portalPlanVerdict, PLAN_PROBE_HEADINGS, PLAN_PROBE_ARGS,
   type PlanSample, type PlanCardRead } from './restoreAccess';
 import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, progressLine, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
@@ -356,7 +356,7 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(portal).toMatch(/waitForURL\(url => url\.origin === 'https:\/\/billing\.stripe\.com'/);
     // The portal check reads per-element ancestries, never the whole page's text, and a timeout names its fixed reason.
     expect(portal).toMatch(/await this\.awaitPortalPlan\(this\.page\);/);
-    expect(spec).toMatch(/portalPlanMiss\(last = planSampleChains\(sample = await this\.planSample\(page\)\.catch\(\(\) => null\)\)\)/);
+    expect(spec).toMatch(/\(miss = portalPlanVerdict\(sample = await this\.planSample\(page\)\.catch\(\(\) => null\)\)\)/);
     expect(spec).toMatch(/throw new Error\(`BILLING_JOURNEY:portal_plan_not_shown_\$\{miss \?\? 'unreadable'\}`\)/);
     // J9.a's paid_account_kept reads the same way in its fresh context: never its own innerText scan.
     const kept = spec.slice(spec.indexOf("this.stage = 'portal_plan_shown';"), spec.indexOf("this.steps.add('portal_plan_shown');"));
@@ -433,7 +433,7 @@ describe('a no_plan_block miss splits into its two causes, content-free, without
   it('the spec emits the split only after a no_plan_block miss, and still throws the same failure code', () => {
     const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
     const body = spec.slice(spec.indexOf('async awaitPortalPlan('), spec.indexOf('async planSample('));
-    expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(last)));");
+    expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(planSampleChains(sample))));");
     expect(body).toContain('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? \'unreadable\'}`);');
   });
 });
@@ -474,7 +474,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const before = JSON.stringify(sample);
     const words = portalPlanObserver(sample);
     expect(JSON.stringify(sample)).toBe(before);
-    const verdict = { miss: portalPlanMiss(sample.chains), split: portalPlanSplit(sample.chains) };
+    const verdict = { miss: portalPlanMiss(sample.chains), split: portalPlanSplit(sample.chains), pass: portalPlanVerdict(sample) === null };
     void window.happyDOM.close();
     return { sample, words, verdict, card: words.slice(0, 2), label: words.slice(2, 4) };
   };
@@ -494,7 +494,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(page(cardHtml('<div role="heading" aria-level="2">Your subscription</div>')).card).toEqual(said('your_subscription', 'yes'));
     // The current-plan card passes the verdict as it always did; the others still miss.
     expect(page(cardHtml(h2('Current plan'))).verdict.miss).toBeNull();
-    expect(page(cardHtml(h2('Your subscription'))).verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' } });
+    expect(page(cardHtml(h2('Your subscription'))).verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
   });
 
   it('says no, unknown or ambiguous rather than guessing', () => {
@@ -553,8 +553,8 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const preview = page(caption('CURRENT SUBSCRIPTION'));
     expect(preview.label).toEqual(labelled('current_subscription', 'yes'));
     expect(preview.card).toEqual(said('none', 'no'));
-    // The verdict is untouched: no "Current plan" anywhere, so it misses with label_absent exactly as on main.
-    expect(preview.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' } });
+    // The text rule is untouched (no "Current plan" anywhere: label_absent, as on main); the verdict passes it through its card.
+    expect(preview.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: true });
     expect(page(caption('Current plan')).label).toEqual(labelled('current_plan', 'yes'));
     expect(page(caption('Your plan')).label).toEqual(labelled('your_plan', 'yes'));
     // A product name as a heading and a caption as a label are read side by side, neither replacing the other.
@@ -590,6 +590,38 @@ describe('the J9 observer reads the heading of the price card from the same samp
       .toEqual(said('current_plan', 'unknown'));
   });
 
+  it('passes "Current subscription" only from one identified compact card with no other amount, and loosens nothing else', () => {
+    const priceLine = '<div><span>US$10.00</span> <span>per month</span></div>';
+    const passes = (html: string, opts?: Parameters<typeof page>[1]) => page(html, opts).verdict.pass;
+    // The portal-shaped card: caption, product, price, in one section, as a caption or as a heading, any case.
+    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</section>`)).toBe(true);
+    expect(passes(`<section>${h2('Current subscription')}<div>SpeakSharp Pro</div>${priceLine}</section>`)).toBe(true);
+    expect(passes(`<article><div>current subscription</div>${priceLine}<button>Cancel subscription</button></article>`)).toBe(true);
+    // "Current plan" passes as it always did, through the unchanged text rule.
+    expect(passes(cardHtml(h2('Current plan')))).toBe(true);
+    // A sibling card under a short wrapper, a nested card, or plain divs with no identified card: never.
+    for (const wrapper of ['div', 'main']) {
+      expect(passes(`<${wrapper}><section><div>CURRENT SUBSCRIPTION</div></section><section>${priceLine}</section></${wrapper}>`)).toBe(false);
+    }
+    expect(passes(`<section><article><div>CURRENT SUBSCRIPTION</div></article>${priceLine}</section>`)).toBe(false);
+    expect(passes(`<section><article>Current subscription</article>${priceLine}</section>`)).toBe(false);
+    expect(passes(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`)).toBe(false);
+    // Other wording, two captions, another amount in the card, or no cadence: never.
+    expect(passes(cardHtml(h2('Your subscription')))).toBe(false);
+    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div>Your subscription</div>${priceLine}</section>`)).toBe(false);
+    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${priceLine}<div>Add-on US$5.00</div></section>`)).toBe(false);
+    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div><span>US$10.00</span> paid</div></section>`)).toBe(false);
+    // A card past the compact limit is no card; a failed card read passes nothing.
+    const long = `<p>${'Payment method Visa ending 4242. '.repeat(25)}</p>`;
+    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${long}${priceLine}</section>`)).toBe(false);
+    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${priceLine}</section>`, { args: undefined })).toBe(false);
+    // Every miss word other than no_plan_block is returned exactly as the text rule gives it.
+    for (const bad of [null, 'x', {}, { chains: [] }]) expect(portalPlanVerdict(bad)).toBe(portalPlanMiss(planSampleChains(bad)));
+    const lineTooLong: PlanSample = { chains: [[`$10.00 per month ${'x'.repeat(PLAN_LINE_MAX)}`]], roots: ['document'], shown: 1,
+      cards: [{ heading: 'current_subscription', same: 'yes', label: 'current_subscription', labelSame: 'yes', amounts: 'only_ten' }] };
+    expect(portalPlanVerdict(lineTooLong)).toBe('line_too_long');
+  });
+
   it('10 versus 11: labels come only from the ten elements the verdict reads, and a cap hit is said, not read past', () => {
     const receipts = (n: number, attrs = '') => Array.from({ length: n }, () => `<p ${attrs}>US$10.00 paid with Visa</p>`).join('');
     const eleven = page(receipts(10) + cardHtml(h2('Your subscription')));
@@ -600,7 +632,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(eleven.words).toEqual([...said('not_reached', 'not_reached'), ...labelled('not_reached', 'not_reached'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_hit']);
     const ten = page(receipts(9) + cardHtml(h2('Your subscription')));
     expect([ten.sample.shown, ten.sample.chains.length]).toEqual([10, 10]);
-    expect(ten.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' } });
+    expect(ten.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(ten.words).toEqual([...said('your_subscription', 'yes'), ...labelled('none', 'no'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_clear']);
     expect(page(receipts(10, 'hidden') + cardHtml(h2('Your subscription'))).words.slice(4))
       .toEqual(['portal_plan_probe_roots_document', 'portal_plan_probe_kept_1_cap_clear']);
@@ -621,7 +653,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const contents = (style: string) => (h: string) => `<div style="${style}">${h}</div>`;
     const wrapped = page(cardHtml(h2('Current plan'), contents('display:contents')), { chrome: true });
     // In Chrome the wrapper reads as not visible (no box), so the verdict's text skips the heading: label_absent, unchanged.
-    expect(wrapped.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' } });
+    expect(wrapped.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(wrapped.card).toEqual(said('current_plan', 'yes'));
     // Hidden wrappers and hidden headings stay hidden for the observer too.
     for (const style of ['display:contents;visibility:hidden', 'display:contents;opacity:0', 'display:none']) {
@@ -639,7 +671,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const outside = page(`<section>${h2('Current plan')}<plan-card></plan-card></section>`, { build: (doc) => {
       doc.querySelector('plan-card')!.attachShadow({ mode: 'open' }).innerHTML = `<div>SpeakSharp Pro</div><div>${line}</div>`;
     } });
-    expect(outside.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' } });
+    expect(outside.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(outside.words).toEqual([...said('none', 'unknown'), ...labelled('none', 'unknown'), 'portal_plan_probe_roots_shadow', 'portal_plan_probe_kept_1_cap_clear']);
     const inside = page('<plan-card></plan-card>', { build: (doc) => {
       doc.querySelector('plan-card')!.attachShadow({ mode: 'open' }).innerHTML = cardHtml(h2('Your plan'));
@@ -666,13 +698,14 @@ describe('the J9 observer reads the heading of the price card from the same samp
   it('leaves pass/fail, the miss word and the split exactly as they were, and reads anything malformed as unreadable', () => {
     expect(planSampleChains(null)).toBeNull();
     for (const bad of [null, 'x', {}, 3]) expect(portalPlanMiss(planSampleChains(bad))).toBe('unreadable');
-    const yes: PlanCardRead = { heading: 'your_plan', same: 'yes', label: 'none', labelSame: 'no' };
+    const yes: PlanCardRead = { heading: 'your_plan', same: 'yes', label: 'none', labelSame: 'no', amounts: 'only_ten' };
     const good: PlanSample = { chains: [[line, 'Your plan']], roots: ['document'], shown: 1, cards: [yes] };
     expect(portalPlanObserver(good)).toHaveLength(6);
     for (const bad of [null, undefined, 'x', {}, { ...good, cards: [] }, { ...good, roots: ['frame'] }, { ...good, roots: [] },
       { ...good, shown: 0 }, { ...good, shown: 1.5 }, { ...good, cards: [{ ...yes, heading: 'Current plan' }] },
       { ...good, cards: [{ ...yes, same: 'maybe' }] }, { ...good, cards: [{ ...yes, label: 'CURRENT SUBSCRIPTION' }] },
-      { ...good, cards: [{ ...yes, labelSame: 'maybe' }] }, { ...good, cards: [{ heading: 'your_plan', same: 'yes' }] }, { ...good, chains: Array(11).fill([line]),
+      { ...good, cards: [{ ...yes, labelSame: 'maybe' }] }, { ...good, cards: [{ heading: 'your_plan', same: 'yes' }] },
+      { ...good, cards: [{ ...yes, amounts: 'some' }] }, { ...good, chains: Array(11).fill([line]),
         roots: Array(11).fill('document'), cards: Array(11).fill(null), shown: 11 }]) {
       expect(portalPlanObserver(bad)).toEqual(['portal_plan_probe_unreadable']);
     }
@@ -691,17 +724,17 @@ describe('the J9 observer reads the heading of the price card from the same samp
     for (const name of names) expect(progressLine('checkpoint', name, 0)).not.toContain('=invalid');
     expect(new Set(names).size).toBe(names.length);
     const s: PlanSample = { chains: [[line], [line]], roots: ['other', 'shadow'], shown: 12,
-      cards: [{ heading: 'other_text', same: 'unknown', label: 'current_subscription', labelSame: 'yes' },
-        { heading: 'none', same: 'no', label: 'none', labelSame: 'no' }] };
+      cards: [{ heading: 'other_text', same: 'unknown', label: 'current_subscription', labelSame: 'yes', amounts: 'only_ten' },
+        { heading: 'none', same: 'no', label: 'none', labelSame: 'no', amounts: 'no_region' }] };
     for (const w of portalPlanObserver(s)) expect(names).toContain(w);
   });
 
   it('the spec reads once, gives the verdict only the chains, and runs the observer on that same sample after the miss', () => {
     const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
     const body = spec.slice(spec.indexOf('async awaitPortalPlan('), spec.indexOf('async planSample('));
-    expect(body).toContain('(miss = portalPlanMiss(last = planSampleChains(sample = await this.planSample(page).catch(() => null))))');
+    expect(body).toContain('(miss = portalPlanVerdict(sample = await this.planSample(page).catch(() => null)))');
     expect(body).toMatch(/\(m\) => m === null, 'portal_plan_not_shown'\)\.catch\(\(\) => \{/);
-    expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(last)));");
+    expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(planSampleChains(sample))));");
     expect(body).toContain("if (miss === 'no_plan_block') this.portalPlanProbe(sample);");
     expect(body.indexOf('this.portalPlanProbe(sample)')).toBeLessThan(body.indexOf('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_'));
     expect(body).toContain('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? \'unreadable\'}`);');
