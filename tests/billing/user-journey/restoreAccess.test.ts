@@ -9,6 +9,7 @@ import { Window } from 'happy-dom';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
   portalShowsPlan, portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX,
   visiblePlanSample, planSampleChains, portalPlanObserver, portalPlanVerdict, assertPortalSubscription, PLAN_PROBE_HEADINGS, PLAN_PROBE_ARGS,
+  currentSubscriptionSection, sectionArgs,
   type PlanSample, type PlanCardRead } from './restoreAccess';
 import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, progressLine, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
@@ -356,7 +357,8 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(portal).toMatch(/waitForURL\(url => url\.origin === 'https:\/\/billing\.stripe\.com'/);
     // The portal check reads per-element ancestries, never the whole page's text, and a timeout names its fixed reason.
     expect(portal).toMatch(/await this\.awaitPortalPlan\(this\.page\);/);
-    expect(spec).toMatch(/\(miss = portalPlanVerdict\(sample = await this\.planSample\(page\)\.catch\(\(\) => null\)\)\)/);
+    expect(spec).toContain('sample = await this.planSample(page).catch(() => null);');
+    expect(spec).toContain('return (miss = portalPlanVerdict(sample, section));');
     expect(spec).toMatch(/throw new Error\(`BILLING_JOURNEY:portal_plan_not_shown_\$\{miss \?\? 'unreadable'\}`\)/);
     // J9.a's paid_account_kept reads the same way in its fresh context: never its own innerText scan.
     const kept = spec.slice(spec.indexOf("this.stage = 'portal_plan_shown';"), spec.indexOf("this.steps.add('portal_plan_shown');"));
@@ -365,7 +367,9 @@ describe('the spec runs the checks in the order that proves the story', () => {
     expect(kept).not.toMatch(/innerText|textContent|querySelectorAll/);
     // Only visible $10.00 elements, read as visible text (visiblePlanSample's chains), never innerText (which includes hidden content).
     expect(spec).toMatch(/return page\.getByText\(\/\\\$\\s\?10\\\.00\/\)\.evaluateAll\(visiblePlanSample, PLAN_PROBE_ARGS\);/);
-    expect(spec.match(/evaluateAll\(/g)).toHaveLength(1);
+    // Two reads of the same locator: the sample, and the section rule (Stripe's real "Current subscription" layout).
+    expect(spec.match(/evaluateAll\(/g)).toHaveLength(2);
+    expect(spec).toContain('section = await page.getByText(/\\$\\s?10\\.00/).evaluateAll(currentSubscriptionSection, sectionArgs(product)).catch(() => null);');
     const ancestries = spec.slice(spec.indexOf('  async planSample(page: Page): Promise<PlanSample> {'));
     expect(ancestries.slice(0, ancestries.indexOf('\n  }\n'))).not.toMatch(/innerText|textContent/);
     expect(spec).not.toMatch(/portalShowsPlan\(await this\.page\.locator\('body'\)/);
@@ -474,7 +478,11 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const before = JSON.stringify(sample);
     const words = portalPlanObserver(sample);
     expect(JSON.stringify(sample)).toBe(before);
-    const verdict = { miss: portalPlanMiss(sample.chains), split: portalPlanSplit(sample.chains), pass: portalPlanVerdict(sample) === null };
+    const section = currentSubscriptionSection(matched, sectionArgs('SpeakSharp Pro'));
+    // The section rule's read carries no page text unless asked (the console check), and none leaves the spec.
+    expect(section.text).toBeNull();
+    const verdict = { miss: portalPlanMiss(sample.chains), split: portalPlanSplit(sample.chains), pass: portalPlanVerdict(sample, section) === null,
+      section: section.miss };
     void window.happyDOM.close();
     return { sample, words, verdict, card: words.slice(0, 2), label: words.slice(2, 4) };
   };
@@ -494,7 +502,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(page(cardHtml('<div role="heading" aria-level="2">Your subscription</div>')).card).toEqual(said('your_subscription', 'yes'));
     // The current-plan card passes the verdict as it always did; the others still miss.
     expect(page(cardHtml(h2('Current plan'))).verdict.miss).toBeNull();
-    expect(page(cardHtml(h2('Your subscription'))).verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
+    expect(page(cardHtml(h2('Your subscription'))).verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
   });
 
   it('says no, unknown or ambiguous rather than guessing', () => {
@@ -554,7 +562,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(preview.label).toEqual(labelled('current_subscription', 'yes'));
     expect(preview.card).toEqual(said('none', 'no'));
     // The text rule is untouched (no "Current plan" anywhere: label_absent, as on main); the verdict passes it through its card.
-    expect(preview.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: true });
+    expect(preview.verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: true });
     expect(page(caption('Current plan')).label).toEqual(labelled('current_plan', 'yes'));
     expect(page(caption('Your plan')).label).toEqual(labelled('your_plan', 'yes'));
     // A product name as a heading and a caption as a label are read side by side, neither replacing the other.
@@ -590,52 +598,144 @@ describe('the J9 observer reads the heading of the price card from the same samp
       .toEqual(said('current_plan', 'unknown'));
   });
 
-  it('passes "Current subscription" only from one identified compact card with no other amount, and loosens nothing else', () => {
+  it('passes "Current subscription" only through the section rule read from the real portal, and loosens nothing else', () => {
     const priceLine = '<div><span>US$10.00</span> <span>per month</span></div>';
     const passes = (html: string, opts?: Parameters<typeof page>[1]) => page(html, opts).verdict.pass;
-    // The portal-shaped card: caption, product, price, in one section, as a caption or as a heading, any case.
+    const missOf = (html: string) => page(html).verdict.section;
+    // Stripe's real sandbox portal (Akin's screenshot, 2026-11-25), in plain divs: caption, then product, price and next billing
+    // date beside a Cancel control, then Payment method, Billing information and Invoice history (whose $10.00 has no cadence).
+    const real = (sub: string, rest = REST) => `<main><div><div style="text-transform: uppercase">Current subscription</div>${sub}</div>${rest}</main>`;
+    const SUB = `<div><div><div>SpeakSharp Pro</div>${priceLine}<div>Your next billing date is December 25, 2026.</div></div>`
+      + '<div><a href="#">Cancel subscription</a></div></div>';
+    const REST = '<div><div>Payment method</div><div>Visa •••• 4242</div><div>Expires 11/2027</div></div>'
+      + '<div><div>Billing information</div><div>Name</div><div>J9 run</div></div>'
+      + '<div><div>Invoice history</div><div><span>Nov 25, 2026</span> <span>US$10.00</span> <span>Paid</span> <span>SpeakSharp Pro</span></div></div>';
+    expect(passes(real(SUB))).toBe(true);
+    expect(passes(real(SUB).replace('Current subscription', 'CURRENT SUBSCRIPTION'))).toBe(true);
+    expect(passes(real(SUB.replace('<a href="#">Cancel subscription</a>', '<div>Cancel subscription</div>')))).toBe(true);
+    expect(passes(real(SUB.replace('<a href="#">Cancel subscription</a>', '<button>Cancel subscription</button>')))).toBe(true);
+    // The same page flattened (caption, product and price as siblings) or wrapped in section elements: still one section.
+    expect(passes(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`)).toBe(true);
     expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</section>`)).toBe(true);
-    expect(passes(`<section>${h2('Current subscription')}<div>SpeakSharp Pro</div>${priceLine}</section>`)).toBe(true);
-    expect(passes(`<article><div>current subscription</div>${priceLine}<button>Cancel subscription</button></article>`)).toBe(true);
     // "Current plan" passes as it always did, through the unchanged text rule.
     expect(passes(cardHtml(h2('Current plan')))).toBe(true);
-    // A sibling card under a short wrapper, a nested card, or plain divs with no identified card: never.
-    for (const wrapper of ['div', 'main']) {
-      expect(passes(`<${wrapper}><section><div>CURRENT SUBSCRIPTION</div></section><section>${priceLine}</section></${wrapper}>`)).toBe(false);
+    // No current subscription: only the invoice's $10.00 (no cadence), or no caption at all.
+    expect(passes(`<main>${REST}</main>`)).toBe(false);
+    expect(passes(real('').replace('Current subscription', ''))).toBe(false);
+    expect(passes(real(SUB).replace('Current subscription', 'Subscription'))).toBe(false);
+    // Other wording: the whole caption must read "Current subscription"; a heading or caption that only contains it never passes.
+    for (const caption of ['Current subscription canceled', 'Current subscription history', 'Current subscriptions', 'Your subscription']) {
+      expect(passes(real(SUB).replace('Current subscription', caption))).toBe(false);
     }
-    expect(passes(`<section><article><div>CURRENT SUBSCRIPTION</div></article>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><article>Current subscription</article>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`)).toBe(false);
-    // Other wording, two captions, another amount in the card, or no cadence: never.
-    expect(passes(cardHtml(h2('Your subscription')))).toBe(false);
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div>Your subscription</div>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${priceLine}<div>Add-on US$5.00</div></section>`)).toBe(false);
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div><div><span>US$10.00</span> paid</div></section>`)).toBe(false);
-    // A card past the compact limit is no card; a failed card read passes nothing.
-    const long = `<p>${'Payment method Visa ending 4242. '.repeat(25)}</p>`;
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${long}${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${priceLine}</section>`, { args: undefined })).toBe(false);
-    // Sam's controls: the whole caption or heading must read "Current subscription"; the broad probe phrase never decides.
-    expect(passes(`<section>${h2('Current subscription canceled')}${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>Current subscription history</div>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>Current subscriptions</div>${priceLine}</section>`)).toBe(false);
-    expect(passes(`<section><div>  Current   SUBSCRIPTION </div>${priceLine}</section>`)).toBe(true);
-    // Price, cadence and caption bound to the price's own nearest card: a nearer card around the price alone never passes.
-    expect(passes(`<section>${h2('Current subscription')}<article><span>US$10.00</span></article><aside>per month</aside></section>`)).toBe(false);
-    expect(passes(`<section>${h2('Current subscription')}<article>${priceLine}</article></section>`)).toBe(false);
-    expect(passes(`<section><article>${h2('Current subscription')}${priceLine}</article></section>`)).toBe(true);
-    // Sam's mirror case: the cadence in a nested card is that card's, never the price card's.
-    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span></div><article>per month</article></section>`)).toBe(false);
-    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span><article>per month</article></div></section>`)).toBe(false);
-    expect(passes(`<section>${h2('Current subscription')}<div><span>US$10.00</span></div><div>per month</div></section>`)).toBe(true);
-    // A product heading beside the caption is not a second label; a caption wrapping its own heading counts once.
-    expect(passes(`<section><div>CURRENT SUBSCRIPTION</div>${h2('Premium')}${priceLine}</section>`)).toBe(true);
-    expect(passes(`<section><div>${h2('Current subscription')}</div>${priceLine}</section>`)).toBe(true);
-    // Every miss word other than no_plan_block is returned exactly as the text rule gives it.
-    for (const bad of [null, 'x', {}, { chains: [] }]) expect(portalPlanVerdict(bad)).toBe(portalPlanMiss(planSampleChains(bad)));
+    expect(passes(real(SUB).replace('Current subscription', '  Current   SUBSCRIPTION '))).toBe(true);
+    // Another price, cadence or product: never.
+    expect(passes(real(SUB.replace('US$10.00', 'US$12.00')))).toBe(false);
+    expect(passes(real(SUB.replace('per month', 'per year')))).toBe(false);
+    expect(passes(real(SUB.replace('SpeakSharp Pro', 'SpeakSharp Team')))).toBe(false);
+    expect(passes(real(`${SUB}<div>Add-on US$5.00 per month</div>`))).toBe(false);
+    // Sam's false-pass control: a short wrapper never lends the caption a $10/month line from another row or section.
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>Storage add-on</div>${priceLine}</div>`)).toBe('product_not_unique');
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}<div>Seats</div>${priceLine}</div>`))
+      .toBe('cadence_not_unique');
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>Payment method</div><div>SpeakSharp Pro</div>${priceLine}</div>`))
+      .toBe('other_section_inside');
+    expect(missOf(`<main><div><div>Current subscription</div><div>SpeakSharp Pro</div></div>${REST}`
+      + `<div><div>Invoice history</div>${priceLine}</div></main>`)).toBe('other_section_inside');
+    // Order: the caption, then the product, then the price; a price above its caption, or a product below its price, never.
+    expect(missOf(`<div>${priceLine}<div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div></div>`)).toBe('line_before_caption');
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div>${priceLine}<div>SpeakSharp Pro</div></div>`)).toBe('product_out_of_order');
+    // Two captions, a hidden caption or price, or a section past the compact limit: never.
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}<div>Current subscription</div></div>`))
+      .toBe('caption_not_unique');
+    expect(passes(`<div><div hidden>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`)).toBe(false);
+    expect(passes(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div><div style="display:none">${priceLine}</div></div>`)).toBe(false);
+    const long = `<p>${'Visa ending 4242 renews soon. '.repeat(25)}</p>`;
+    expect(missOf(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${long}${priceLine}</div>`)).toBe('section_too_long');
+    // The section read alone never passes the verdict: a failed or malformed read passes nothing, and every miss word other than
+    // no_plan_block is returned exactly as the text rule gives it, whatever the section read says.
+    const empty: PlanSample = { chains: [], roots: [], shown: 0, cards: [] };
+    const plain = page(`<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div>${priceLine}</div>`).sample;
+    expect(portalPlanVerdict(plain, null)).toBe('no_plan_block');
+    expect(portalPlanVerdict(plain, { pass: true })).toBe('no_plan_block');
+    expect(portalPlanVerdict(plain, { pass: 'yes', miss: null })).toBe('no_plan_block');
+    expect(portalPlanVerdict(plain, { pass: true, miss: null, text: null })).toBeNull();
+    expect(portalPlanVerdict(empty, { pass: true, miss: null, text: null })).toBe('no_visible_price');
+    for (const bad of [null, 'x', {}, { chains: [] }]) expect(portalPlanVerdict(bad, { pass: true, miss: null })).toBe(portalPlanMiss(planSampleChains(bad)));
     const lineTooLong: PlanSample = { chains: [[`$10.00 per month ${'x'.repeat(PLAN_LINE_MAX)}`]], roots: ['document'], shown: 1,
       cards: [{ heading: 'current_subscription', same: 'yes', label: 'current_subscription', labelSame: 'yes', subscription: 'yes' }] };
-    expect(portalPlanVerdict(lineTooLong)).toBe('line_too_long');
+    expect(portalPlanVerdict(lineTooLong, { pass: true, miss: null })).toBe('line_too_long');
+    // The old compact-card read no longer decides: a card read of "yes" with no section pass is still a miss.
+    const cardOnly = { ...plain, cards: plain.cards.map((c) => (c ? { ...c, subscription: 'yes' as const } : c)) };
+    expect(portalPlanVerdict(cardOnly)).toBe('no_plan_block');
+  });
+
+  it('the console check runs the same section rule and may show page text; the spec never asks it to', () => {
+    const window = new Window();
+    const doc = window.document as unknown as Document;
+    doc.body.innerHTML = '<div><div>CURRENT SUBSCRIPTION</div><div>SpeakSharp Pro</div><div><span>US$10.00</span> per month</div></div>';
+    const matched = Array.from(doc.querySelectorAll('span'));
+    expect(currentSubscriptionSection(matched, sectionArgs('SpeakSharp Pro', true))).toEqual({ pass: true, miss: null,
+      text: { caption: 'CURRENT SUBSCRIPTION', product: 'SpeakSharp Pro', line: 'US$10.00 per month' } });
+    expect(currentSubscriptionSection([], sectionArgs('SpeakSharp Pro', true))).toEqual({ pass: false, miss: 'no_price', text: null });
+    void window.happyDOM.close();
+    const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
+    expect(spec).not.toMatch(/sectionArgs\([^)]*,\s*true\)/);
+  });
+
+  // Every variant below is REAL_PORTAL_HTML (end of this file) with one thing changed.
+  const realPortal = REAL_PORTAL_HTML;
+  const realPage = (change?: (doc: Document) => void) => page(realPortal, { build: change }).verdict;
+  const planSection = (doc: Document) => doc.querySelector('[data-testid="content-section"]')!;
+  const leaf = (doc: Document, text: string) => Array.from(planSection(doc).querySelectorAll('*'))
+    .find((el) => el.children.length === 0 && el.textContent === text)!;
+  const planLine = (doc: Document) => leaf(doc, '$10.00 per month');
+  const nextBilling = (doc: Document) => planSection(doc).querySelector('p')!;
+  const cancelLink = (doc: Document) => doc.querySelector('[data-test="cancel-subscription"]')!;
+
+  it('passes on Stripe\'s real saved portal page, with the same texts Chrome printed, and fails each real-page variant', () => {
+    expect(realPortal).not.toMatch(/secret=test_(?!REDACTED)|sub_(?!REDACTED)[A-Za-z0-9]|acct_(?!REDACTED)[A-Za-z0-9]|cus_[A-Za-z0-9]|@(?!example\.com)|Itera|Oyster/);
+    // #1976's rule alone misses this page exactly as run 45652762097 did; the section rule is what passes it.
+    expect(realPage()).toMatchObject({ miss: 'no_plan_block', pass: true, section: null });
+    // The console check's own selection and output on the saved page match what Akin's Chrome printed on the live one.
+    const window = new Window();
+    const doc = window.document as unknown as Document;
+    doc.body.innerHTML = realPortal;
+    const prices = Array.from(doc.querySelectorAll('body *'))
+      .filter((e) => Array.from(e.childNodes).some((n) => n.nodeType === 3 && /\$\s?10\.00/.test(n.nodeValue ?? '')));
+    expect(currentSubscriptionSection(prices, sectionArgs('SpeakSharp Pro', true))).toEqual({ pass: true, miss: null,
+      text: { caption: 'Current subscription', product: 'SpeakSharp Pro', line: '$10.00 per month' } });
+    void window.happyDOM.close();
+
+    const variants: Record<string, [(doc: Document) => void, string]> = {
+      'no Current subscription section (invoice row only)': [(d) => planSection(d).remove(), 'no_caption'],
+      'plan line gone, invoice $10.00 left': [(d) => planLine(d).remove(), 'no_line'],
+      'different price': [(d) => { planLine(d).textContent = '$12.00 per month'; }, 'line_too_long'],
+      'yearly price': [(d) => { planLine(d).textContent = '$10.00 per year'; }, 'no_line'],
+      'another product': [(d) => { leaf(d, 'SpeakSharp Pro').textContent = 'SpeakSharp Team'; }, 'product_not_unique'],
+      'caption renamed': [(d) => { planSection(d).querySelector('span span')!.textContent = 'Subscription'; }, 'no_caption'],
+      'caption hidden': [(d) => { (planSection(d).querySelector('span') as HTMLElement).style.display = 'none'; }, 'no_caption'],
+      'plan line hidden': [(d) => { (planLine(d).parentElement as HTMLElement).style.visibility = 'hidden'; }, 'no_line'],
+      'add-on item in the section': [(d) => { planLine(d).parentElement!.insertAdjacentHTML('afterend',
+        '<div><span>Extra seats</span> <span>$5.00 per month</span></div>'); }, 'cadence_not_unique'],
+      'second $10.00 subscription in the section': [(d) => { planLine(d).parentElement!.insertAdjacentHTML('afterend',
+        '<div><span>$10.00 per month</span></div>'); }, 'cadence_not_unique'],
+      'cancel at period end: will be canceled': [(d) => { nextBilling(d).textContent = 'Your subscription will be canceled on December 25, 2026.'; },
+        'not_current'],
+      'cancel at period end: Cancels badge': [(d) => { nextBilling(d).textContent = 'Cancels December 25, 2026'; }, 'not_current'],
+      'cancel at period end: Renew subscription': [(d) => { cancelLink(d).textContent = 'Renew subscription'; }, 'not_current'],
+      'canceled': [(d) => { nextBilling(d).textContent = 'Canceled'; }, 'not_current'],
+      'past due': [(d) => { nextBilling(d).textContent = 'Past due'; }, 'not_current'],
+      'unpaid': [(d) => { nextBilling(d).textContent = 'Unpaid'; }, 'not_current'],
+    };
+    const read = Object.entries(variants).map(([name, [change]]) => { const v = realPage(change); return [name, v.pass, v.section]; });
+    expect(read).toEqual(Object.entries(variants).map(([name, [, miss]]) => [name, false, miss]));
+  });
+
+  it('a failed portal check keeps no picture or page text of the portal, and the workflow uploads none (Akin, 2026-11-25)', () => {
+    const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
+    expect(spec).not.toMatch(/portalEvidence|billing-portal-evidence|\.screenshot\(|writeFileSync|innerText\(/);
+    const workflow = readFileSync(new URL('../../../.github/workflows/billing-local-stack-journey.yml', import.meta.url), 'utf8');
+    expect(workflow).not.toMatch(/billing-portal-evidence|portal\.png|portal\.txt/);
   });
 
   it('10 versus 11: labels come only from the ten elements the verdict reads, and a cap hit is said, not read past', () => {
@@ -648,7 +748,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(eleven.words).toEqual([...said('not_reached', 'not_reached'), ...labelled('not_reached', 'not_reached'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_hit']);
     const ten = page(receipts(9) + cardHtml(h2('Your subscription')));
     expect([ten.sample.shown, ten.sample.chains.length]).toEqual([10, 10]);
-    expect(ten.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
+    expect(ten.verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(ten.words).toEqual([...said('your_subscription', 'yes'), ...labelled('none', 'no'), 'portal_plan_probe_roots_document', 'portal_plan_probe_kept_10_cap_clear']);
     expect(page(receipts(10, 'hidden') + cardHtml(h2('Your subscription'))).words.slice(4))
       .toEqual(['portal_plan_probe_roots_document', 'portal_plan_probe_kept_1_cap_clear']);
@@ -669,7 +769,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const contents = (style: string) => (h: string) => `<div style="${style}">${h}</div>`;
     const wrapped = page(cardHtml(h2('Current plan'), contents('display:contents')), { chrome: true });
     // In Chrome the wrapper reads as not visible (no box), so the verdict's text skips the heading: label_absent, unchanged.
-    expect(wrapped.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
+    expect(wrapped.verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(wrapped.card).toEqual(said('current_plan', 'yes'));
     // Hidden wrappers and hidden headings stay hidden for the observer too.
     for (const style of ['display:contents;visibility:hidden', 'display:contents;opacity:0', 'display:none']) {
@@ -687,7 +787,7 @@ describe('the J9 observer reads the heading of the price card from the same samp
     const outside = page(`<section>${h2('Current plan')}<plan-card></plan-card></section>`, { build: (doc) => {
       doc.querySelector('plan-card')!.attachShadow({ mode: 'open' }).innerHTML = `<div>SpeakSharp Pro</div><div>${line}</div>`;
     } });
-    expect(outside.verdict).toEqual({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
+    expect(outside.verdict).toMatchObject({ miss: 'no_plan_block', split: { label: 'absent', block: 'none' }, pass: false });
     expect(outside.words).toEqual([...said('none', 'unknown'), ...labelled('none', 'unknown'), 'portal_plan_probe_roots_shadow', 'portal_plan_probe_kept_1_cap_clear']);
     const inside = page('<plan-card></plan-card>', { build: (doc) => {
       doc.querySelector('plan-card')!.attachShadow({ mode: 'open' }).innerHTML = cardHtml(h2('Your plan'));
@@ -745,18 +845,27 @@ describe('the J9 observer reads the heading of the price card from the same samp
     for (const w of portalPlanObserver(s)) expect(names).toContain(w);
   });
 
-  it('the spec reads once, gives the verdict only the chains, and runs the observer on that same sample after the miss', () => {
+  it('the spec reads the sample and the section each poll, and runs the observer on that same sample after the miss', () => {
     const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
-    const body = spec.slice(spec.indexOf('async awaitPortalPlan('), spec.indexOf('async planSample('));
-    expect(body).toContain('(miss = portalPlanVerdict(sample = await this.planSample(page).catch(() => null)))');
+    const body = spec.slice(spec.indexOf('async awaitPortalPlan('), spec.indexOf('async planProduct('));
+    expect(body).toContain('const product = await this.planProduct();');
+    expect(body).toContain('sample = await this.planSample(page).catch(() => null);');
+    expect(body).toContain('section = await page.getByText(/\\$\\s?10\\.00/).evaluateAll(currentSubscriptionSection, sectionArgs(product)).catch(() => null);');
+    expect(body).toContain('return (miss = portalPlanVerdict(sample, section));');
     expect(body).toMatch(/\(m\) => m === null, 'portal_plan_not_shown'\)\.catch\(\(\) => \{/);
     expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(planSampleChains(sample))));");
     expect(body).toContain("if (miss === 'no_plan_block') this.portalPlanProbe(sample);");
+    expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(`portal_plan_section_${(section as SectionRead | null)?.miss ?? 'unreadable'}`);");
     expect(body.indexOf('this.portalPlanProbe(sample)')).toBeLessThan(body.indexOf('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_'));
     expect(body).toContain('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? \'unreadable\'}`);');
     expect(body.match(/throw new Error/g)).toHaveLength(1);
-    expect(body).not.toMatch(/await this\.portalPlanProbe|evaluateAll/);
-    expect(spec.match(/evaluateAll\(/g)).toHaveLength(1);
+    expect(body).not.toMatch(/await this\.portalPlanProbe/);
+    // The product name comes from Stripe's test-mode record of this run's own subscription, never from the page.
+    const product = spec.slice(spec.indexOf('  async planProduct('), spec.indexOf('\n  }\n', spec.indexOf('  async planProduct(')));
+    expect(product).toContain('await this.stripe(`subscriptions/${this.subscription}`)');
+    expect(product).toContain('await this.stripe(`products/${id}`)');
+    expect(product).toContain("product.livemode === false");
+    expect(product).not.toMatch(/checkpoint|page|console/);
     const probe = spec.slice(spec.indexOf('  portalPlanProbe('), spec.indexOf('\n  }\n', spec.indexOf('  portalPlanProbe(')));
     expect(probe).toMatch(/^\s+portalPlanProbe\(sample: unknown\): void \{\n\s+try \{\n\s+for \(const name of portalPlanObserver\(sample\)\) this\.checkpoint\(name\);/);
     expect(probe).toContain("} catch {\n      this.checkpoint('portal_plan_probe_unreadable');");
@@ -799,3 +908,38 @@ describe('option 1: at the portal step, Stripe\'s own test-mode record must stil
     expect(spec).toContain("requireFact(sub.items?.data?.length === 1 && sub.items.data[0].price.id === env.BILLING_SANDBOX_PRICE_ID, 'subscription_price_identity');");
   });
 });
+
+/**
+ * Stripe's real sandbox customer portal, <body> contents, saved from Chrome by Akin on 2026-11-25 while the J9 console check
+ * printed PASS (fresh test customer, active SpeakSharp Pro at $10.00 per month). Structure, classes, inline styles and visible
+ * texts are as saved. Scrubbed before commit (public repo): portal session secrets, subscription, account and invoice ids,
+ * hCaptcha widget ids and frame URLs, the metrics frame URL and muid, the logger id, the business name, the customer email and
+ * the street address. SVG path data and the token provider's long class list are shortened; neither carries text.
+ */
+const REAL_PORTAL_HTML = `<noscript>
+  <div class="NoJSView">
+    <div class="NoJSView-card">
+      <div class="NoJSView-content">
+        <div class="NoJSView-warningIconContainer">
+          <svg class="NoJSView-warningIcon" style="width: 64px;height: 64px;" height="16" viewBox="0 0 16 16" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1" fill-rule="evenodd"></path></svg>
+        </div>
+        <div class="NoJSView-title">
+          JavaScript is currently disabled
+        </div>
+        <div class="NoJSView-body">
+          You need JavaScript for the best experience on Stripe. Please enable it in your browser settings.
+        </div>
+        <div class="NoJSView-linkContainer">
+          <a class="NoJSView-link" href="https://enable-javascript.com/" target="new">
+            Find out how
+            <div class="NoJSView-linkIconContainer">
+              <svg class="NoJSView-linkIcon" style="width: 12px;height: 12px;" height="16" viewBox="0 0 16 16" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1" fill-rule="evenodd"></path></svg>
+            </div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</noscript>
+<div class="db-CustomerPortalRoot"><div class="sn-1llusrq sn-1q4qxi9"><div class="⚙ ⚙"><div class="⚙ rs-2 as-0 as-1 as-2 as-3 as-4 as-5 as-6 as-7 as-8 ⚙33t3iy"><div class="⚙  as-9 as-a as-b as-c as-d as-8 as-e ⚙1fcw53"><div class="⚙  as-m ⚙ja4i2f"><div class="⚙  as-f as-r ⚙rhr9qx" style="height: 100%;"><div class="⚙  as-f as-j as-68 as-69 as-6a as-3l ⚙b825j6" style="background-color: rgb(245, 246, 248); min-height: 120px;"><div style="height: 100%; position: relative;"><div class="⚙   as-f as-r as-h as-s as-i as-6b as-k as-m ⚙1eahoab"><div class="⚙"><a href="https://example.com" data-testid="return-to-business-link" tabindex="0" class="⚙ rs-3 rs-4 rs-4 rs-2 rs-4 as-x as-y as-z as-2h as-2i as-12 as-13 as-14 as-15 as-21 as-17 as-18 as-19 as-1a as-2j as-2k as-26 as-1d as-6 ⚙1mbqaa3"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg" class="⚙   as-1s as-1g as-1h as-1i as-2d as-1n as-1o ⚙1a76oma"><path d="M0 0h1"></path></svg><span>Return to Example LLC</span></a></div><a href="https://example.com" tabindex="0" class="⚙ rs-3 rs-4 rs-4 as-x as-y as-z as-10 as-11 as-12 as-13 as-14 as-15 as-16 as-17 as-18 as-19 as-1a as-1b as-1c as-1d ⚙y6fszl"><div class="⚙  as-f as-g as-h as-t as-j as-1e as-l ⚙iz52lk"><div class="⚙ as-p as-d as-v ⚙1v70lar"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" class="⚙     rs-3 as-1f as-1g as-1h as-1i as-1j as-1k as-1l as-1m as-1n as-1o as-1p as-15 as-1q ⚙17i6lco"><path fill-rule="evenodd" clip-rule="evenodd" d="M0 0h1"></path></svg></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><span class="⚙ rs-4 rs-4  as-1r as-1s as-1t as-1u as-1v as-1w ⚙1vrpral">Example LLC</span></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><span class="sn-token-provider ⚙ t0 t1 t2 t3 t79 as-1x as-1y ⚙bm61gq"><span class="⚙ rs-4 rs-2 as-1g as-1h as-1z as-15 as-20 as-21 as-22 as-23 as-24 as-25 as-26 as-1s as-27 as-28 as-29 as-2a as-2b as-2c ⚙5k53ar"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg" class="⚙   as-1s as-1g as-1h as-1i as-2d as-1n as-1o ⚙1a76oma"><path fill-rule="evenodd" clip-rule="evenodd" d="M0 0h1"></path></svg>Sandbox</span></span></div></div></a></div></div></div><div style="opacity: 1; height: 100%; width: 100%;"><div data-testid="page-container-main" class="⚙  as-o ⚙1ezeewt" style="padding: 20px;"><div data-testid="page-container-content" style="position: relative;"><div class="⚙  as-6c ⚙e0lwkg"></div><div class="⚙  as-f as-r as-h as-s as-t as-l as-k ⚙n2e8cc"><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-f as-r as-h as-s as-t as-57 as-k ⚙1a5qrjg"><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"></div><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"><div class="⚙"><div data-testid="content-section" class="⚙ as-3f ⚙17szs4"><div class="⚙   as-f as-g as-h as-t as-j as-k as-l as-3g ⚙1czn1ee"><div class="⚙"><span class="⚙ rs-4 rs-4  as-3h as-1s as-3i as-2s as-1u as-1v as-1w ⚙12jqp5e"><span>Current subscription</span></span></div><div class="⚙ as-c as-q as-v ⚙wcycyp"></div><div class="⚙"></div></div><div class="⚙"><div class="⚙ rs-2 as-5 as-3j ⚙1lwv3mj"><div class="⚙  as-f as-r as-h as-s as-56 as-57 as-k ⚙8hzc9y"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-f as-r as-h as-s as-t as-l as-k ⚙h5elhx"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙ ⚙ow7mav"><div class="⚙  as-f as-r as-h as-s as-t as-57 as-k ⚙1a5qrjg"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-f as-r as-h as-s as-t as-57 as-k ⚙1a5qrjg"><div class="⚙ as-p as-d as-v ⚙1v70lar"></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-f as-r as-h as-s as-t as-57 as-k ⚙1a5qrjg"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙"><div class="⚙"><span><span></span><span><div class="⚙ rs-4 rs-4 as-5a as-1u as-5b as-5c as-1v as-1s ⚙1rout3t">SpeakSharp Pro</div></span><span></span></span></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙ rs-4 rs-4 as-5a as-1u as-5d as-5e as-1v ⚙1n5j9sw"><span>$10.00 per month</span></div></div><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"></div></div></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-f as-g as-h as-t as-j as-1e as-l ⚙iz52lk"><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><p class="⚙ rs-4 rs-4 as-3h as-1f as-2s as-1u as-1v as-1w ⚙1lrm9h6"><span>Your next billing date is <span style="font-variant-numeric: tabular-nums; white-space: nowrap;">December 25, 2026</span>.</span></p></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-5f as-g as-h as-t as-s as-k as-l ⚙dmb0e0"></div></div></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div data-testid="subscription-buttons" class="⚙ as-6d as-6e ⚙uawd2p"><div class="⚙  as-f as-r as-h as-s as-t as-57 as-k ⚙1a5qrjg"><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"></div><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"><a data-test="cancel-subscription" href="/p/session/subscriptions/sub_REDACTED/cancel?secret=test_REDACTED" tabindex="0" class="⚙ rs-3 rs-4 rs-2 rs-5  rs-4 rs-3 rs-6 rs-7 as-x as-y as-z as-26 as-1s as-7 as-6 as-27 as-5i as-5j as-5k as-5l as-5m as-5n as-13 as-a as-5o as-5p as-5q as-5r as-5s as-5t as-4v as-4w as-16 as-4a as-5u as-5v as-5w as-5x as-5y as-5z as-60 as-61 as-62 as-63 as-64 as-65 as-66 as-67 ⚙p3kmse">Cancel subscription</a></div></div></div></div></div></div></div></div><div class="⚙ as-3k ⚙1rim165"></div></div></div></div></div><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"></div><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"><div class="⚙"><div data-testid="content-section" class="⚙ as-3f ⚙17szs4"><div class="⚙   as-f as-g as-h as-t as-j as-k as-l as-3l ⚙1lo7p2v"><div class="⚙"><span class="⚙ rs-4 rs-4  as-3h as-1s as-3i as-2s as-1u as-1v as-1w ⚙12jqp5e"><span>Payment method</span></span></div><div class="⚙ as-c as-q as-v ⚙wcycyp"></div><div class="⚙"></div></div><div style="max-width: 464px;"><div class="⚙  as-f as-r as-h as-s as-t as-3e as-k ⚙1fp0rbq"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-f as-r as-h as-s as-t as-3m as-k ⚙nnjrvv"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙"><div class="⚙  as-f as-g as-h as-t as-j as-k as-l ⚙1kgplui"><div class="⚙ as-c as-d ⚙7bn0r9"><div class="⚙  as-f as-g as-h as-t as-j as-k as-l ⚙1kgplui"><div class="⚙  as-f as-g as-h as-t as-j as-1e as-l ⚙iz52lk"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙"><div class="Card-root Card--radius--all Box-root Box-hideIfEmpty Box-background--white"><svg aria-hidden="true" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" class="⚙    as-1f as-1g as-1h as-1i as-3n as-3o as-3p ⚙6dly4z"><g fill="#000000" stroke="none" color="#000000"><g fill="none" fill-rule="evenodd"><path d="M0 0h32v32H0z" fill="#1434CB"></path><g fill="#fff" fill-rule="nonzero"><path d="M0 0h1"></path><path d="M0 0h1"></path></g></g></g></svg></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-f as-r as-h as-s as-t as-l as-k ⚙n2e8cc"><div class="⚙ as-p as-d as-v ⚙1v70lar"><span class="⚙ rs-4 rs-4  as-3h as-1s as-1t as-1u as-1v as-1w ⚙h4o5l7">Visa •••• 4242</span></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙ rs-4 rs-4 as-3h as-1f as-2s as-1u as-1v as-1w ⚙ln6ee0">Expires 11/2027</div></div></div></div></div><div class="⚙ as-c as-q as-v ⚙wcycyp"></div><div class="⚙"><div class="⚙  as-f ⚙17t0f6h"><span class="tooltip-trigger-isolate ⚙ rs-4 rs-2 as-1g as-1h as-1z as-15 as-20 as-21 as-22 as-23 as-24 as-25 as-26 as-1s as-27 as-28 as-29 as-2a as-2b as-2c ⚙5k53ar" tabindex="0">Default</span></div></div></div></div><div class="⚙ as-p as-q as-6f ⚙a8knfi"><div class="⚙  as-f ⚙17t0f6h"><div class="tooltip-trigger-isolate ⚙" tabindex="0"><div class="⚙  as-f as-g as-h as-i as-j as-k as-l as-3r as-3s ⚙1wl48gi"><a aria-label="Delete" tabindex="-1" role="button" aria-disabled="true" class="⚙ rs-3 rs-4 rs-4 as-x as-3t as-z as-10 as-11 as-12 as-13 as-14 as-15 as-16 as-3u as-3v as-3w as-3x as-3y as-3z as-40 as-41 as-42 as-43 as-44 as-45 as-46 ⚙3ne6ct"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg" class="⚙    as-1f as-1g as-1h as-1i as-2d as-1n as-1o ⚙p7in4q"><path fill-rule="evenodd" clip-rule="evenodd" d="M0 0h1"></path></svg></a></div></div></div></div></div></div></div><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙  as-f as-g as-47 as-t as-s as-6g as-3e ⚙117depn"><div class="⚙ as-p as-d as-v ⚙1v70lar"><a href="/p/session/payment-methods?secret=test_REDACTED" tabindex="0" class="⚙ rs-3 rs-4 rs-4 rs-4 as-x as-y as-z as-12 as-13 as-14 as-15 as-16 as-4a as-4b as-4c as-3x as-3y as-3z as-40 as-4d as-4e as-4f as-44 as-f as-j as-4g ⚙gqatkn"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg" class="⚙   as-1s as-1g as-1h as-1i as-2d as-1n as-1o ⚙1a76oma"><path d="M0 0h1"></path></svg><span>Add payment method</span></a></div></div></div></div></div></div></div></div><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"><div class="⚙"><div data-testid="content-section" class="⚙ as-3f ⚙17szs4"><div class="⚙   as-f as-g as-h as-t as-j as-k as-l as-3l ⚙1lo7p2v"><div class="⚙"><span class="⚙ rs-4 rs-4  as-3h as-1s as-3i as-2s as-1u as-1v as-1w ⚙12jqp5e"><span>Billing information</span></span></div><div class="⚙ as-c as-q as-v ⚙wcycyp"></div><div class="⚙"></div></div><div class="⚙  as-f as-r as-h as-s as-t as-3e as-k ⚙1fp0rbq"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙   as-f as-g as-h as-t as-s as-k as-l as-4h as-4i ⚙1ryqhg0"><div class="⚙  as-4j as-4k ⚙ot9icw"><span class="⚙ rs-4 rs-4  as-4l as-1s as-1t as-1u as-1v as-1w ⚙h3hql6"><span>Name</span></span></div><div class="⚙  as-4m ⚙1uwis9j"><span class="⚙ rs-4 rs-4  as-3h as-1s as-1t as-1u as-1v as-1w ⚙ty8mom">J9 label check</span></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙   as-f as-g as-h as-t as-s as-k as-l as-4h as-4i ⚙1ryqhg0"><div class="⚙  as-4j as-4k ⚙ot9icw"><span class="⚙ rs-4 rs-4  as-4l as-1s as-1t as-1u as-1v as-1w ⚙h3hql6"><span>Email</span></span></div><div class="⚙  as-4m ⚙1uwis9j"><span class="⚙ rs-4 rs-4  as-3h as-1s as-1t as-1u as-1v as-1w ⚙ty8mom">customer@example.com</span></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙   as-f as-g as-h as-t as-s as-k as-l as-4h as-4i ⚙1ryqhg0"><div class="⚙  as-4j as-4k ⚙ot9icw"><span class="⚙ rs-4 rs-4  as-4l as-1s as-1t as-1u as-1v as-1w ⚙h3hql6"><span>Billing address</span></span></div><div class="⚙  as-4m ⚙1uwis9j"><div class="⚙ rs-4 as-4n as-3h ⚙e5elnn"><address><div><div>1 Example Street</div></div><div><div class="Box-root" style="pointer-events: none;"><div class="Box-root Flex-flex Flex-alignItems--center Flex-direction--row Flex-justifyContent--flexStart Flex-wrap--nowrap" style="margin-left: -8px; margin-top: -8px;"><div class="Box-root Box-hideIfEmpty Margin-top--8 Margin-left--8" style="pointer-events: auto;"><div>Example City, CA 00000 US</div></div></div></div></div></address></div></div></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><a href="/p/session/customer/update?secret=test_REDACTED" tabindex="0" class="⚙ rs-3 rs-4 rs-4  as-x as-y as-4o as-10 as-11 as-12 as-13 as-14 as-15 as-16 as-4a as-4b as-4c as-3x as-3y as-3z as-40 as-4d as-4e as-4f as-44 as-f as-j ⚙uncxlw"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg" class="⚙   as-1s as-1g as-1h as-1i as-2d as-1n as-1o ⚙1a76oma"><path fill-rule="evenodd" clip-rule="evenodd" d="M0 0h1"></path></svg><span>Update information</span></a></div></div></div></div></div><div class="⚙  as-p as-d as-v as-w ⚙dx7xuq"><div class="⚙"><div data-testid="content-section" class="⚙ as-3f ⚙17szs4"><div class="⚙   as-f as-g as-h as-t as-j as-k as-l as-3l ⚙1lo7p2v"><div class="⚙"><span class="⚙ rs-4 rs-4  as-3h as-1s as-3i as-2s as-1u as-1v as-1w ⚙12jqp5e"><span>Invoice history</span></span></div><div class="⚙ as-c as-q as-v ⚙wcycyp"></div><div class="⚙"><div class="⚙ rs-4 rs-4 as-3h as-1f as-2s as-1u as-4p as-1w ⚙sffwq5"><div class="⚙"><a data-testid="collapsed-invoice-search" aria-label="Search invoices" tabindex="0" role="button" class="⚙ rs-3 rs-4 as-x as-y as-z as-10 as-11 ⚙1lkzf3g"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg" class="⚙     as-1f as-1g as-1h as-1i as-2d as-1k as-4q as-1m as-1n as-1o as-1p as-15 as-4r ⚙93w0cm"><path fill-rule="evenodd" clip-rule="evenodd" d="M0 0h1"></path></svg></a></div></div></div></div><div class="⚙ rs-2 as-5 as-4s ⚙1tw6lkr"><div class="⚙ rs-2 as-5 as-16 ⚙d40sh5"><a href="https://invoice.stripe.com/i/acct_REDACTED/test_REDACTED?s=il&amp;locale=en-US" target="_blank" data-testid="hip-link" tabindex="0" rel="noopener noreferrer" class="⚙ rs-3 rs-4  as-x as-y as-z as-10 as-11 as-4t as-4u as-4k as-4v as-4w as-4x ⚙1am9vuv"><div data-testid="billing-portal-invoice-row" class="⚙  as-4y as-6h as-6i as-j ⚙8towcl"><div class="⚙"><span class="⚙ rs-4 as-1t as-3h ⚙11xezv4">Nov 25</span></div><div class="⚙ rs-2 as-5 as-35 as-6 ⚙1ret2vc"><span class="⚙ rs-4 as-1t as-3h ⚙11xezv4">$10.00</span></div><div class="⚙ rs-2 as-26 as-6 as-7 ⚙qy3ghe"><span data-testid="invoice-status-badge-positive" class="⚙ rs-4 rs-2 as-1g as-1h as-1z as-15 as-20 as-21 as-22 as-23 as-24 as-25 as-26 as-1s as-27 as-28 as-51 as-52 as-53 as-54 ⚙1bg50p1">Paid</span></div><p data-testid="billing-portal-invoice-description" title="SpeakSharp Pro" class="⚙ rs-4 as-1t as-3h as-6j ⚙9yxp5j">SpeakSharp Pro</p></div></a></div></div></div></div></div></div></div></div><div class="⚙  as-6k as-6l ⚙dedj4o"><div class="⚙  as-f as-r as-h as-j as-t as-3m as-k ⚙1mlla7n"><div class="⚙ as-p as-d as-v ⚙1v70lar"><a target="_blank" href="https://stripe.com" tabindex="0" rel="noopener noreferrer" class="⚙ rs-3 rs-4 rs-4 as-x as-y as-z as-10 as-11 as-12 as-13 as-14 as-15 as-16 as-17 as-2o as-2p as-1a as-2q as-1c ⚙1em00jv"><div class="⚙  as-f as-g as-h as-t as-j as-k as-l ⚙1kgplui"><div class="⚙  as-f as-g as-h as-t as-s as-1e as-l ⚙zjeaw"><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙ as-27 ⚙1xxcr1s"><p class="⚙ rs-4 rs-4 rs-4 as-1r as-1f as-2r as-2s as-1u as-1v as-1w ⚙1smlk4b"><span>Powered by</span></p></div></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><svg viewBox="0 0 360 150" role="img" aria-label="Stripe" class="⚙   as-1g as-1h as-1i as-1s as-2t as-2u as-2v as-2w ⚙12ftbqp"><path fill-rule="evenodd" d="M0 0h1"></path></svg></div></div></div></a></div><div class="⚙ as-p as-d as-v ⚙1v70lar"><div class="⚙ rs-4 rs-2 as-33 as-34 as-16 as-26 as-35 ⚙afz2ys"><a href="https://stripe.com/terms" target="_blank" rel="noopener noreferrer" class="⚙ as-36 as-2d as-11 ⚙wbx04r"><span>Terms</span></a><a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" class="⚙ as-36 as-2d as-11 ⚙wbx04r"><span>Privacy</span></a></div></div></div></div></div></div></div></div></div></div></div><div id="portal-hcaptcha"><iframe aria-hidden="true" data-hcaptcha-widget-id="REDACTED" data-hcaptcha-response="" src="about:blank#hcaptcha-checkbox-invisible" style="display: none;"></iframe><textarea id="h-captcha-response-REDACTED" name="h-captcha-response" style="display: none;"></textarea></div></div></div></div><div><div></div><div></div></div><div class="__sail-layer-containers" style="z-index: 299; position: absolute; inset: 0px; pointer-events: none;"><div class="sn-1llusrq sn-1q4qxi9" style="position: absolute; z-index: 501; pointer-events: auto;"><span data-focus-scope-start="true" hidden=""></span><span tabindex="-1"><div class="ToastLayer ToastLayer--top"><div></div></div></span><span data-focus-scope-end="true" hidden=""></span></div><div class="sn-1llusrq sn-1q4qxi9" style="position: absolute; z-index: 501; pointer-events: auto;"><span data-focus-scope-start="true" hidden=""></span><span tabindex="-1"><div class="ToastLayer ToastLayer--bottom"><div></div></div></span><span data-focus-scope-end="true" hidden=""></span></div></div><div><iframe src="about:blank#logger" style="border: 0px; height: 0px; width: 0px; position: absolute;"></iframe></div><div aria-hidden="true" style="background-color: rgb(255, 255, 255); border: 1px solid rgb(215, 215, 215); box-shadow: rgba(0, 0, 0, 0.1) 0px 0px 4px; border-radius: 4px; left: auto; top: -10000px; z-index: -2147483648; position: absolute; pointer-events: auto; transition: opacity 0.15s ease-out; opacity: 0; visibility: hidden;"><div style="position: relative; z-index: 1;"><iframe src="about:blank#hcaptcha-challenge" frameborder="0" scrolling="no" allow="private-state-token-redemption" title="hCaptcha challenge" style="border: 0px; z-index: 2000000000; position: relative;"></iframe></div><div style="width: 100%; height: 100%; position: fixed; pointer-events: none; top: 0px; left: 0px; z-index: 0; background-color: rgb(255, 255, 255); opacity: 0.05;"></div><div style="border-width: 11px; border-style: none; position: absolute; pointer-events: none; margin-top: -11px; z-index: 1; right: 100%;"><div style="border-width: 10px; border-style: solid; border-color: transparent rgb(255, 255, 255) transparent transparent; position: relative; top: 10px; z-index: 1;"></div><div style="border-width: 11px; border-style: solid; border-color: transparent rgb(215, 215, 215) transparent transparent; position: relative; top: -11px; z-index: 0;"></div></div></div><iframe name="__privateStripeMetricsController0200" frameborder="0" allowtransparency="true" scrolling="no" role="presentation" allow="payment *" src="about:blank#metrics" aria-hidden="true" tabindex="-1" style="border-width: medium !important; border-style: none !important; border-color: currentcolor !important; border-image: none !important; margin: 0px !important; padding: 0px !important; width: 1px !important; min-width: 100% !important; overflow: hidden !important; display: block !important; visibility: hidden !important; position: fixed !important; height: 1px !important; pointer-events: none !important; user-select: none !important;"></iframe>
+`;
