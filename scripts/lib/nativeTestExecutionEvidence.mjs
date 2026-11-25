@@ -291,6 +291,7 @@ const checkoutTest='backend/supabase/functions/stripe-checkout/index.test.ts';
 export const COACHING_EDGE_TEST='backend/supabase/functions/get-ai-suggestions/index.test.ts';
 export const COACHING_EDGE_CONSENT_CASE='#1905 saved Open Mic and Focus coaching honor owner consent at send and persist';
 const COACHING_EFFICACY_PROFILE='coaching-consent-efficacy-1905';
+const COACHING_READINESS_EFFICACY_PROFILE='coaching-readiness-efficacy-1977';
 export const COACHING_QUALITY_TEST='backend/supabase/functions/get-ai-suggestions/evaluation/coachingBotChecks.test.ts';
 const COACHING_WRONG_TAKE_CASE='#1905 wrong-take coaching fails when only one advice section is cross-wired';
 const coachingTest=COACHING_EDGE_TEST;
@@ -475,6 +476,31 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1977: exact runtime, config and local import closure. The native permission policy is unchanged.
+  {id:COACHING_READINESS_EFFICACY_PROFILE,files:{
+    'backend/supabase/functions/_shared/cors.ts':'74ab664c710d733534d8e0af433b0c4c48110a2dec1d5436f04f55147225e608',
+    'backend/supabase/functions/deno.json':'6e88bc8b0df10b78fb39e1c26492164a351f350d6d4046eca09df4ebebd681a0',
+    'backend/supabase/functions/deno.lock':'fdb2c5763d857063bde2fd3560f3f23c35bb11da5843ca2649cd961992c7bfdb',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/evaluator.ts':'6cc2300713d3393cca7c8c026418214fe5a073c297c48cf5b08c8b8d75470074',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a',
+    'backend/supabase/functions/get-ai-suggestions/index.test.ts':'a96dd1feef9c69a7fa5f3936aa15aa6d37850a628fdfcdbf2d1ffe76539aaf89',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'0d31045dacf8035eeb196980f3face72232a2c336f5d51623976272564b02028',
+    'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'aa1f771d272b8c663610bf664210a5edca4af42010930f86a9bcd410707c6c9d',
+    'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'3ef29f875c1c75cc565e868619508a61295ba7ff78b841f6497e8cd0640f9610',
+    'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'0192d1776d7e26bbd145ef545755dfad572ffbef9d14fb40f633ee1d1fd54a12',
+    'backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts':'525f36728d57c98ef03261acabb343c55a3a327319c585cf70df80cc76108015',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'fe32c21fa3b35a549813234447f2b19358f8dbd670c5c161fec4ce58427495f1',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'ac6303cb3299b142f825be09d9b18ec3d1b3b71f79cfb0982ede8d1af09ad85a',
+    'backend/supabase/functions/get-ai-suggestions/readinessQuota.ts':'8cebc384f62221aa5fcdaadbc2d3cc88233a51fdbc4c2e6eb4a59ac7c2a51b8f',
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'pnpm-lock.yaml':'847997ce69bb4fe97c27eafd0ca40c1021fef6ac32adbe4be240a56be3867b55',
+  }},
 ]);
 // #1905 adds assertions only. The authority, permission envelope and every import remain pinned.
 const coachingEfficacyProfiles=coachingProfiles.filter(item=>item.id==='coaching-persist-entitlement-1899').map(item=>({
@@ -869,7 +895,7 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
   }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
   const requiredCases=contract.testFile===COACHING_QUALITY_TEST?[COACHING_WRONG_TAKE_CASE]
-    :b.syntheticSource?.id===COACHING_EFFICACY_PROFILE?[COACHING_EDGE_CONSENT_CASE]:[];
+    :[COACHING_EFFICACY_PROFILE,COACHING_READINESS_EFFICACY_PROFILE].includes(b.syntheticSource?.id)?[COACHING_EDGE_CONSENT_CASE]:[];
   const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root,requiredCases):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
   return {counts,helpers:validateNativeCallables(phase.coverage,b,root,contract.helpers)};

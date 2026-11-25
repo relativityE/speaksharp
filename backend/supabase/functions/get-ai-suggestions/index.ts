@@ -20,7 +20,9 @@ import readinessFixtures from './evaluation/transcripts.json' with { type: 'json
 import { activeCoachingModelReadback, authorizeModelReadback } from './modelReadback.ts';
 
 function micStartReadinessEnabled(): boolean {
-  return Deno.env.get('COACHING_MODEL_READINESS_ENABLED') === 'true';
+  // The restricted native coaching proof deliberately has no permission for this rollout flag.
+  try { return Deno.env.get('COACHING_MODEL_READINESS_ENABLED') === 'true'; }
+  catch { return false; }
 }
 
 
@@ -463,6 +465,7 @@ export async function handler(
   req: Request,
   createSupabase: SupabaseClientFactory,
   createServiceRoleSupabase: ServiceRoleClientFactory = () => createSupabase(null),
+  readinessEnabled: () => boolean = micStartReadinessEnabled,
 ) {
   // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
   // auth or Supabase/AI provider access.
@@ -482,7 +485,7 @@ export async function handler(
     const headers = { ...responseHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
     if (!authorizeModelReadback(req, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))) return new Response(null, { status: 403, headers });
     try {
-      const state = await activeCoachingModelReadback(createServiceRoleSupabase, micStartReadinessEnabled(), req.signal);
+      const state = await activeCoachingModelReadback(createServiceRoleSupabase, readinessEnabled(), req.signal);
       return new Response(JSON.stringify(state ?? { readiness: 'unavailable' }), { status: state ? 200 : 503, headers });
     } catch {
       return new Response(JSON.stringify({ readiness: 'unavailable' }), { status: 503, headers });
@@ -635,7 +638,7 @@ export async function handler(
     // A synthetic readiness probe has separate admission: it never enters the session/usage/write path.
     if (requestInput.operation === 'mic_start_readiness') {
       const done = () => new Response(null, { status: 204, headers: responseHeaders });
-      if (!micStartReadinessEnabled() || typeof requestInput.leaseId !== 'string'
+      if (!readinessEnabled() || typeof requestInput.leaseId !== 'string'
         || !DIAGNOSTIC_UUID.test(requestInput.leaseId) || !Number.isSafeInteger(requestInput.consentRevision)) return done();
       const { data: auth, error: authError } = await supabaseClient.auth.getUser();
       const owner = auth?.user?.id;
@@ -909,7 +912,7 @@ export async function handler(
 
     // The reviewed selection (providers/registry.ts), resolved before admission, quota and any provider call. A missing, unknown or
     // not-yet-persistable provider is the same configuration failure as a missing key: nothing is admitted, consumed or sent.
-    const liveReadiness = micStartReadinessEnabled();
+    const liveReadiness = readinessEnabled();
     const readiness = liveReadiness
       ? await readReadyCoachingModel(createServiceRoleSupabase(), req.signal)
       : { kind: 'ready', model: coachingContract.model } as const;
