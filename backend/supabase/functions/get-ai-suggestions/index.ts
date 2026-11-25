@@ -12,6 +12,17 @@ import {
 } from './providerRetry.ts';
 import { GEMINI_API_URL, GEMINI_GENERATION_CONFIG } from './providers/gemini.ts';
 import { PERSISTABLE_PROVIDER_IDS, SELECTED_PROVIDER_ID, selectProvider } from './providers/registry.ts';
+import { runMicStartReadiness, type ProbeResult } from './modelReadiness.ts';
+import { APPROVED_COACHING_MODELS, createReadinessStore, providerForApprovedModel, readReadyCoachingModel } from './modelReadinessStore.ts';
+import { evaluationPrompt, type EvaluationItem } from './evaluation/prompt.ts';
+import { measureGrounding } from './evaluation/evaluator.ts';
+import readinessFixtures from './evaluation/transcripts.json' with { type: 'json' };
+import { activeCoachingModelReadback, authorizeModelReadback } from './modelReadback.ts';
+
+function micStartReadinessEnabled(): boolean {
+  return Deno.env.get('COACHING_MODEL_READINESS_ENABLED') === 'true';
+}
+
 
 // Provider-adapter groundwork: the provider call now lives behind `providers/` (types, the Gemini adapter, the reviewed registry).
 // Gemini stays the selected default; its URL, key placement, request body and decoding are unchanged and re-exported here.
@@ -467,6 +478,16 @@ export async function handler(
   } catch {
     // The request is still handled below as invalid; diagnostics never include parse error text/body.
   }
+  if (requestInput.operation === 'active_model_readback') {
+    const headers = { ...responseHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+    if (!authorizeModelReadback(req, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))) return new Response(null, { status: 403, headers });
+    try {
+      const state = await activeCoachingModelReadback(createServiceRoleSupabase, micStartReadinessEnabled(), req.signal);
+      return new Response(JSON.stringify(state ?? { readiness: 'unavailable' }), { status: state ? 200 : 503, headers });
+    } catch {
+      return new Response(JSON.stringify({ readiness: 'unavailable' }), { status: 503, headers });
+    }
+  }
   const diagnosticRequestId = typeof requestInput.diagnostic_request_id === 'string'
     && DIAGNOSTIC_UUID.test(requestInput.diagnostic_request_id)
     ? requestInput.diagnostic_request_id : crypto.randomUUID();
@@ -483,6 +504,7 @@ export async function handler(
   let diagnosticProduct: SessionProduct | 'unknown' = asProduct(requestInput.product) ?? 'unknown';
   let hasSession = typeof requestInput.sessionId === 'string' && DIAGNOSTIC_UUID.test(requestInput.sessionId);
   let observedProviderModel: string | null = null;
+  let configuredProviderModel: string | null = coachingContract.model;
   // The provider that generated (or, for a cache replay, originally generated) this answer — never a literal.
   let diagnosticProvider: string | null = null;
   let providerAttempts = 0;
@@ -523,7 +545,7 @@ export async function handler(
       status,
       provider_status: providerStatus,
       provider: (providerAttempts > 0 || (diagnosticSource === 'cache' && observedProviderModel)) && diagnosticProvider ? diagnosticProvider : 'none',
-      configured_model: coachingContract.model,
+      configured_model: configuredProviderModel,
       observed_model: observedProviderModel,
       source: diagnosticSource,
       provider_attempts: providerAttempts,
@@ -608,6 +630,81 @@ export async function handler(
       }
       console.error('Profile fetch error:', profileError);
       return finish({ error: 'Failed to fetch user profile' }, 500);
+    }
+
+    // A synthetic readiness probe has separate admission: it never enters the session/usage/write path.
+    if (requestInput.operation === 'mic_start_readiness') {
+      const done = () => new Response(null, { status: 204, headers: responseHeaders });
+      if (!micStartReadinessEnabled() || typeof requestInput.leaseId !== 'string'
+        || !DIAGNOSTIC_UUID.test(requestInput.leaseId) || !Number.isSafeInteger(requestInput.consentRevision)) return done();
+      const { data: auth, error: authError } = await supabaseClient.auth.getUser();
+      const owner = auth?.user?.id;
+      if (authError || !owner) return done();
+      const consentStillHolds = async () => {
+        const choice = await readCoachingConsent(supabaseClient, owner);
+        return choice.kind === 'granted' && choice.revision === requestInput.consentRevision;
+      };
+      if (!await consentStillHolds()) return done();
+      const { data: lease, error: leaseError } = await supabaseClient.from('active_recording_lease')
+        .select('heartbeat_at').eq('user_id', owner).eq('lease_id', requestInput.leaseId).eq('state', 'recording').maybeSingle();
+      const age = Date.now() - Date.parse(lease?.heartbeat_at ?? '');
+      if (leaseError || !Number.isFinite(age) || age < 0 || age >= 15_000) return done();
+      const { data: entitlement, error: entitlementError } = await supabaseClient.rpc('check_usage_limit');
+      if (entitlementError || entitlement?.is_pro !== true || !await consentStillHolds()) return done();
+
+      const privilegedStore = createReadinessStore(createServiceRoleSupabase());
+      try {
+        await runMicStartReadiness({ recordingConfirmed: true, coachingSelected: true }, {
+          approvedModels: APPROVED_COACHING_MODELS,
+          now: Date.now,
+          store: {
+            claim: privilegedStore.claim,
+            finish: async (lease, result) => await privilegedStore.finish(
+              lease, await consentStillHolds() ? result : { retryAfterMs: result.retryAfterMs },
+            ),
+          },
+          probe: async (model, product, signal): Promise<ProbeResult> => {
+            if (signal.aborted || !await consentStillHolds()) return { status: 'failed' };
+            const adapter = providerForApprovedModel(model.id);
+            const apiKey = adapter && Deno.env.get(adapter.keyVariable);
+            const fixture = readinessFixtures.items.find((item) => item.product === product);
+            if (!adapter || !apiKey || !fixture) return { status: 'failed' };
+            let retryAfter: string | null = null;
+            const result = await adapter.attempt({
+              prompt: evaluationPrompt(fixture as EvaluationItem),
+              apiKey, signal, readinessProbe: true,
+              onResponse: (_status, hint) => { retryAfter = hint ?? null; },
+            });
+            if (result.status === 200) {
+              const parsed = classifyGeneratedSuggestions(result.answer?.text);
+              const grounding = 'suggestions' in parsed
+                ? measureGrounding([parsed.suggestions.what_worked, parsed.suggestions.what_to_try_next], fixture as EvaluationItem)
+                : null;
+              return {
+                status: 200,
+                observedVersion: result.answer?.modelVersion ?? null,
+                coachingValid: 'suggestions' in parsed && parsed.suggestions.version === coachingContract.version
+                  && result.answer?.codes.finish_reason === 'STOP' && !result.answer.codes.block_reason
+                  && grounding?.anchored === true && grounding.ungroundedQuotes === 0 && !grounding.unsupportedClaim,
+              };
+            }
+            if (result.status === 429 || result.status === 503) {
+              const hint = parseRetryAfter(retryAfter, Date.now());
+              return {
+                status: result.status,
+                scope: hint.kind === 'malformed' ? 'unknown'
+                  : result.status === 429 ? result.readinessQuota?.scope ?? 'unknown'
+                    : result.errorCodes?.error_status === 'UNAVAILABLE' && !result.errorCodes.error_reason ? 'model' : 'unknown',
+                retryAfterMs: Math.max(hint.kind === 'valid' ? hint.ms : 0, result.readinessQuota?.retryAfterMs ?? 0) || undefined,
+              };
+            }
+            return { status: 'failed' };
+          },
+        });
+      } catch {
+        // Never expose provider or database errors in a synthetic readiness response.
+      }
+      return done();
     }
 
     const body = requestInput as { sessionId?: unknown; product?: unknown; accepted_coaching_versions?: unknown };
@@ -812,7 +909,16 @@ export async function handler(
 
     // The reviewed selection (providers/registry.ts), resolved before admission, quota and any provider call. A missing, unknown or
     // not-yet-persistable provider is the same configuration failure as a missing key: nothing is admitted, consumed or sent.
-    const provider = selectProvider(SELECTED_PROVIDER_ID);
+    const liveReadiness = micStartReadinessEnabled();
+    const activeModel = liveReadiness
+      ? await readReadyCoachingModel(createServiceRoleSupabase(), req.signal)
+      : coachingContract.model;
+    configuredProviderModel = activeModel;
+    const expectedModelVersions = liveReadiness
+      ? APPROVED_COACHING_MODELS.find((candidate) => candidate.id === activeModel)?.observedVersions : undefined;
+    const provider = liveReadiness
+      ? (activeModel ? providerForApprovedModel(activeModel) : null)
+      : selectProvider(SELECTED_PROVIDER_ID);
     const apiKey = provider ? Deno.env.get(provider.keyVariable) : undefined;
     if (!provider || !apiKey) {
       console.error(provider ? `${provider.keyVariable} is not set.` : 'The configured coaching provider is not available.');
@@ -949,7 +1055,11 @@ export async function handler(
             const classified = classifyGeneratedSuggestions(result.answer.text);
             if ('suggestions' in classified) suggestions = classified.suggestions;
             else failureReason = classified.reason;
-            if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
+            if (suggestions && (!observedProviderModel
+              || (liveReadiness && !expectedModelVersions?.includes(observedProviderModel)))) {
+              if (liveReadiness) suggestions = null;
+              failureReason = 'missing_model_version';
+            }
           }
         }
       } catch (error) {

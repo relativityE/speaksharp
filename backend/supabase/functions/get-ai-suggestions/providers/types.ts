@@ -19,6 +19,8 @@ export interface ProviderAttemptResult {
   errorCodes: ProviderErrorCodes | null;
   /** A 2xx answer whose body could not be read as JSON (malformed, truncated or stalled). */
   bodyUnreadable: boolean;
+  /** Bounded closed quota classification; readiness probes only, never a customer coaching receipt. */
+  readinessQuota?: { scope: 'model' | 'unknown'; retryAfterMs?: number };
   /** A readable 2xx answer: the candidate text (unvalidated — the handler classifies it), the safe model id, closed codes. */
   answer: { text: unknown; modelVersion: string | null; codes: ProviderAnswerCodes } | null;
 }
@@ -28,6 +30,8 @@ export interface ProviderAttemptInput {
   apiKey: string;
   /** The caller's abort composed with this attempt's timeout. */
   signal: AbortSignal;
+  /** Synthetic readiness call; asks the adapter for closed quota scope only. */
+  readinessProbe?: true;
   /**
    * Called the moment an answer arrives, BEFORE any body is read, so a body that later fails still leaves the status and the wait
    * hint the handler already saw. `retryAfterHeader` is the raw Retry-After of a non-2xx answer (null when absent) — for the wait
