@@ -466,6 +466,10 @@ export async function handler(
   createSupabase: SupabaseClientFactory,
   createServiceRoleSupabase: ServiceRoleClientFactory = () => createSupabase(null),
   readinessEnabled: () => boolean = micStartReadinessEnabled,
+  readinessSecrets: { readbackKey: () => string | undefined; providerKey: (name: string) => string | undefined } = {
+    readbackKey: () => Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+    providerKey: (name) => Deno.env.get(name),
+  },
 ) {
   // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
   // auth or Supabase/AI provider access.
@@ -483,7 +487,7 @@ export async function handler(
   }
   if (requestInput.operation === 'active_model_readback') {
     const headers = { ...responseHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
-    if (!authorizeModelReadback(req, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))) return new Response(null, { status: 403, headers });
+    if (!authorizeModelReadback(req, readinessSecrets.readbackKey())) return new Response(null, { status: 403, headers });
     try {
       const state = await activeCoachingModelReadback(createServiceRoleSupabase, readinessEnabled(), req.signal);
       return new Response(JSON.stringify(state ?? { readiness: 'unavailable' }), { status: state ? 200 : 503, headers });
@@ -669,7 +673,7 @@ export async function handler(
           probe: async (model, product, signal): Promise<ProbeResult> => {
             if (signal.aborted || !await consentStillHolds()) return { status: 'failed' };
             const adapter = providerForApprovedModel(model.id);
-            const apiKey = adapter && Deno.env.get(adapter.keyVariable);
+            const apiKey = adapter && readinessSecrets.providerKey(adapter.keyVariable);
             const fixture = readinessFixtures.items.find((item) => item.product === product);
             if (!adapter || !apiKey || !fixture) return { status: 'failed' };
             let retryAfter: string | null = null;

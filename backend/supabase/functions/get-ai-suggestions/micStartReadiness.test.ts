@@ -9,10 +9,6 @@ const body = { operation: 'mic_start_readiness', consentRevision: 3, leaseId: le
 
 Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned lease can start the synthetic probe', async () => {
   const savedFetch = globalThis.fetch;
-  const previousFlag = Deno.env.get('COACHING_MODEL_READINESS_ENABLED');
-  const previousKey = Deno.env.get('GEMINI_API_KEY');
-  Deno.env.set('COACHING_MODEL_READINESS_ENABLED', 'true');
-  Deno.env.set('GEMINI_API_KEY', 'test-key');
   let aiCoaching = true, fresh = true, readRevision = 3, answerStatus = 200, valid = true, claims = 0;
   const prompts: string[] = [];
   const completions: Array<Record<string, unknown>> = [];
@@ -57,7 +53,10 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
   const invoke = () => handler(new Request('http://localhost/functions/v1/get-ai-suggestions', {
     method: 'POST', headers: { Authorization: 'Bearer synthetic' }, body: JSON.stringify(body),
   }), (() => client) as unknown as Parameters<typeof handler>[1],
-  (() => service) as unknown as NonNullable<Parameters<typeof handler>[2]>);
+  (() => service) as unknown as NonNullable<Parameters<typeof handler>[2]>, () => true, {
+    readbackKey: () => { throw Error('readback path reached'); },
+    providerKey: (name) => { assert.equal(name, 'GEMINI_API_KEY'); return 'test-key'; },
+  });
   try {
     aiCoaching = false;
     assert.equal((await invoke()).status, 204);
@@ -83,10 +82,6 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
     }
   } finally {
     globalThis.fetch = savedFetch;
-    for (const [key, value] of [['COACHING_MODEL_READINESS_ENABLED', previousFlag], ['GEMINI_API_KEY', previousKey]] as const) {
-      if (value === undefined) Deno.env.delete(key);
-      else Deno.env.set(key,value);
-    }
   }
 });
 
@@ -107,11 +102,6 @@ Deno.test('quick Stop waits for the committed revision; freshness expiry does no
 });
 
 Deno.test('Ops readback: browser and ordinary bearer denied, service role reads deployed state without a provider request', async () => {
-  const key = 'SUPABASE_SERVICE_ROLE_KEY';
-  const flag = 'COACHING_MODEL_READINESS_ENABLED';
-  const previous = [Deno.env.get(key), Deno.env.get(flag)];
-  Deno.env.set(key, 'mock-service-role');
-  Deno.env.set(flag, 'true');
   let reads = 0;
   const client = { from: (table: string) => {
     assert.equal(table, 'coaching_model_selection');
@@ -126,18 +116,14 @@ Deno.test('Ops readback: browser and ordinary bearer denied, service role reads 
     method: 'POST', headers: { Authorization: 'Bearer ' + auth, ...(origin ? { Origin: origin } : {}) },
     body: JSON.stringify({ operation: 'active_model_readback' }),
   }), (() => { throw Error('ordinary-user path reached'); }) as Parameters<typeof handler>[1],
-     (() => client) as unknown as NonNullable<Parameters<typeof handler>[2]>);
-  try {
-    assert.equal((await invoke('ordinary-user')).status, 403);
-    assert.equal((await invoke('mock-service-role','http://localhost:5173')).status, 403);
-    assert.equal(reads, 0);
-    const accepted = await invoke('mock-service-role');
-    assert.deepEqual(await accepted.json(), { model: contract.model, revision: 2, readiness: 'verified' });
-    assert.equal(reads, 1);
-  } finally {
-    [key,flag].forEach((name, i) => {
-      if (previous[i] === undefined) Deno.env.delete(name);
-      else Deno.env.set(name, previous[i]!);
-    });
-  }
+     (() => client) as unknown as NonNullable<Parameters<typeof handler>[2]>, () => true, {
+       readbackKey: () => 'mock-service-role',
+       providerKey: () => { throw Error('provider path reached'); },
+     });
+  assert.equal((await invoke('ordinary-user')).status, 403);
+  assert.equal((await invoke('mock-service-role','http://localhost:5173')).status, 403);
+  assert.equal(reads, 0);
+  const accepted = await invoke('mock-service-role');
+  assert.deepEqual(await accepted.json(), { model: contract.model, revision: 2, readiness: 'verified' });
+  assert.equal(reads, 1);
 });

@@ -486,7 +486,7 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a',
     'backend/supabase/functions/get-ai-suggestions/index.test.ts':'a96dd1feef9c69a7fa5f3936aa15aa6d37850a628fdfcdbf2d1ffe76539aaf89',
-    'backend/supabase/functions/get-ai-suggestions/index.ts':'0d31045dacf8035eeb196980f3face72232a2c336f5d51623976272564b02028',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'5b21993a21593ac02f3a2ee8697edd64c85656f43a17429a1f19b97c1dc26b34',
     'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'aa1f771d272b8c663610bf664210a5edca4af42010930f86a9bcd410707c6c9d',
     'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'3ef29f875c1c75cc565e868619508a61295ba7ff78b841f6497e8cd0640f9610',
     'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'0192d1776d7e26bbd145ef545755dfad572ffbef9d14fb40f633ee1d1fd54a12',
