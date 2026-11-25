@@ -1,7 +1,6 @@
 import React from 'react';
-import { ExternalLink, RefreshCw } from 'lucide-react';
+import { ChevronDown, ExternalLink, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 
 type Status = 'pass' | 'warn' | 'fail' | 'skip';
 type Workflow = {
@@ -44,7 +43,7 @@ type Service = {
   links?: { label: string; url?: string | null }[];
 };
 
-const DOTS = { pass: 'bg-success', warn: 'rotate-45 bg-neutral-secondary', fail: 'bg-destructive' } as const;
+const STATUS_ICONS = { pass: '🟢', warn: '🟡', fail: '🔴' } as const;
 const LABELS: Record<Status, string> = { pass: 'Working', fail: 'Check failed', warn: 'Review', skip: 'Not checked' };
 const ORDER: Record<Status, number> = { fail: 0, warn: 1, skip: 2, pass: 3 };
 const WORKFLOWS = { ci: 'Latest CI run', canary: 'Latest canary run', release: 'Full live release gate on main' } as const;
@@ -265,7 +264,7 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
       <div className="mx-auto max-w-4xl space-y-2 lg:max-w-[min(75vw,56rem)]">
         <header className="flex flex-wrap justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-extrabold text-foreground">Software health</h1>
+            <h1 className="text-3xl font-extrabold text-foreground">Software health</h1>
           </div>
           <Button onClick={() => { void load(); }} disabled={loading}>
             <RefreshCw aria-hidden="true" className={'mr-2 h-4 w-4 ' + (loading ? 'animate-spin' : '')} />
@@ -287,16 +286,18 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
           </div>
         ) : null}
         {services.length > 0 ? (
-          <Card className="px-3" data-testid="ops-status-checks">
-            <div className="flex flex-wrap gap-x-3 gap-y-1 py-1.5 text-xs text-muted-foreground" aria-label="Status legend">
+          <section data-testid="ops-status-checks">
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 py-2 text-sm text-foreground" aria-label="Status legend">
               {([['pass', 'Working'], ['warn', 'Review or not checked'], ['fail', 'Check failed']] as const).map(([tone, label]) => (
-                <span key={tone} className="inline-flex items-center gap-1.5"><StatusDot tone={tone} />{label}</span>
+                <span key={tone} className="inline-flex items-center gap-1.5"><StatusIcon tone={tone} />{label}</span>
               ))}
             </div>
-            <table className="w-full table-auto border-collapse text-sm" aria-label="Software API status">
-              <thead className="border-b border-border text-xs text-muted-foreground">
-                <tr><th scope="col" className="py-1 text-left">Service</th><th scope="col" className="w-12 text-center">Status</th>
-                  <th scope="col" className="py-1 text-left">Info</th><th scope="col" className="w-8"><span className="sr-only">Details</span></th></tr>
+            <table className="w-full table-fixed border-collapse text-base lg:text-lg" aria-label="Software API status">
+              <thead className="border-y border-border text-sm text-foreground lg:text-base">
+                <tr>
+                  <th scope="col" className="py-1.5 pr-3 text-left">Service</th>
+                  <th scope="col" className="w-1/2 py-1.5 text-left lg:w-2/5">Status</th>
+                </tr>
               </thead>
               <tbody>{services.map((service) => (
                 <ServiceRow key={service.name} service={service} historical={historical || (!!service.checkedAt && !currentAge(service.checkedAt))}>
@@ -304,7 +305,7 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
                 </ServiceRow>
               ))}</tbody>
             </table>
-          </Card>
+          </section>
         ) : null}
       </div>
     </div>
@@ -345,8 +346,11 @@ const ReleaseDetails: React.FC<{ workflows: Workflow[] }> = ({ workflows }) => (
   </section>
 );
 
-const StatusDot: React.FC<{ tone: keyof typeof DOTS }> = ({ tone }) => (
-  <span aria-hidden="true" className={'inline-block h-2.5 w-2.5 rounded-full ' + DOTS[tone]} />
+const StatusIcon: React.FC<{ tone: keyof typeof STATUS_ICONS }> = ({ tone }) => (
+  <span aria-hidden="true" className="inline-block shrink-0 text-lg leading-none"
+    style={{ fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji, sans-serif' }}>
+    {STATUS_ICONS[tone]}
+  </span>
 );
 
 const ServiceRow: React.FC<React.PropsWithChildren<{ service: Service; historical: boolean }>> = ({ service, historical, children }) => {
@@ -360,7 +364,7 @@ const ServiceRow: React.FC<React.PropsWithChildren<{ service: Service; historica
   return (
     <>
       <tr className="border-b border-border">
-        <th scope="row" className="py-1 pr-2 text-left font-semibold text-foreground">
+        <th scope="row" className="py-1.5 pr-3 text-left align-top font-semibold text-foreground">
           <span className="relative inline-block" onMouseEnter={() => setTooltipOpen(true)} onMouseLeave={() => setTooltipOpen(false)}>
             <span tabIndex={0} aria-describedby={id + '-tip'} onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)} onKeyDown={(event) => {
@@ -372,23 +376,31 @@ const ServiceRow: React.FC<React.PropsWithChildren<{ service: Service; historica
               {ai ? 'Gemini model list and test generation checked' : service.headline}
             </span>
           </span>
+          {ai ? <div className="break-words text-sm font-normal leading-tight text-muted-foreground">
+            {service.headline}{service.versionVerified && !historical ? (
+              <><sup aria-hidden="true">*</sup><span className="block text-xs">* Latest working version</span></>
+            ) : null}
+          </div> : null}
         </th>
-        <td className="text-center" aria-label={historical ? 'Historical' : LABELS[service.status]}><StatusDot tone={tone} /></td>
-        <td className="py-1 text-xs text-muted-foreground">
-          {ai ? <span className="block">{service.headline}{service.versionVerified && !historical ? (
-            <><sup aria-hidden="true">*</sup><span className="block text-[10px] leading-tight">* Latest working version</span></>
-          ) : null}</span> : null}
-          {reason ? <span className="block">{reason}</span> : null}
-        </td>
-        <td className="text-right">
-          <button type="button" className="min-h-6 min-w-6 px-2 text-xs font-semibold" aria-expanded={open} aria-controls={id + '-details'}
-            aria-label={(open ? 'Hide ' : 'Show ') + service.name + ' details'} onClick={() => setOpen(!open)}>
-            <span aria-hidden="true">{open ? '−' : '+'}</span>
-          </button>
+        <td className="py-1.5 align-top">
+          <div className="flex items-start justify-between gap-1 sm:gap-3">
+            <div className="min-w-0">
+              <span className="inline-flex items-center gap-2 font-medium text-foreground">
+                <StatusIcon tone={tone} />{historical ? 'Historical' : LABELS[service.status]}
+              </span>
+              {reason ? <p className="break-words text-sm leading-tight text-muted-foreground">{reason}</p> : null}
+            </div>
+            <button type="button"
+              className="inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              aria-expanded={open} aria-controls={id + '-details'}
+              aria-label={(open ? 'Hide ' : 'Show ') + service.name + ' details'} onClick={() => setOpen(!open)}>
+              <ChevronDown aria-hidden="true" className={'h-4 w-4 ' + (open ? 'rotate-180' : '')} />
+            </button>
+          </div>
         </td>
       </tr>
       <tr id={id + '-details'} hidden={!open}>
-        <td colSpan={4} className="space-y-2 py-2 pl-3 text-xs">
+        <td colSpan={2} className="space-y-2 break-words py-2 pl-3 text-sm">
           <ul className="list-disc space-y-1 pl-5">{service.details.map((detail) => <li key={detail}>{detail}</li>)}</ul>
           {timestamp(service.checkedAt) ? <p className="text-muted-foreground">Last checked <time dateTime={service.checkedAt}>{timestamp(service.checkedAt)}</time></p> : null}
           <div className="flex flex-wrap gap-x-4 gap-y-1">
