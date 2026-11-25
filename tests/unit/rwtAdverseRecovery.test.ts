@@ -124,7 +124,7 @@ describe('rwtAdverseJourney.ts — the recovery presses, in source order', () =>
     it('Retry is pressed, then the model must reach ready, then Start is enabled and pressed, then RECORDING is awaited', () => {
         const body = fn(aj(), 'pressRecovery');
         const order = [
-            "await pressCaptureControl(page, ['mic-retry'], { beforeClick: () => gate.confirm() });",
+            "await pressCaptureControl(page, ['mic-retry'], { beforeClick: () => gate.confirm().then(() => noteRetryAdmission?.()) });",
             'attempt.retry = await waitForRetrySetup(page,',
             "if (attempt.retry !== 'ready') return attempt;",
             'await expect(start).toBeEnabled({ timeout: START_ENABLED_MS })',
@@ -163,7 +163,7 @@ describe('rwtAdverseJourney.ts — the recovery presses, in source order', () =>
 
 describe('rwtAdverseJourney.ts — Start-press budgets cite every press', () => {
     // #1835 (Sam, #1916): every Start-control press is ONE pressCaptureControl call, its readback inside the press.
-    const START_CLICK = /await pressCaptureControl\(page, \[(?:'mic-(?:download|retry|start)'(?:, )?)+\], \{ beforeClick: \(\) => gate\.confirm\(\) \}\);/;
+    const START_CLICK = /await pressCaptureControl\(page, \[(?:'mic-(?:download|retry|start)'(?:, )?)+\], \{ beforeClick: \(\) => gate\.confirm\(\)(?:\.then\(\(\) => noteRetryAdmission\?\.\(\)\))? \}\);/;
     const budgetComment = (src: string) => src.slice(src.indexOf(' * Harness parity (PO route 2026-11-10)'), src.indexOf('const AHT12_START_PRESS_BUDGET'));
     it('every cited line is a Start-control press, and every Start-control press in the journey is cited', () => {
         const src = aj();

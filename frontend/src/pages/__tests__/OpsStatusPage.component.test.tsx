@@ -37,7 +37,7 @@ function service(name: string): HTMLTableRowElement {
 const toggle = (row: HTMLTableRowElement) => within(row).getByRole('button');
 const panel = (row: HTMLTableRowElement) => document.getElementById(toggle(row).getAttribute('aria-controls')!)!;
 const status = (row: HTMLTableRowElement) => row.cells[1];
-const info = (row: HTMLTableRowElement) => row.cells[2];
+const info = (row: HTMLTableRowElement) => row.cells[0];
 
 describe('OpsStatusPage', () => {
   beforeEach(() => {
@@ -53,11 +53,17 @@ describe('OpsStatusPage', () => {
     expect(screen.getByRole('heading', { name: 'Software health' })).toBeInTheDocument();
     expect(screen.getByText(/Latest published report/)).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Software API status' }).querySelectorAll('tbody th[scope=row]')).toHaveLength(3);
+    const table = screen.getByRole('table', { name: 'Software API status' });
+    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Service', 'Status']);
     const row = service('SpeakSharp');
+    expect(row.cells).toHaveLength(2);
+    expect(panel(row).querySelector('td')).toHaveAttribute('colspan', '2');
+    expect(within(status(row)).getByText('🟢')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(status(service('AI Service -- LLM'))).getByText('🟡')).toHaveAttribute('aria-hidden', 'true');
     expect(toggle(row)).toHaveAttribute('aria-expanded', 'false');
     expect(panel(row)).not.toBeVisible();
-    expect(status(row)).toHaveAttribute('aria-label', 'Working');
-    expect(info(row)).toBeEmptyDOMElement();
+    expect(status(row)).toHaveTextContent('Working');
+    expect(status(row)).not.toHaveTextContent(/stale|failed|unavailable/i);
     fireEvent.click(toggle(row));
     expect(toggle(row)).toHaveAttribute('aria-expanded', 'true');
     expect(panel(row)).toBeVisible();
@@ -74,7 +80,7 @@ describe('OpsStatusPage', () => {
     const name = await screen.findByText('Sentry', { exact: true });
     const row = service('Sentry');
     const tooltip = within(row).getByRole('tooltip');
-    expect(info(row)).toBeEmptyDOMElement();
+    expect(status(row)).not.toHaveTextContent(/stale|failed|unavailable/i);
     expect(row).not.toHaveTextContent('project=200');
     expect(row).not.toHaveTextContent('No action');
     expect(tooltip).toHaveClass('sr-only');
@@ -88,7 +94,7 @@ describe('OpsStatusPage', () => {
     fireEvent.keyDown(name, { key: 'Escape' });
     expect(tooltip).toHaveClass('sr-only');
     expect(screen.getAllByLabelText('Status legend')).toHaveLength(1);
-    expect(info(service('AI Service -- LLM'))).toHaveTextContent('Generation not checked');
+    expect(status(service('AI Service -- LLM'))).toHaveTextContent('Generation not checked');
   });
 
   it.each([
@@ -103,7 +109,7 @@ describe('OpsStatusPage', () => {
     view();
     await screen.findByText(label);
     const row = service(label);
-    expect(info(row)).toHaveTextContent(expected);
+    expect(status(row)).toHaveTextContent(expected);
     expect(panel(row)).not.toBeVisible();
     fireEvent.click(toggle(row));
     expect(within(panel(row)).getByText(expected, { exact: true })).toBeVisible();
@@ -121,9 +127,10 @@ describe('OpsStatusPage', () => {
     view();
     await screen.findByText('The production page responded');
     fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
-    await within(info(service('SpeakSharp'))).findByText('HTTP 503');
+    await within(status(service('SpeakSharp'))).findByText('HTTP 503');
     const row = service('SpeakSharp');
-    expect(status(row)).toHaveAttribute('aria-label', 'Check failed');
+    expect(status(row)).toHaveTextContent('Check failed');
+    expect(within(status(row)).getByText('🔴')).toHaveAttribute('aria-hidden', 'true');
     expect(document.querySelector('time')?.getAttribute('datetime')).toBe(updatedAt);
     fireEvent.click(toggle(row));
     expect(within(panel(row)).getByText('HTTP 503')).toBeInTheDocument();
@@ -138,8 +145,8 @@ describe('OpsStatusPage', () => {
     await screen.findByText('GitHub', { exact: true });
     expect(screen.getByTestId('ops-status-verdict')).toHaveTextContent('Action required');
     const row = service('GitHub');
-    expect(status(row)).toHaveAttribute('aria-label', 'Working');
-    expect(info(row)).toBeEmptyDOMElement();
+    expect(status(row)).toHaveTextContent('Working');
+    expect(status(row)).not.toHaveTextContent(/stale|failed|unavailable/i);
     expect(toggle(row)).toHaveAttribute('aria-expanded', 'false');
     expect(panel(row)).not.toBeVisible();
     fireEvent.click(toggle(row));
@@ -156,8 +163,8 @@ describe('OpsStatusPage', () => {
   it('does not show a green generation or end-to-end status from legacy Gemini catalog success', async () => {
     view();
     await screen.findByText('Gemini · Version: Not reported');
-    expect(status(service('AI Service -- LLM'))).toHaveAttribute('aria-label', 'Review');
-    expect(status(service('AI Service -- LLM'))).not.toHaveAttribute('aria-label', 'Working');
+    expect(status(service('AI Service -- LLM'))).toHaveTextContent('Review');
+    expect(status(service('AI Service -- LLM'))).not.toHaveTextContent('Working');
     expect(screen.queryByText('* Latest working version')).not.toBeInTheDocument();
   });
 
@@ -170,7 +177,7 @@ describe('OpsStatusPage', () => {
     view();
     await screen.findByText('AI Service -- LLM');
     const row = service('AI Service -- LLM');
-    expect(status(row)).toHaveAttribute('aria-label', 'Check failed');
+    expect(status(row)).toHaveTextContent('Check failed');
     expect(info(row)).toHaveTextContent('Gemini · Version: gemini-3.5-flash-lite-001*');
     expect(within(row).getByText('* Latest working version')).toBeInTheDocument();
     expect(toggle(row)).toHaveAttribute('aria-expanded', 'false');
@@ -204,7 +211,7 @@ describe('OpsStatusPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
     await screen.findByText(/Stale or bundled report/);
     row = service('AI Service -- LLM');
-    expect(status(row)).toHaveAttribute('aria-label', 'Historical');
+    expect(status(row)).toHaveTextContent('Historical');
     expect(within(row).queryByText('* Latest working version')).not.toBeInTheDocument();
     expect(row.querySelector('sup')).toBeNull();
   });
@@ -225,7 +232,7 @@ describe('OpsStatusPage', () => {
     vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ ...payload, checks: [app, { ...git, github: undefined }] }) as Response);
     view();
     await screen.findByText('Older report did not separate access from workflow results');
-    expect(status(service('GitHub'))).toHaveAttribute('aria-label', 'Not checked');
+    expect(status(service('GitHub'))).toHaveTextContent('Not checked');
     expect(screen.getByTestId('ops-status-verdict')).toHaveTextContent('Action required');
   });
 
@@ -235,7 +242,7 @@ describe('OpsStatusPage', () => {
     }) as Response);
     view();
     await screen.findByText(/Stale or bundled report\./);
-    expect(status(service('GitHub'))).toHaveAttribute('aria-label', 'Historical');
+    expect(status(service('GitHub'))).toHaveTextContent('Historical');
     expect(screen.getByTestId('ops-status-verdict')).not.toHaveTextContent('Checks passed');
   });
 
@@ -244,8 +251,8 @@ describe('OpsStatusPage', () => {
     view();
     await screen.findByText(/Stale or bundled report\./);
     expect(screen.getByTestId('ops-status-verdict')).toHaveTextContent('Historical only');
-    expect(status(service('SpeakSharp'))).toHaveAttribute('aria-label', 'Historical');
-    expect(status(service('SpeakSharp'))).not.toHaveAttribute('aria-label', 'Working');
+    expect(status(service('SpeakSharp'))).toHaveTextContent('Historical');
+    expect(status(service('SpeakSharp'))).not.toHaveTextContent('Working');
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, '/ops-health/ops-health.summary.json', { cache: 'no-store' });
   });
 });
