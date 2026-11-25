@@ -32,12 +32,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createE2eApp } from '../../scripts/serve-e2e.mjs';
 import { assertNoRootDotenv } from './helpers/isolatedBuildDotenv';
+import { armIsolatedColdStartPress, isolatedColdStartPhase, readIsolatedColdStart } from './helpers/isolatedColdStartPhase';
 import { MOCK_SESSION } from '@shared/test-fixtures';
 import { navigateToRoute } from './helpers';
 import { setupE2EMocks } from './mock-routes';
 import { BetweenFilesHold, MODEL_ASSETS, ModelTransferTracker, armRuntimeStateLog, readRuntimeStateLog } from '../live/helpers/rwtAdverse';
 import {
-    attemptPhase, betweenFilesGate, pollShownFailure, runBetweenFilesFault, shownFailureVerdict, shownToastTexts, type BetweenFilesSnapshot, type ModelBytesRead,
+    betweenFilesGate, pollShownFailure, runBetweenFilesFault, shownFailureVerdict, shownToastTexts, type BetweenFilesSnapshot, type ModelBytesRead,
 } from '../live/helpers/rwtAdverseRecovery';
 
 const PINNED = JSON.parse(readFileSync(join(process.cwd(), 'frontend', 'src', 'services', 'transcription', 'selfHostedAssetPins.json'), 'utf8')) as
@@ -213,9 +214,10 @@ isolatedTest.describe('J7.c isolated: the network drops between model files', ()
         await toPrivateDownload(page, isolatedApp.url);
         const token = `j7c-${Date.now()}`;
         await page.evaluate(armRuntimeStateLog, token);
+        await page.evaluate(armIsolatedColdStartPress);
         const phaseOf = async (from: number) => {
-            const log = await page.evaluate(readRuntimeStateLog).catch(() => ({ token: null, states: [] as string[] }));
-            return attemptPhase({ observed: log.token === token, states: log.states }, from);
+            const read = await page.evaluate(readIsolatedColdStart).catch(() => null);
+            return read ? isolatedColdStartPhase(read, token, from) : 'unobserved' as const;
         };
         let heldRequest: object | null = null;
         const files = (): BetweenFilesSnapshot => {

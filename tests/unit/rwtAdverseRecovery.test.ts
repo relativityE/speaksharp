@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
+import { isolatedColdStartPhase, readIsolatedColdStart, type IsolatedColdStartRead } from '../e2e/helpers/isolatedColdStartPhase';
 import {
     AHT12_CATALOG_CASE_OPEN, AHT12_STAND_IN_LABEL, MODEL_SETUP_FAILED_COPY, NOT_SUPPORTED_WORDING,
     RECOVERY_CONTROLS, type BetweenFilesSnapshot, type ModelBytesRead, type OfflineFaultIo, type OfflineFaultOutcome, type RecoveryAttempt,
@@ -994,5 +995,97 @@ describe('AHT-12: the stand-in labels stay truthful; J7.a runs no stand-in and r
     it('the catalog still asks three Starts for AHT-12 (not silently changed); J7.a is designed for the one denied press', () => {
         expect(findCase(catalog)?.minimumStarts).toBe(3);
         expect(src).toContain("const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 1,");
+    });
+});
+
+describe('J7.c isolated cold Start: the IDLE alias waits without authorizing the fault', () => {
+    const token = 'isolated-cold-start';
+    const read = (states: string[], over: Partial<IsolatedColdStartRead> = {}): IsolatedColdStartRead =>
+        ({ token, states, samePress: true, pendingDownloadAlias: true, ...over });
+    const setup = ['IDLE', 'ENGINE_INITIALIZING'];
+    const aliased = read([...setup, 'IDLE']);
+
+    it('the observed strategy-init alias is only pre-setup; a fresh real setup and held next file still authorize the drop', async () => {
+        expect(isolatedColdStartPhase(aliased, token, 1)).toBe('pre-setup');
+        let time = 0;
+        let held = false;
+        let failed = false;
+        const inject = vi.fn(async () => {
+            expect(time).toBe(50);
+            expect(held).toBe(true);
+            return true;
+        });
+        const sample = { pct: 1, status: 'loading', runtimeState: 'ENGINE_INITIALIZING' };
+        const result = await runBetweenFilesFault({
+            phase: async () => isolatedColdStartPhase(failed
+                ? read([...setup, 'IDLE', 'ENGINE_INITIALIZING', 'FAILED']) : held
+                    ? read([...setup, 'IDLE', 'ENGINE_INITIALIZING']) : aliased, token, 1),
+            files: () => ({ finished: held ? 1 : 0, failedUnderFault: failed ? 1 : 0, held: held ? 'pending' : 'none' }),
+            read: async () => sample, setOffline: inject, isOnline: async () => false,
+            release: async () => { failed = true; return true; },
+            armFault: () => undefined, disarmFault: () => undefined,
+            sleep: async (ms) => { time += ms; held = true; }, now: () => time,
+        }, { holdBoundMs: 300_000, boundMs: 300_000, pollMs: 50 });
+        expect(inject).toHaveBeenCalledExactlyOnceWith(true);
+        expect(result.outcome).toEqual({ kind: 'exercised', settled: true });
+    });
+
+    it('a genuine exit, READY, or TERMINATED cannot be treated as the alias; replacement routes fail closed', () => {
+        expect(isolatedColdStartPhase({ ...aliased, pendingDownloadAlias: false }, token, 1)).toBe('left-setup');
+        expect(isolatedColdStartPhase(read([...setup, 'READY', 'IDLE']), token, 1)).toBe('left-setup');
+        expect(isolatedColdStartPhase(read([...setup, 'TERMINATED']), token, 1)).toBe('left-setup');
+        expect(isolatedColdStartPhase({ ...aliased, samePress: false }, token, 1)).toBe('unobserved');
+        expect(isolatedColdStartPhase(aliased, 'new-document', 1)).toBe('unobserved');
+        expect(isolatedColdStartPhase(read([...setup, 'RECORDING']), token, 1)).toBe('recorded');
+    });
+
+    it('a remounted session with an identical-looking button loses ownership of the actual press', () => {
+        const owner = document.createElement('section');
+        owner.dataset.testid = 'session-page';
+        const button = document.createElement('button');
+        button.dataset.testid = 'mic-start';
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        button.setAttribute('aria-label', 'Starting…');
+        owner.append(button);
+        document.body.append(owner);
+        const root = document.documentElement;
+        const previous = root.getAttribute('data-model-status');
+        root.setAttribute('data-model-status', 'download-required');
+        const w = window as unknown as Record<string, unknown>;
+        const observer = new MutationObserver(() => undefined);
+        w.__rwtRuntimeStateLog__ = { token, states: aliased.states, observer, record: () => undefined };
+        w.__j7IsolatedColdPress__ = { owner, button, path: location.pathname, count: 1 };
+        const replacement = owner.cloneNode(true);
+        try {
+            expect(readIsolatedColdStart()).toMatchObject({ samePress: true, pendingDownloadAlias: true });
+            owner.replaceWith(replacement); // same route, same test IDs, different session instance
+            expect(readIsolatedColdStart()).toMatchObject({ samePress: false, pendingDownloadAlias: false });
+            expect(isolatedColdStartPhase(readIsolatedColdStart(), token, 1)).toBe('unobserved');
+        } finally {
+            delete w.__rwtRuntimeStateLog__;
+            delete w.__j7IsolatedColdPress__;
+            owner.remove();
+            if (replacement instanceof Element) replacement.remove();
+            if (previous === null) root.removeAttribute('data-model-status');
+            else root.setAttribute('data-model-status', previous);
+        }
+    });
+
+    it.each([
+        ['genuine setup exit', { ...aliased, pendingDownloadAlias: false }, 'not-exercised'],
+        ['replaced route/document', { ...aliased, samePress: false }, 'fail-closed'],
+    ] as const)('%s stops before any offline injection, even if a later poll would offer a held file', async (_case, reading, kind) => {
+        const inject = vi.fn(async () => true);
+        const sleep = vi.fn(async () => undefined);
+        const outcome = await runBetweenFilesFault({
+            phase: async () => isolatedColdStartPhase(reading, token, 1),
+            files: () => ({ finished: 0, failedUnderFault: 0, held: 'none' }), read: async () => null,
+            setOffline: inject, isOnline: async () => true, release: async () => true,
+            armFault: () => undefined, disarmFault: () => undefined, sleep, now: () => 0,
+        }, { holdBoundMs: 300_000, boundMs: 300_000, pollMs: 50 });
+        expect(outcome.outcome).toMatchObject({ kind, restored: true });
+        expect(inject).not.toHaveBeenCalled();
+        expect(sleep).not.toHaveBeenCalled();
     });
 });
