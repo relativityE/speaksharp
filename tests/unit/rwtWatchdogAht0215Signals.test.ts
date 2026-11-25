@@ -206,7 +206,32 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
         const now = Date.now();
         expect(await w.tick(now), 'arrived: the wait starts now').toBeNull();
         expect(await w.tick(now + PRESENTATION_GRACE_MS - 1)).toBeNull();
-        expect(await w.tick(now + PRESENTATION_GRACE_MS)).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE' } });
+        expect(await w.tick(now + PRESENTATION_GRACE_MS)).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE', presentationDisposition: 'grace_expired',
+            firstSeenGapMs: 'unknown', sameRequest: 'unknown', causalCaptureGapMs: 'unknown' } });
+    });
+
+    it('J7.c distinguishes a tied cross-request transport arrival without claiming causal order', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        const now = Date.now();
+        h.tap.events.push(sent(h.page, { capturedAt: t, batch: 5 }, state('FAILED', 'FAILED_VISIBLE')));
+        expect(await w.tick(now)).toBeNull();
+        h.tap.events.push(sent(h.page, { capturedAt: t, batch: 6 }, coldFailed()));
+        expect(await w.tick(now + 50)).toBeNull();
+        const result = await w.tick(now + PRESENTATION_GRACE_MS);
+        expect(result).toMatchObject({ kind: 'recording_failed', fields: { presentationDisposition: 'grace_expired',
+            firstSeenGapMs: -50, sameRequest: false, causalCaptureGapMs: 'unknown', retryAdmissionOrigin: 'unknown' } });
+        expect(JSON.stringify(result)).not.toMatch(/boot-a|attempt-1|batch/i);
+    });
+
+    it('J7.c proves signed arrival versus capture for a coded predecessor that arrives too late to rescue the verdict', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        const now = Date.now();
+        h.tap.events.push(sent(h.page, { capturedAt: t + 2, batch: 5 }, state('FAILED', 'FAILED_VISIBLE')));
+        expect(await w.tick(now)).toBeNull();
+        h.tap.events.push(sent(h.page, { capturedAt: t, batch: 6 }, coldFailed()));
+        const result = await w.tick(now + PRESENTATION_GRACE_MS);
+        expect(result).toMatchObject({ kind: 'recording_failed', fields: { presentationDisposition: 'grace_expired',
+            firstSeenGapMs: -PRESENTATION_GRACE_MS, sameRequest: false, causalCaptureGapMs: 2 } });
     });
 
     it('J7.c NEGATIVE: the late FAILED carries a code the scenario does not allow: it trips when it arrives', async () => {
@@ -225,7 +250,7 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
         h.tap.events.push(sent(h.page, { capturedAt: t + 2 }, state('FAILED', 'READY')));
         const now = Date.now();
         expect(await w.tick(now)).toBeNull();
-        expect(await w.tick(now + PRESENTATION_GRACE_MS)).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE' } });
+        expect(await w.tick(now + PRESENTATION_GRACE_MS)).toMatchObject({ kind: 'recording_failed', fields: { to_state: 'FAILED_VISIBLE', presentationDisposition: 'grace_expired' } });
     });
 
     it('J7.c NEGATIVE: outside the fault phase nothing waits: an unbound presentation trips at once', async () => {
@@ -233,7 +258,7 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
         w.setFaultPhase(false);
         await new Promise((r) => setTimeout(r, 5));
         h.tap.events.push(sent(h.page, { capturedAt: Date.now() + 5 }, state('FAILED', 'FAILED_VISIBLE')));
-        expect(await w.tick()).toMatchObject({ kind: 'recording_failed' });
+        expect(await w.tick()).toMatchObject({ kind: 'recording_failed', fields: { presentationDisposition: 'unbound_outside_fault' } });
     });
 
     it('J7.c NEGATIVE: a real Retry failure is never masked by a waiting presentation: it trips the moment it arrives', async () => {
@@ -243,8 +268,38 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
         expect(await w.tick(now)).toBeNull();
         w.setFaultPhase(false); // the network is back; the Retry is strict
         await new Promise((r) => setTimeout(r, 5));
+        w.noteRetryAdmission();
         h.tap.events.push(sent(h.page, { capturedAt: Date.now() + 5, attempt: 'retry' }, state('ENGINE_INITIALIZING', 'FAILED', 'start_model_unavailable')));
-        expect(await w.tick(now + 50)).toMatchObject({ kind: 'recording_failed', fields: { failure_code: 'start_model_unavailable' } });
+        expect(await w.tick(now + 50)).toMatchObject({ kind: 'recording_failed', fields: { failure_code: 'start_model_unavailable', presentationDisposition: 'unexpected_failed_transition',
+            capturedVsRetryAdmissionMs: expect.any(Number), retryAdmissionOrigin: 'consent_confirmed_before_retry',
+            firstSeenGapMs: 'unknown', sameRequest: 'unknown', causalCaptureGapMs: 'unknown', sameObservedFaultAttempt: 'unknown' } });
+    });
+
+    it.each([null, 'cold'] as const)('J7.c fatal after Retry with reported attempt %s does not prove a Start origin', async (attempt) => {
+        const h = harness(); const w = watchdog(h, OFFLINE);
+        const t = Date.now();
+        h.tap.events.push(sent(h.page, { capturedAt: t, attempt: 'cold' }, coldFailed()));
+        expect(await w.tick(t)).toBeNull();
+        w.setFaultPhase(false);
+        w.noteRetryAdmission();
+        const capturedAt = Date.now() + 5;
+        h.tap.events.push(sent(h.page, { capturedAt, attempt }, coldFailed()));
+        const result = await w.tick(capturedAt);
+        expect(result).toMatchObject({ kind: 'recording_failed', fields: {
+            presentationDisposition: 'unexpected_failed_transition', retryAdmissionOrigin: 'consent_confirmed_before_retry',
+            sameObservedFaultAttempt: attempt === null ? 'unknown' : true, causalCaptureGapMs: 'unknown',
+        } });
+        expect(JSON.stringify(result)).not.toMatch(/"cold"|accepted.?start/i);
+    });
+
+    it('J7.c null-attempt TERMINATED does not interpose in proven same-attempt capture order', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t, attempt: 'cold', batch: 5 }, coldFailed()));
+        h.tap.events.push(sent(h.page, { capturedAt: t + 1, attempt: null, batch: 6 }, state('FAILED', 'TERMINATED')));
+        h.tap.events.push(sent(h.page, { capturedAt: t + 2, attempt: 'cold', batch: 7 }, state('FAILED', 'FAILED_VISIBLE')));
+        const now = Date.now();
+        expect(await w.tick(now)).toBeNull();
+        expect(await w.tick(now + PRESENTATION_GRACE_MS)).toBeNull();
     });
 
     it('J7.c NEGATIVE (cutoff): a matching FAILED first seen AFTER the deadline never rescues the row', async () => {
@@ -292,7 +347,19 @@ describe('JourneyWatchdog: attempt binding and the one navigation abort, end to 
         expect(await w.tick()).toBeNull();
         const rows: { verdict: string; evidence?: unknown }[] = [];
         await w.record({ row: (_s: string, verdict: string, _d: string, evidence?: unknown) => { rows.push({ verdict, evidence }); } } as never);
-        expect(rows).toEqual([expect.objectContaining({ verdict: 'FAIL', evidence: expect.objectContaining({ kind: 'recording_failed' }) })]);
+        expect(rows).toEqual([expect.objectContaining({ verdict: 'FAIL', evidence: expect.objectContaining({ kind: 'recording_failed', presentationDisposition: 'finalized_unbound' }) })]);
+    });
+
+    it('J7.c withdraws an excused pair on intervening capture and emits distinct evidence', async () => {
+        const h = harness(); const w = watchdog(h, OFFLINE); const t = Date.now() + 10;
+        h.tap.events.push(sent(h.page, { capturedAt: t, attempt: 'synthetic-cold' }, coldFailed()));
+        h.tap.events.push(sent(h.page, { capturedAt: t + 5, attempt: 'synthetic-cold' }, state('FAILED', 'FAILED_VISIBLE')));
+        expect(await w.tick()).toBeNull();
+        h.tap.events.push(sent(h.page, { capturedAt: t + 2, attempt: 'synthetic-cold' }, state('FAILED', 'READY')));
+        const result = await w.tick();
+        expect(result).toMatchObject({ kind: 'recording_failed', fields: { presentationDisposition: 'pair_invalidated',
+            sameObservedFaultAttempt: true, to_state: 'FAILED_VISIBLE' } });
+        expect(JSON.stringify(result)).not.toContain('synthetic-cold');
     });
 
     it('pending-start: one `aborted` acquisition failure after the navigation intent passes', async () => {
