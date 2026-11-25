@@ -1,8 +1,8 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import sandboxTarget from './sandbox-target.json' with { type: 'json' };
 import localStackTarget from './sandbox-target.local.json' with { type: 'json' };
 import { runnerPreflight } from './runnerPreflight.mjs';
@@ -20,7 +20,7 @@ import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
   portalPlanVerdict, assertPortalSubscription, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanSample, planSampleChains, portalPlanObserver, PLAN_PROBE_ARGS, type PortalPlanMiss,
-  currentSubscriptionSection, sectionArgs, redactPortalText, type SectionRead,
+  currentSubscriptionSection, sectionArgs, type SectionRead,
   type PlanSample } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
@@ -38,8 +38,6 @@ type Obj = {
   charge: string | { id: string } | null; amount_paid: number; card: { last4?: string } | null;
   paid: boolean; payment_method: string | null;
 };
-/** Where a failed portal check leaves its evidence; the workflow uploads this folder for 1 day. */
-const PORTAL_EVIDENCE_DIR = 'billing-portal-evidence';
 const env = process.env;
 // The disposable local stack (billing-local-stack-journey.yml) selects its own committed loopback target.
 // Anything other than the exact value keeps the reviewed hosted-sandbox target.
@@ -230,8 +228,8 @@ class SandboxJourney {
    * J9.a and J9.b: the open portal shows the $10.00 monthly plan, within the poll bound. Each poll reads the visible $10.00
    * elements twice from the same locator: the sample (its chains feed the unchanged "Current plan" text rule) and the section rule
    * (`currentSubscriptionSection`, Stripe's real "Current subscription" layout, bound to this run's own product name from Stripe's
-   * test-mode record). On a timeout the miss stays one fixed word, the section rule adds one more, and the page is kept as evidence
-   * (`portalEvidence`) so a failed run never leaves the layout to guesswork again (Akin, 2026-11-25).
+   * test-mode record). On a timeout the miss stays one fixed word and the section rule adds one more. No picture or page text of
+   * the portal is kept or uploaded (Akin, 2026-11-25).
    */
   async awaitPortalPlan(page: Page): Promise<void> {
     const product = await this.planProduct();
@@ -242,13 +240,12 @@ class SandboxJourney {
       sample = await this.planSample(page).catch(() => null);
       section = await page.getByText(/\$\s?10\.00/).evaluateAll(currentSubscriptionSection, sectionArgs(product)).catch(() => null);
       return (miss = portalPlanVerdict(sample, section));
-    }, (m) => m === null, 'portal_plan_not_shown').catch(async () => {
+    }, (m) => m === null, 'portal_plan_not_shown').catch(() => {
       // Diagnostic only, after the verdict is already a miss: which of no_plan_block's two causes the last read shows (fixed words).
       if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(planSampleChains(sample))));
       // Local-only observer, from the same sample that judged the miss: no second read, never throws, same failure code below.
       if (miss === 'no_plan_block') this.portalPlanProbe(sample);
       if (miss === 'no_plan_block') this.checkpoint(`portal_plan_section_${(section as SectionRead | null)?.miss ?? 'unreadable'}`);
-      await this.portalEvidence(page);
       throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? 'unreadable'}`);
     });
     // Option 1: the plan the portal shows is still this run's current $10.00 monthly test subscription in Stripe's own record.
@@ -265,32 +262,6 @@ class SandboxJourney {
     requireFact(product.livemode === false && typeof product.name === 'string' && product.name.trim().length > 0
       && product.name.length <= 80, 'portal_product_unreadable');
     return product.name;
-  }
-
-  /**
-   * Evidence of the portal as the failed check last saw it, for the run artifact only, never the log (Akin, 2026-11-25). The
-   * screenshot never shows the address bar or URL. It is cut off at the Payment method caption, so the card, billing details and
-   * invoices are never in it; with no such caption, the whole page is kept with every form field, frame and any text holding an
-   * email, card dots or a digit run blacked out. The text is the page's visible text through `redactPortalText`. Never throws and
-   * never changes the failure code; a fixed checkpoint says whether it was kept.
-   */
-  async portalEvidence(page: Page): Promise<void> {
-    try {
-      mkdirSync(PORTAL_EVIDENCE_DIR, { recursive: true });
-      const shot = join(PORTAL_EVIDENCE_DIR, 'portal.png');
-      const cut = await page.getByText(/^\s*payment methods?\s*$/i).first().boundingBox({ timeout: 5_000 }).catch(() => null);
-      const size = page.viewportSize();
-      if (cut && size && cut.y > 0) {
-        await page.screenshot({ path: shot, fullPage: true, clip: { x: 0, y: 0, width: size.width, height: cut.y }, timeout: 15_000 });
-      } else {
-        await page.screenshot({ path: shot, fullPage: true, timeout: 15_000, maskColor: '#000000',
-          mask: [page.locator('input, iframe'), page.getByText(/@|•|\d{4}/)] });
-      }
-      writeFileSync(join(PORTAL_EVIDENCE_DIR, 'portal.txt'), `${redactPortalText(await page.locator('body').innerText({ timeout: 15_000 }))}\n`);
-      this.checkpoint('portal_evidence_kept');
-    } catch {
-      this.checkpoint('portal_evidence_not_kept');
-    }
   }
 
   /**

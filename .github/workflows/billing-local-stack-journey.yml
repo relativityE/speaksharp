@@ -507,13 +507,3 @@ jobs:
             billing-local-stack-combined.json
             billing-local-stack-combined.sha256
           if-no-files-found: warn
-
-      # A failed J9 portal check's picture and redacted text (journey.billing.spec.ts portalEvidence): cut off above the card and
-      # billing details, no URL. Kept 1 day; absent on a pass.
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: billing-portal-evidence-${{ github.run_id }}
-          path: billing-portal-evidence/
-          retention-days: 1
-          if-no-files-found: ignore

@@ -9,7 +9,7 @@ import { Window } from 'happy-dom';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
   portalShowsPlan, portalPlanMiss, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanChains, PLAN_LINE_MAX, PLAN_BLOCK_MAX,
   visiblePlanSample, planSampleChains, portalPlanObserver, portalPlanVerdict, assertPortalSubscription, PLAN_PROBE_HEADINGS, PLAN_PROBE_ARGS,
-  currentSubscriptionSection, sectionArgs, redactPortalText,
+  currentSubscriptionSection, sectionArgs,
   type PlanSample, type PlanCardRead } from './restoreAccess';
 import { REQUIRED_STEPS, FULL_MODE_JOURNEYS, fixtureCustomerFields, progressLine, receipt, safeFailureReason, selectRunnerJourneys } from './contract';
 import { PHASES, STRIPE_WRITE_ALLOWLIST, workflowDispatch, readRepoFile } from './runnerPlan.mjs';
@@ -731,29 +731,11 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(read).toEqual(Object.entries(variants).map(([name, [, miss]]) => [name, false, miss]));
   });
 
-  it('a failed portal check keeps its evidence for the artifact only: cut above the card, no URL, ids or emails', () => {
-    const text = ['Sandbox', 'CURRENT SUBSCRIPTION', 'SpeakSharp Pro', '$10.00 per month', 'Your next billing date is December 25, 2026.',
-      'Cancel subscription', 'see https://billing.stripe.com/p/session/test_abcDEF123 for run-j9@example.test cus_Vh7g89m3KVKNeQ',
-      'ref 1234567 code AbCdEfGhIjKlMnOpQrStUvWx12', 'PAYMENT METHOD', 'Visa •••• 4242', 'BILLING INFORMATION', 'Email', 'a@b.test',
-      'INVOICE HISTORY', 'Nov 25, 2026 $10.00 Paid'].join('\n');
-    const kept = redactPortalText(text);
-    expect(kept).toContain('CURRENT SUBSCRIPTION\nSpeakSharp Pro\n$10.00 per month\nYour next billing date is December 25, 2026.');
-    expect(kept).not.toMatch(/PAYMENT METHOD|4242|BILLING|INVOICE|a@b\.test|https?:|stripe\.com|test_|cus_|run-j9@|1234567|AbCdEf/);
-    expect(kept).toContain('[url]');
-    expect(kept).toContain('[email]');
-    expect(kept).toContain('[id]');
-    expect(redactPortalText('x'.repeat(9000)).length).toBeLessThanOrEqual(4000);
+  it('a failed portal check keeps no picture or page text of the portal, and the workflow uploads none (Akin, 2026-11-25)', () => {
     const spec = readFileSync(new URL('./journey.billing.spec.ts', import.meta.url), 'utf8');
-    const body = spec.slice(spec.indexOf('  async portalEvidence('), spec.indexOf('\n  }\n', spec.indexOf('  async portalEvidence(')));
-    expect(body).toContain("const cut = await page.getByText(/^\\s*payment methods?\\s*$/i).first().boundingBox");
-    expect(body).toContain('clip: { x: 0, y: 0, width: size.width, height: cut.y }');
-    expect(body).toContain("mask: [page.locator('input, iframe'), page.getByText(/@|•|\\d{4}/)]");
-    expect(body).toContain('redactPortalText(await page.locator(\'body\').innerText(');
-    expect(body).not.toMatch(/page\.url\(\)|checkpoint\(`|throw /);
-    expect(body).toContain("this.checkpoint('portal_evidence_kept');");
-    expect(body).toContain("this.checkpoint('portal_evidence_not_kept');");
+    expect(spec).not.toMatch(/portalEvidence|billing-portal-evidence|\.screenshot\(|writeFileSync|innerText\(/);
     const workflow = readFileSync(new URL('../../../.github/workflows/billing-local-stack-journey.yml', import.meta.url), 'utf8');
-    expect(workflow).toMatch(/name: billing-portal-evidence-\$\{\{ github\.run_id \}\}\n\s+path: billing-portal-evidence\/\n\s+retention-days: 1\n\s+if-no-files-found: ignore/);
+    expect(workflow).not.toMatch(/billing-portal-evidence|portal\.png|portal\.txt/);
   });
 
   it('10 versus 11: labels come only from the ten elements the verdict reads, and a cap hit is said, not read past', () => {
@@ -870,12 +852,11 @@ describe('the J9 observer reads the heading of the price card from the same samp
     expect(body).toContain('sample = await this.planSample(page).catch(() => null);');
     expect(body).toContain('section = await page.getByText(/\\$\\s?10\\.00/).evaluateAll(currentSubscriptionSection, sectionArgs(product)).catch(() => null);');
     expect(body).toContain('return (miss = portalPlanVerdict(sample, section));');
-    expect(body).toMatch(/\(m\) => m === null, 'portal_plan_not_shown'\)\.catch\(async \(\) => \{/);
+    expect(body).toMatch(/\(m\) => m === null, 'portal_plan_not_shown'\)\.catch\(\(\) => \{/);
     expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(planSampleChains(sample))));");
     expect(body).toContain("if (miss === 'no_plan_block') this.portalPlanProbe(sample);");
     expect(body).toContain("if (miss === 'no_plan_block') this.checkpoint(`portal_plan_section_${(section as SectionRead | null)?.miss ?? 'unreadable'}`);");
-    expect(body.indexOf('this.portalPlanProbe(sample)')).toBeLessThan(body.indexOf('await this.portalEvidence(page);'));
-    expect(body.indexOf('await this.portalEvidence(page);')).toBeLessThan(body.indexOf('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_'));
+    expect(body.indexOf('this.portalPlanProbe(sample)')).toBeLessThan(body.indexOf('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_'));
     expect(body).toContain('throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? \'unreadable\'}`);');
     expect(body.match(/throw new Error/g)).toHaveLength(1);
     expect(body).not.toMatch(/await this\.portalPlanProbe/);

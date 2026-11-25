@@ -606,19 +606,3 @@ export const sectionArgs = (product: string, showText = false): SectionArgs => (
   ending: [PLAN_ENDING.source, PLAN_ENDING.flags], caption: PLAN_SUBSCRIPTION_LABEL, product, otherCaptions: PORTAL_OTHER_CAPTIONS,
   lineMax: PLAN_LINE_MAX, sectionMax: PLAN_BLOCK_MAX, showText,
 });
-
-/**
- * The portal's visible text for a failed run's evidence file, never the log. Only the part above the Payment method caption is
- * kept (the subscription section; card, billing details and invoices are dropped). Anything that could identify or unlock
- * something is replaced: URLs, emails, Stripe ids and secrets, long codes and digit runs of five or more. Capped at 4,000 chars.
- */
-export function redactPortalText(text: string): string {
-  const cut = text.search(/^[ \t]*payment methods?[ \t]*$/im);
-  return (cut >= 0 ? text.slice(0, cut) : text)
-    .replace(/https?:\/\/\S+/gi, '[url]')
-    .replace(/[^\s@]+@[^\s@]+/g, '[email]')
-    .replace(/\b(?:cus|sub|prod|price|pi|pm|in|ch|cs|bps|seti|si|ii|test|live|sk|pk|rk|whsec)_[A-Za-z0-9_]+/g, '[id]')
-    .replace(/\b[A-Za-z0-9]{24,}\b/g, '[code]')
-    .replace(/\d{5,}/g, '[n]')
-    .slice(0, 4000);
-}
