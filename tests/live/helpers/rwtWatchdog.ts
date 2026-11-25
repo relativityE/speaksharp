@@ -476,7 +476,7 @@ export class JourneyWatchdog {
     /** Diagnostic only: the consent readback just passed at the Retry press boundary. */
     noteRetryAdmission(): void { this.retryAdmissionAt ??= Date.now(); }
 
-    private offlineRecordingDiagnostic(disposition: string, captured: number | undefined, seen: number, attempt: string | null, presentation?: StateRecord) {
+    private offlineRecordingDiagnostic(disposition: string, captured: number | undefined, seen: number, attempt: string | null, presentation?: StateRecord): WatchSignal['fields'] {
         if (!this.o.profile.bindLatePresentation) return {};
         const faultEnd = this.faultIntervals[this.faultIntervals.length - 1]?.to;
         const retry = this.retryAdmissionAt;
