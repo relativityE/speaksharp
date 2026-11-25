@@ -35,7 +35,7 @@ import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepe
 import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
 import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
-import { coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './rwtCoachingCollector';
+import { coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair, reopenBoundFocusReviewPair } from './rwtCoachingCollector';
 import { coachingContract } from './rwtCoachingEvidence';
 import { coachingTelemetryVerdict, failureTelemetryBinding, takeExchangeEvidence } from './coachingExternal';
 import {
@@ -1109,6 +1109,22 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 return;
             }
             if (repeatSessionId) await coachingCapture?.sample(repeatSessionId);
+            // Rapid Retry and next Start have already finished. B's late saved reply may never have appeared
+            // on this page. Reopen only B's positively identified saved-review card in a disposable tab,
+            // and let the unchanged collector check its exchanges, ownership, saved inputs and authority.
+            if (fixtureKey === 'focus_points_partial_tts' && coachingCapture && repeatSessionId
+                && repeatSessionId !== persistedId) {
+                const current = coachingCapture.get(repeatSessionId);
+                if ('hold' in current && current.hold === 'rendered_pair_unavailable') {
+                    const reviewTab = await page.context().newPage().catch(() => null);
+                    if (reviewTab) {
+                        try {
+                            const rendered = await reopenBoundFocusReviewPair(reviewTab, repeatSessionId);
+                            if (rendered) await coachingCapture.sample(repeatSessionId, rendered);
+                        } finally { await reviewTab.close().catch(() => undefined); }
+                    }
+                }
+            }
             await coachingPromptBindingRow({
                 receipt, page, admin: admin as never, exchanges: generations.exchanges,
                 fixture: { key: fixture.key, kind: fixture.entry.kind, sha256: fixture.entry.sha256 },
