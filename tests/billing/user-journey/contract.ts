@@ -817,6 +817,14 @@ export function historySeedFailure(error: unknown): string {
   return error ? 'history_seed_failed_other' : 'history_seed_failed_no_row';
 }
 
+/**
+ * J9.a (run 45700227820): a seeded take whose Progress could not be settled, as a content-free code: the step that failed and
+ * the database's error class only (historySeedFailure's rule), or `none` when the call succeeded but its answer was wrong.
+ */
+export function seedProgressFailure(step: 'unresolved' | 'unsettled' | 'still_owed', error: unknown): string {
+  return `history_seed_progress_${step}_${error ? historySeedFailure(error).replace(/^history_seed_failed_/, '') : 'none'}`;
+}
+
 /** J9.a: the reviewed transcript retention policy (migration 20260908120000): only the newest saved take keeps its text. */
 export const RETENTION_POLICY_VERSION = 'newest_one_v1';
 

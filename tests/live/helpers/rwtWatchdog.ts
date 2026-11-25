@@ -385,6 +385,8 @@ export class JourneyWatchdog {
     private readonly faultIntervals: { from: number; to: number }[] = [];
     /** Every `recording_state` seen, per attempt (boot + attempt id), so a presentation binds to its own predecessor. */
     private readonly stateHistory = new Map<string, StateRecord[]>();
+    private readonly stateSources = new WeakMap<StateRecord, SentEvent>();
+    private provenPairRedeliveries = 0;
     /** Presentations excused by binding: a same-attempt event that later proves to sit between the pair trips. */
     private readonly boundPresentations = new Map<string, Array<{ failed: StateRecord; visible: StateRecord }>>();
     /** Unbound fault-phase presentations still waiting for their late FAILED (`PRESENTATION_GRACE_MS`), in arrival order. */
@@ -640,6 +642,33 @@ export class JourneyWatchdog {
         return Math.abs(e.capturedAt - ref.committedAt) < CAPTURE_BOUNDARY_UNCERTAINTY_MS;
     }
 
+    /** Capture provenance must be explicit; a known boot on an ambiguous document cannot prove a redelivery. */
+    private deliveryDocument(e: SentEvent): { page: object; generation: number } | undefined {
+        const source = e as SentEvent & { sourcePage?: object; sourceDocument?: number; sourceDocumentRef?: DocumentRef };
+        const ref = source.sourceDocumentRef;
+        if (!source.sourcePage || source.sourceDocument === undefined
+            || (ref && (!ref.resolved || ref.ambiguous || ref.replaced)) || this.atDocumentBoundary(e)) return undefined;
+        return { page: source.sourcePage, generation: source.sourceDocument };
+    }
+
+    /**
+     * J7.c only: do not add an already judged accepted-pair endpoint to causal history a second time. Same fields and
+     * capture time are not identity; require the SDK UUID, the entire wire-event digest, explicit same page/document,
+     * same attempt/boot (the caller's pair key), same release, and a different request. First-seen order never changes.
+     */
+    private pairDelivery(e: SentEvent, record: StateRecord, end: StateRecord): 'same' | 'conflict' | 'unproven' {
+        const previous = this.stateSources.get(end);
+        if (!e.recordingDelivery || !previous?.recordingDelivery
+            || e.recordingDelivery.uuid !== previous.recordingDelivery.uuid) return 'unproven';
+        const doc = this.deliveryDocument(e);
+        const previousDoc = this.deliveryDocument(previous);
+        if (!doc || !previousDoc || doc.page !== previousDoc.page || doc.generation !== previousDoc.generation
+            || !e.releaseSha || e.releaseSha !== previous.releaseSha) return 'unproven';
+        if (e.recordingDelivery.digest !== previous.recordingDelivery.digest || record.capturedAt !== end.capturedAt) return 'conflict';
+        if (record.batch === undefined || end.batch === undefined || record.batch === end.batch) return 'unproven';
+        return 'same';
+    }
+
     /** Judge one event whose document identity is settled; returns its fatal signal, if any. */
     private judge(e: SentEvent, now: number): WatchSignal | null {
         if (!(e.event in WATCHED_FIELDS)) {
@@ -662,16 +691,33 @@ export class JourneyWatchdog {
             : { capturedAt: e.capturedAt as number, batch: e.batch, batchIndex: e.batchIndex, fields };
         if (attempt !== null && record !== null) {
             // A late same-attempt event that is not provably outside an excused pair voids that binding.
-            for (const pair of this.boundPresentations.get(attempt) ?? []) {
-                if (!precedes(pair.visible, record) && !precedes(record, pair.failed)) {
-                    return { kind: 'recording_failed', event: e.event, fields: { ...pair.visible.fields, ...this.offlineRecordingDiagnostic('pair_invalidated', pair.visible.capturedAt,
-                        this.firstSeen.get(pair.visible) ?? now, attempt, pair.visible) }, elapsedMs: now - this.started };
+            const pairs = this.boundPresentations.get(attempt) ?? [];
+            const classified = pairs.map((pair) => ({
+                pair, deliveries: this.o.profile.bindLatePresentation === true
+                    ? [this.pairDelivery(e, record, pair.failed), this.pairDelivery(e, record, pair.visible)] : [],
+            }));
+            const conflict = classified.find(({ deliveries }) => deliveries.includes('conflict'));
+            if (!conflict && classified.some(({ deliveries }) => deliveries.includes('same'))) {
+                this.provenPairRedeliveries += 1;
+                return null;
+            }
+            for (const { pair, deliveries } of classified) {
+                const uncertain = !precedes(pair.visible, record) && !precedes(record, pair.failed);
+                if (deliveries.includes('conflict') || uncertain) {
+                    const invalidator: WatchSignal['fields'] = this.o.profile.bindLatePresentation === true
+                        ? { pairInvalidator: deliveries.includes('conflict') ? 'conflicting_wire_identity'
+                            : precedes(pair.failed, record) && precedes(record, pair.visible) ? 'between_endpoints' : 'order_unproven' }
+                        : {};
+                    return { kind: 'recording_failed', event: e.event, fields: { ...pair.visible.fields, ...invalidator,
+                        ...this.offlineRecordingDiagnostic('pair_invalidated', pair.visible.capturedAt,
+                            this.firstSeen.get(pair.visible) ?? now, attempt, pair.visible) }, elapsedMs: now - this.started };
                 }
             }
             const history = this.stateHistory.get(attempt) ?? [];
             const presentation = fields.to_state === 'FAILED_VISIBLE' && fields.from_state === 'FAILED' && fields.failure_code === undefined;
             if (presentation) ctx.presentedFailure = presentedFailureOf(record, history);
             history.push(record);
+            if (this.o.profile.bindLatePresentation === true && e.recordingDelivery) this.stateSources.set(record, e);
             this.firstSeen.set(record, now);
             this.stateHistory.set(attempt, history);
             if (presentation && !ctx.presentedFailure && this.inFaultAt(record.capturedAt)
@@ -858,6 +904,7 @@ export class JourneyWatchdog {
             watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable,
             unresolvedIdentity, unprovenPages, unattributedRequests, provenanceConflicts, blindBeacons,
             releaseUnattested: this.releaseUnattested,
+            ...(this.o.profile.bindLatePresentation === true ? { provenPairRedeliveries: this.provenPairRedeliveries } : {}),
         };
         if (s) {
             receipt.row('fail-early watchdog', 'FAIL',

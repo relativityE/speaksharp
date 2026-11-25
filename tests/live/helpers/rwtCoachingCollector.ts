@@ -535,6 +535,45 @@ export async function readSavedReviewPair(page: Page, sessionId: string, version
     return well && next ? { version, what_worked: well, what_to_try_next: next } : null;
 }
 
+
+/** One DOM snapshot from the exact saved review. Never fall back to live C or the server's copy. */
+export function readBoundFocusReviewPairInPage(sessionId: string): CoachingSuggestionPair | null {
+    if (location.pathname !== '/progress/' + sessionId) return null;
+    const shown = (el: HTMLElement): boolean => {
+        const style = getComputedStyle(el);
+        return el.getClientRects().length > 0 && style.visibility === 'visible';
+    };
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-testid="saved-review"]')]
+        .filter((el) => el.getAttribute('data-session-id') === sessionId);
+    if (cards.length !== 1 || !shown(cards[0]) || cards[0].getAttribute('data-review-state') !== 'review'
+        || cards[0].getAttribute('data-product') !== 'focus_points') return null;
+    const pairs = [...cards[0].querySelectorAll<HTMLElement>('[data-testid="saved-review-pair"]')];
+    if (pairs.length !== 1 || !shown(pairs[0])) return null;
+    const phrase = (id: string): string => {
+        const matches = [...pairs[0].querySelectorAll<HTMLElement>(`[data-testid="${id}"]`)];
+        return matches.length === 1 && shown(matches[0]) ? matches[0].innerText.trim() : '';
+    };
+    const worked = phrase('review-what-went-well');
+    const next = phrase('review-try-next');
+    return worked && next ? { version: 'gemini_coaching_focus_v1', what_worked: worked, what_to_try_next: next } : null;
+}
+
+/** Bounded visual witness for an interrupted repeat whose settled saved review can still be reopened. */
+export async function reopenBoundFocusReviewPair(page: Page, sessionId: string): Promise<CoachingSuggestionPair | null> {
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(sessionId)) return null;
+    let pair: CoachingSuggestionPair | null = null;
+    try {
+        await page.goto('/progress/' + sessionId, { timeout: 15_000 });
+        await expect.poll(async () => {
+            pair = await page.evaluate(readBoundFocusReviewPairInPage, sessionId);
+            return pair !== null;
+        }, { timeout: 15_000 }).toBe(true);
+    } catch {
+        return null;
+    }
+    return pair;
+}
+
 interface ReceiptLike {
     readonly rows: ReadonlyArray<{ step: string; verdict: string }>;
     row(step: string, verdict: Verdict, detail: string, evidence?: Record<string, string | number | boolean | null>): void;

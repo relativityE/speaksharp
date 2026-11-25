@@ -13,13 +13,14 @@ import { BILLING_JOURNEYS, FULL_MODE_JOURNEYS, selectRunnerJourneys, receipt, re
   type RunnerJourney, type BillingEvent, hostedFieldUnavailable, hostedEmailDecision, type HostedField,
   HOSTED_ACTION_MS, HOSTED_READ_MS, HOSTED_LINK_OPT_IN_NOT_CLEARED, progressLine, HOSTED_SELECTORS, checkoutNotReturned, hostedFieldNotEditable, hostedSubmitUnavailable, invalidFieldToken, hostedFormNotConfirmable, fixtureCustomerFields, firstVisibleControl, cleanupFailureCode, proveStripeFixtureDeleted,
   observeCaptureLive, holdThenStop, APP_TOO_SHORT_STATUS, WATCH_INSTALL_SCRIPT, takeStatusScript, stopGateScript, pageScript, takeOutcome,
-  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, historySeedFailure,
+  type StopGateResult, privacyBuildState, PRIVACY_PROMPT, optInThroughPrompt, type PrivacyTableRead, trustedCheckoutFrame, historySeedFailure, seedProgressFailure,
   retentionActive, retentionActivationFailure, retentionRowsFailure, retentionViewFailure, RETENTION_ROW_COLUMNS, type RetentionDetailFacts } from './contract';
 import { fillHostedEmail } from './hostedEmail';
 import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { SESSION_FACT_COLUMNS, sessionFactsFromRows, type SessionRowFacts } from '../../live/helpers/rwtNavigationRows';
 import { assertTakeReadable, assertMemberIsRunAccount, assertHistoryWalled, assertHistoryRestored, assertSingleCharge, firstInvoiceCharge,
   portalPlanVerdict, assertPortalSubscription, portalPlanSplit, portalPlanSplitCheckpoint, visiblePlanSample, planSampleChains, portalPlanObserver, PLAN_PROBE_ARGS, type PortalPlanMiss,
+  currentSubscriptionSection, sectionArgs, type SectionRead,
   type PlanSample } from './restoreAccess';
 import { selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
   expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from '../../live/helpers/benchmark-utils';
@@ -224,25 +225,43 @@ class SandboxJourney {
   }
 
   /**
-   * J9.a and J9.b: the open portal shows the $10.00 monthly plan in its current-plan block, within the poll bound. For each element
-   * showing $10.00, its own text and its ancestors' (innermost first), in memory only; "Current subscription" passes only from an
-   * identified compact card (`portalPlanVerdict`). Run 45361320828 timed out here with only
-   * `portal_plan_not_shown`; a timeout now names the furthest condition reached (`portalPlanMiss`, one fixed word, no page text).
+   * J9.a and J9.b: the open portal shows the $10.00 monthly plan, within the poll bound. Each poll reads the visible $10.00
+   * elements twice from the same locator: the sample (its chains feed the unchanged "Current plan" text rule) and the section rule
+   * (`currentSubscriptionSection`, Stripe's real "Current subscription" layout, bound to this run's own product name from Stripe's
+   * test-mode record). On a timeout the miss stays one fixed word and the section rule adds one more. No picture or page text of
+   * the portal is kept or uploaded (Akin, 2026-11-25).
    */
   async awaitPortalPlan(page: Page): Promise<void> {
+    const product = await this.planProduct();
     let miss: PortalPlanMiss | null = 'unreadable';
     let sample: unknown = null;
-    await this.poll(async () => (miss = portalPlanVerdict(sample = await this.planSample(page).catch(() => null))),
-      (m) => m === null, 'portal_plan_not_shown').catch(() => {
+    let section: SectionRead | null = null;
+    await this.poll(async () => {
+      sample = await this.planSample(page).catch(() => null);
+      section = await page.getByText(/\$\s?10\.00/).evaluateAll(currentSubscriptionSection, sectionArgs(product)).catch(() => null);
+      return (miss = portalPlanVerdict(sample, section));
+    }, (m) => m === null, 'portal_plan_not_shown').catch(() => {
       // Diagnostic only, after the verdict is already a miss: which of no_plan_block's two causes the last read shows (fixed words).
       if (miss === 'no_plan_block') this.checkpoint(portalPlanSplitCheckpoint(portalPlanSplit(planSampleChains(sample))));
       // Local-only observer, from the same sample that judged the miss: no second read, never throws, same failure code below.
       if (miss === 'no_plan_block') this.portalPlanProbe(sample);
+      if (miss === 'no_plan_block') this.checkpoint(`portal_plan_section_${(section as SectionRead | null)?.miss ?? 'unreadable'}`);
       throw new Error(`BILLING_JOURNEY:portal_plan_not_shown_${miss ?? 'unreadable'}`);
     });
     // Option 1: the plan the portal shows is still this run's current $10.00 monthly test subscription in Stripe's own record.
     assertPortalSubscription(await this.stripe(`subscriptions/${this.subscription}`),
       { subscription: this.subscription, customer: this.customer, price: env.BILLING_SANDBOX_PRICE_ID });
+  }
+
+  /** The name of this run's own test product, from Stripe's test-mode record, for the section rule (never logged). */
+  async planProduct(): Promise<string> {
+    const sub = await this.stripe(`subscriptions/${this.subscription}`) as { items?: { data?: Array<{ price?: { product?: unknown } } | null> } };
+    const id = sub.items?.data?.[0]?.price?.product;
+    requireFact(typeof id === 'string' && id.startsWith('prod_'), 'portal_product_unreadable');
+    const product = await this.stripe(`products/${id}`) as { name?: unknown; livemode?: unknown };
+    requireFact(product.livemode === false && typeof product.name === 'string' && product.name.trim().length > 0
+      && product.name.length <= 80, 'portal_product_unreadable');
+    return product.name;
   }
 
   /**
@@ -833,6 +852,7 @@ class SandboxJourney {
     }).select('id').single();
     requireFact(!error && /^[0-9a-f-]{36}$/i.test(data?.id ?? ''), historySeedFailure(error));
     this.older = data.id;
+    await this.settleSeededProgress(this.older);
     await this.login();
     await this.record();
     this.newest = this.savedSession;
@@ -841,6 +861,25 @@ class SandboxJourney {
       { p_transcript_save: true, p_ai_coaching: true, p_expected_revision: revision });
     requireFact(!coaching.error, 'history_privacy_choice_failed');
     this.steps.add('history_seeded');
+  }
+
+  /**
+   * J9.a (run 45700227820): the app owes Progress for every completed take of the last 14 days that has no evaluation
+   * (get_progress_obligations), and holds Start until it is settled. A take written straight into the table has no
+   * attribution, so it is listed `pending` forever, record_progress_evaluation writes nothing for it, and the next
+   * recording's Start (with its model download button) stays disabled. A real take with no runtime evidence is resolved
+   * as unattributed by the server and then evaluated; this seed is settled the same way, by the same two functions, and
+   * nothing may be owed before the member records.
+   */
+  async settleSeededProgress(sessionId: string): Promise<void> {
+    const resolved = await this.admin.rpc('resolve_session_unattributed_v1',
+      { p_session_id: sessionId, p_reason: 'missing_runtime_evidence' });
+    requireFact(!resolved.error && resolved.data === 'unattributed', seedProgressFailure('unresolved', resolved.error));
+    const evaluated = await this.member.rpc('record_progress_evaluation', { p_session_id: sessionId });
+    requireFact(!evaluated.error && /^[0-9a-f-]{36}$/i.test(String(evaluated.data ?? '')),
+      seedProgressFailure('unsettled', evaluated.error));
+    const owed = await this.member.rpc('get_progress_obligations', { p_limit: 50 });
+    requireFact(!owed.error && Array.isArray(owed.data) && owed.data.length === 0, seedProgressFailure('still_owed', owed.error));
   }
 
   /** The reviewed policy version, and active, read back from the database (service role; the member cannot call either). */
