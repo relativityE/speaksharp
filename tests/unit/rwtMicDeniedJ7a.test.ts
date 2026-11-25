@@ -154,7 +154,7 @@ describe('J7.a: acceptance requires the no-take row and UNTESTED recovery, and r
 describe('J7.a/b/c: no Start-control press without the variant\'s verified saved privacy choice (#1835)', () => {
     const journey = src('tests/live/helpers/rwtAdverseJourney.ts');
     const CONSENT = 'practice privacy choice';
-    const START_CLICK = /await pressCaptureControl\(page, \[(?:'mic-(?:download|retry|start)'(?:, )?)+\], \{ beforeClick: \(\) => gate\.confirm\(\) \}\);/;
+    const START_CLICK = /await pressCaptureControl\(page, \[(?:'mic-(?:download|retry|start)'(?:, )?)+\], \{ beforeClick: \(\) => gate\.confirm\(\)(?:\.then\(\(\) => noteRetryAdmission\?\.\(\)\))? \}\);/;
     const lines = journey.split('\n');
 
     it('fixed modes, never read from the environment: J7.a Save No; J7.b/c Save Yes, Coaching No', () => {
@@ -183,6 +183,7 @@ describe('J7.a/b/c: no Start-control press without the variant\'s verified saved
         // No readback runs as a statement before a press, and no capture control is clicked through a locator.
         expect(lines.filter((l) => l.trim() === 'await gate.confirm();')).toHaveLength(0);
         expect(journey.match(/beforeClick: \(\) => gate\.confirm\(\)/g)).toHaveLength(5);
+        expect(journey).toContain("beforeClick: () => gate.confirm().then(() => noteRetryAdmission?.())");
         expect(journey).not.toMatch(/getByTestId\('mic-(?:download|retry|start)'\)\.click\(|await (?:control|start)\.click\(/);
         expect(journey.match(/pressCaptureControl\(/g)).toHaveLength(5);
     });
@@ -196,7 +197,7 @@ describe('J7.a/b/c: no Start-control press without the variant\'s verified saved
         const fn = (name: string) => journey.slice(journey.indexOf(`async function ${name}(`), journey.indexOf('\n}\n', journey.indexOf(`async function ${name}(`)));
         expect(fn('pressRecovery')).not.toContain('recordPass');
         expect(fn('pressRecovery')).toContain('gate: CaptureConsentGate');
-        expect(journey).toContain("saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes, gate);");
+        expect(journey).toContain("saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes, gate,");
     });
 
     // Caller-level controls: the journey's order offline, with its own helpers and each variant's fixed mode. A press happens only

@@ -203,13 +203,13 @@ async function waitForRetrySetup(page: Page, statusesBefore: number | null): Pro
  * Each press reads consent back (`gate.confirm()`) inside the press, immediately before its click (Sam, #1916:
  * `pressCaptureControl`); a choice that no longer reads back stops it with nothing pressed.
  */
-async function pressRecovery(page: Page, variant: AdverseVariant, gate: CaptureConsentGate): Promise<RecoveryAttempt> {
+async function pressRecovery(page: Page, variant: AdverseVariant, gate: CaptureConsentGate, noteRetryAdmission?: () => void): Promise<RecoveryAttempt> {
     const attempt: RecoveryAttempt = { offered: await offeredRecoveryControl(page), retry: 'not-pressed', startEnabled: null, recorded: false };
     if (attempt.offered === null || !RECOVERY_CONTROLS[variant].includes(attempt.offered)) return attempt;
     // Only AHT-13/14 recover, through Retry. Any other offer is never pressed: the verdict decides.
     if (attempt.offered !== 'mic-retry') return attempt;
     const before = await modelStatuses(page);
-    await pressCaptureControl(page, ['mic-retry'], { beforeClick: () => gate.confirm() });
+    await pressCaptureControl(page, ['mic-retry'], { beforeClick: () => gate.confirm().then(() => noteRetryAdmission?.()) });
     attempt.retry = await waitForRetrySetup(page, before.observed ? before.statuses.length : null);
     if (attempt.retry !== 'ready') return attempt;
     const start = page.getByTestId('mic-start');
@@ -259,8 +259,8 @@ async function readNewTakeRows(uid: string, baseline: readonly string[]): Promis
  * exactly one new row for the take — the page-bound id, completed, idempotency key, transcript available and non-empty.
  */
 async function saveRecoveredTake(page: Page, variant: AdverseVariant, preconditionEstablished: boolean,
-    owner: { uid: string; baseline: readonly string[] }, label: string, takes: string[], gate: CaptureConsentGate) {
-    const attempt = await pressRecovery(page, variant, gate);
+    owner: { uid: string; baseline: readonly string[] }, label: string, takes: string[], gate: CaptureConsentGate, noteRetryAdmission?: () => void) {
+    const attempt = await pressRecovery(page, variant, gate, noteRetryAdmission);
     let savedId: string | null = null;
     let read: Awaited<ReturnType<typeof readNewTakeRows>> = { rows: [], digests: new Map() };
     if (attempt.recorded) {
@@ -613,7 +613,8 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
                 return;
             }
             // Retry is judged only after a failed download was stated with Retry; otherwise there is nothing to recover from.
-            const recovered = await saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes, gate);
+            const recovered = await saveRecoveredTake(page, variant, failure.status === 'PASS', accountRows, `adverse-${variant}`, takes, gate,
+                variant === 'offline-mid-download' ? () => watch.noteRetryAdmission() : undefined);
             const after = await modelStatuses(page);
             receipt.row('Retry downloads the model and a take saves', recovered.verdict.status, recovered.verdict.detail,
                 { ...recovered.evidence, sawReadyAfterRetry: after.observed && after.statuses.includes('ready'), statusesObserved: after.observed,
