@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import contract from './contract.json' with { type: 'json' };
-import { APPROVED_COACHING_MODELS } from './modelReadinessStore.ts';
+import { geminiReadinessModel } from './modelReadinessStore.ts';
 
 export function authorizeModelReadback(req: Request, serviceRole: string | undefined): boolean {
   if (req.method !== 'POST' || req.headers.has('Origin') || !serviceRole) return false;
@@ -14,7 +14,7 @@ export async function activeCoachingModelReadback(client: () => SupabaseClient, 
   if (!enabled) return { model: contract.model, revision: null, readiness: 'not_checked' };
   const { data, error } = await client().from('coaching_model_selection').select('model,revision,verified,verified_until,probe_deadline')
     .eq('single', true).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(700)])).maybeSingle();
-  if (error || !data || !APPROVED_COACHING_MODELS.some((entry) => entry.id === data.model)) return null;
+  if (error || !data || !geminiReadinessModel(data.model)) return null;
   return {
     model: data.model, revision: Number.isSafeInteger(data.revision) ? data.revision : null,
     readiness: data.probe_deadline && Date.parse(data.probe_deadline) > Date.now() ? 'checking'

@@ -2996,6 +2996,7 @@ Deno.test('LLM evaluator parity: the handler sends exactly the evaluator prompt 
 }
 
 Deno.test('live readiness: only the selected model is persisted; no send while the probe is unresolved', async () => {
+  const selected = 'gemini-3.5-flash-lite';
   const enableReadiness = () => true; // Test dependency; native environment allowlist remains GEMINI_API_KEY only.
   for (const outcome of ['exact', 'wrong', 'pending', 'expired'] as const) {
     resetProvider();
@@ -3008,17 +3009,18 @@ Deno.test('live readiness: only the selected model is persisted; no send while t
       const selection = { select: () => selection, eq: () => selection, abortSignal: () => selection,
         maybeSingle: async () => {
           reads++;
-          return { data: { model: coachingContract.model, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(),
+          return { data: { model: selected, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(),
             probe_deadline: probePending ? new Date(Date.now() + 25_000).toISOString()
               : outcome === 'expired' ? new Date(Date.now() - 1_000).toISOString() : null }, error: null };
         } };
       return selection;
     };
-    if (outcome === 'wrong') geminiModelVersion = 'gemini-other-model';
+    geminiModelVersion = outcome === 'wrong' ? coachingContract.model : selected;
     const response = await handler(request(), mock.create, () => ({ ...base, from }), enableReadiness);
     assertEquals(reads > 0, true);
     assertEquals(response.status, outcome === 'exact' ? 200 : outcome === 'wrong' ? 502 : outcome === 'pending' ? 425 : 503);
     assertEquals(fetchCount, outcome === 'pending' || outcome === 'expired' ? 0 : 1);
+    if (outcome === 'exact') assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + selected + ':generateContent');
     if (outcome === 'expired') {
       assertEquals((await response.json()).code, 'service_configuration');
       assertEquals(mock.state.quotaCount, 0);
@@ -3029,6 +3031,7 @@ Deno.test('live readiness: only the selected model is persisted; no send while t
       probePending = false;
       assertEquals((await handler(request(), mock.create, () => ({ ...base, from }), enableReadiness)).status, 200);
       assertEquals([fetchCount, mock.state.quotaCount], [1, 1]);
+      assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + selected + ':generateContent');
     }
     if (outcome === 'wrong') {
       const value = await response.json();

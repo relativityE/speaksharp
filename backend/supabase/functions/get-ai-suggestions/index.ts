@@ -13,7 +13,7 @@ import {
 import { GEMINI_API_URL, GEMINI_GENERATION_CONFIG } from './providers/gemini.ts';
 import { PERSISTABLE_PROVIDER_IDS, SELECTED_PROVIDER_ID, selectProvider } from './providers/registry.ts';
 import { runMicStartReadiness, type ProbeResult } from './modelReadiness.ts';
-import { APPROVED_COACHING_MODELS, createReadinessStore, providerForApprovedModel, readReadyCoachingModel } from './modelReadinessStore.ts';
+import { createReadinessStore, discoverGeminiReadinessModels, geminiReadinessModel, readinessProvider, readReadyCoachingModel } from './modelReadinessStore.ts';
 import { evaluationPrompt, type EvaluationItem } from './evaluation/prompt.ts';
 import { measureGrounding } from './evaluation/evaluator.ts';
 import readinessFixtures from './evaluation/transcripts.json' with { type: 'json' };
@@ -662,7 +662,12 @@ export async function handler(
       const privilegedStore = createReadinessStore(createServiceRoleSupabase());
       try {
         await runMicStartReadiness({ recordingConfirmed: true, coachingSelected: true }, {
-          approvedModels: APPROVED_COACHING_MODELS,
+          modelFor: geminiReadinessModel,
+          discover: async (signal) => {
+            if (req.signal.aborted || signal.aborted || !await consentStillHolds()) return [];
+            const apiKey = readinessSecrets.providerKey('GEMINI_API_KEY');
+            return apiKey ? await discoverGeminiReadinessModels(apiKey, AbortSignal.any([signal, req.signal])) : [];
+          },
           now: Date.now,
           store: {
             claim: privilegedStore.claim,
@@ -671,15 +676,15 @@ export async function handler(
             ),
           },
           probe: async (model, product, signal): Promise<ProbeResult> => {
-            if (signal.aborted || !await consentStillHolds()) return { status: 'failed' };
-            const adapter = providerForApprovedModel(model.id);
+            if (req.signal.aborted || signal.aborted || !await consentStillHolds()) return { status: 'failed' };
+            const adapter = readinessProvider(model.id);
             const apiKey = adapter && readinessSecrets.providerKey(adapter.keyVariable);
             const fixture = readinessFixtures.items.find((item) => item.product === product);
             if (!adapter || !apiKey || !fixture) return { status: 'failed' };
             let retryAfter: string | null = null;
             const result = await adapter.attempt({
               prompt: evaluationPrompt(fixture as EvaluationItem),
-              apiKey, signal, readinessProbe: true,
+              apiKey, signal: AbortSignal.any([signal, req.signal]), readinessProbe: true,
               onResponse: (_status, hint) => { retryAfter = hint ?? null; },
             });
             if (result.status === 200) {
@@ -701,11 +706,12 @@ export async function handler(
                 status: result.status,
                 scope: hint.kind === 'malformed' ? 'unknown'
                   : result.status === 429 ? result.readinessQuota?.scope ?? 'unknown'
-                    : result.errorCodes?.error_status === 'UNAVAILABLE' && !result.errorCodes.error_reason ? 'model' : 'unknown',
+                    : !result.errorCodes?.error_reason && (!result.errorCodes || ['UNAVAILABLE', 'unparseable'].includes(result.errorCodes.error_status))
+                      ? 'model' : 'unknown',
                 retryAfterMs: Math.max(hint.kind === 'valid' ? hint.ms : 0, result.readinessQuota?.retryAfterMs ?? 0) || undefined,
               };
             }
-            return { status: 'failed' };
+            return { status: result.status === 404 ? 'model_unavailable' : 'failed' };
           },
         });
       } catch {
@@ -927,9 +933,9 @@ export async function handler(
     const activeModel = readiness.kind === 'ready' ? readiness.model : null;
     configuredProviderModel = activeModel;
     const expectedModelVersions = liveReadiness
-      ? APPROVED_COACHING_MODELS.find((candidate) => candidate.id === activeModel)?.observedVersions : undefined;
+      ? geminiReadinessModel(activeModel)?.observedVersions : undefined;
     const provider = liveReadiness
-      ? (activeModel ? providerForApprovedModel(activeModel) : null)
+      ? (activeModel ? readinessProvider(activeModel) : null)
       : selectProvider(SELECTED_PROVIDER_ID);
     const apiKey = provider ? Deno.env.get(provider.keyVariable) : undefined;
     if (!provider || !apiKey) {

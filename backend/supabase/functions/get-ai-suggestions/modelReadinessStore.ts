@@ -1,17 +1,88 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import type { ApprovedModel, ClaimResult, ReadinessStore } from './modelReadiness.ts';
+import type { ReadinessModel, ClaimResult, ReadinessStore } from './modelReadiness.ts';
 import contract from './contract.json' with { type: 'json' };
 import { parseProviderDescriptor, PROVIDER_CATALOG } from './providers/catalog.ts';
 import { createGeminiAdapter } from './providers/gemini.ts';
 
-/** Eligibility is reviewed release data, not a second active selection. No unqualified candidate is enabled. */
-export const APPROVED_COACHING_MODELS: readonly ApprovedModel[] = [
-  { id: contract.model, observedVersions: [contract.model] },
-];
+// Match the existing Ops Health stable Flash/Flash-Lite family. No provider aliases,
+// preview IDs or caller-supplied URLs can become the active model.
+const FLASH = /^gemini-(\d{1,3})\.(\d{1,3})-flash(-lite)?(?:-(\d{3}))?$/;
 const descriptor = PROVIDER_CATALOG.find((p) => p.id === 'google_gemini');
-export function providerForApprovedModel(id: string) {
-  if (!descriptor || !APPROVED_COACHING_MODELS.some((p) => p.id === id)) return null;
+const CATALOG_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+function rank(id: string): number[] | null {
+  const match = FLASH.exec(id);
+  if (!match) return null;
+  const [, major, minor, lite, revision = '0'] = match;
+  if (+major < 3 || (+major === 3 && +minor < 5)) return null;
+  return [+major, +minor, lite ? 0 : 1, +revision];
+}
+
+export function geminiReadinessModel(id: unknown): ReadinessModel | null {
+  return typeof id === 'string' && (id === contract.model || rank(id))
+    ? { id, observedVersions: [id] } : null;
+}
+
+export function readinessProvider(id: string) {
+  if (!descriptor || !geminiReadinessModel(id)) return null;
   return createGeminiAdapter(parseProviderDescriptor({ ...descriptor, model: id }));
+}
+
+async function catalogPage(response: Response) {
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let bytes = 0;
+  let text = '';
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) return JSON.parse(text + decoder.decode());
+      bytes += chunk.value.byteLength;
+      if (bytes > 262_144) return null;
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+}
+
+export async function discoverGeminiReadinessModels(
+  apiKey: string, signal: AbortSignal, fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<ReadinessModel[]> {
+  const models = new Map<string, number[]>();
+  const tokens = new Set<string>();
+  let token: string | undefined;
+  try {
+    for (let i = 0; i < 4 && !signal.aborted; i++) {
+      const url = new URL(CATALOG_ENDPOINT);
+      url.searchParams.set('pageSize', '100');
+      if (token) url.searchParams.set('pageToken', token);
+      const response = await fetchImpl(url, { method: 'GET', headers: { 'x-goog-api-key': apiKey }, redirect: 'error', signal });
+      if (response.status !== 200) {
+        void response.body?.cancel().catch(() => {});
+        return [];
+      }
+      const page = await catalogPage(response);
+      if (!Array.isArray(page?.models) || page.models.length > 100) return [];
+      for (const item of page.models) {
+        const id = typeof item?.name === 'string' && item.name.startsWith('models/') ? item.name.slice(7) : '';
+        const order = rank(id);
+        if (order && Array.isArray(item.supportedGenerationMethods) && item.supportedGenerationMethods.includes('generateContent')) {
+          models.set(id, order);
+        }
+      }
+      const next: unknown = page.nextPageToken;
+      if (next === undefined || next === '') {
+        return [...models.entries()].sort(([a, x], [b, y]) => y[0] - x[0] || y[1] - x[1] || y[2] - x[2] || y[3] - x[3] || a.localeCompare(b))
+          .map(([id]) => ({ id, observedVersions: [id] }));
+      }
+      if (typeof next !== 'string' || next.length > 2048 || tokens.has(next)) return [];
+      tokens.add(next);
+      token = next;
+    }
+  } catch { /* Unavailable or incomplete catalog cannot select a model. */ }
+  return [];
 }
 
 function state(value: unknown): value is { model: string; revision: number } {
