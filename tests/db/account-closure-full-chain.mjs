@@ -1059,6 +1059,9 @@ export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
   // #1829 refund follow-up signal (restricted operational table and its writer; Sam's 2026-11-12 decision).
   Object.freeze({name:'20261112130000_stripe_refund_followups.sql',version:'20261112130000',
     sha256:'47fce28446a1e8f56c27dd10a6bb92e803a5907db0fd9d7fa67cbf11f9701fe8'}),
+  // #1977 global service-owned readiness; no account rows or closure behavior. The migration has separate SQL/ACL proof.
+  Object.freeze({name:'20261126005433_coaching_model_readiness.sql',version:'20261126005433',
+    sha256:'fa07703cef9764d346621e6a2a2543606a1e3eb5b24fa1e1265bd0f24e243079'}),
 ]);
 // #1835 changes session/coaching behavior; withheld from every profile before main-practice-privacy-133, which stages it
 // after the payment wall. Elsewhere this pin recognizes repository presence, not installed privacy behavior.

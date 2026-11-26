@@ -30,6 +30,13 @@ const ABANDONMENT_WITHHELD_REFUND = Object.freeze({
     mustRemainPending: true,
 });
 
+export const COACHING_READINESS_MIGRATION = Object.freeze({
+    version: '20261126005433',
+    file: '20261126005433_coaching_model_readiness.sql',
+    sha256: 'fa07703cef9764d346621e6a2a2543606a1e3eb5b24fa1e1265bd0f24e243079',
+    classification: 'staged',
+});
+
 export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
     Object.freeze({
         version: '20260811143000',
@@ -342,6 +349,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         sha256: RETIREMENT_WITHHELD_BILLING.sha256,
         classification: 'staged',
     }),
+    COACHING_READINESS_MIGRATION,
     Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
@@ -415,6 +423,11 @@ export function resolveExactMigrationConfig(env = process.env) {
         const targetIndex = EXACT_MIGRATION_ALLOWLIST.findIndex(({ version }) => version === env.SELECTED_TARGET_VERSION);
         if (targetIndex < 0) throw new Error('selected migration is not in the checked-in allowlist');
         const target = EXACT_MIGRATION_ALLOWLIST[targetIndex];
+        const coachingReadiness = target === COACHING_READINESS_MIGRATION;
+        // Coaching is additive and independent of completion billing. Leave that migration
+        // in its existing ledger state, and do not hide it if it is already applied.
+        const independentBilling = { version: RETIREMENT_WITHHELD_BILLING.version, file: RETIREMENT_WITHHELD_BILLING.file, sha256: RETIREMENT_WITHHELD_BILLING.sha256 };
+        const independentReadiness = { version: COACHING_READINESS_MIGRATION.version, file: COACHING_READINESS_MIGRATION.file };
         return {
             targetVersion: target.version,
             targetFile: target.file,
@@ -423,7 +436,9 @@ export function resolveExactMigrationConfig(env = process.env) {
             requiresIncludeAll: targetIndex === 0 || OUT_OF_ORDER_TARGETS.includes(target.version),
             requiredAppliedVersions: [
                 APPLIED_WEBHOOK_PREREQUISITE,
-                ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version),
+                ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version)
+                    .filter(version => (!coachingReadiness || version !== independentBilling.version)
+                        && version !== independentReadiness.version),
             ],
             excludedMigrations: uniqueExclusions([
                 ...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
@@ -431,6 +446,8 @@ export function resolveExactMigrationConfig(env = process.env) {
                 ...(target.version === '20261110173548' ? [RETIREMENT_WITHHELD_BILLING] : []),
                 ...(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
                 ...(target.version === RETIREMENT_WITHHELD_BILLING.version ? [ABANDONMENT_WITHHELD_REFUND] : []),
+                ...(coachingReadiness ? [independentBilling, ABANDONMENT_WITHHELD_REFUND] : []),
+                ...(target.classification === 'commercial-activation' ? [independentReadiness] : []),
             ]),
             allowlisted: true,
         };
