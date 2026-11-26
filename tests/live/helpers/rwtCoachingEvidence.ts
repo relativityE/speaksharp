@@ -341,7 +341,14 @@ function evaluatePromptBinding(take: RwtCoachingTakeEvidence, releaseSha: string
   const responseMatches = response.status === 200 && response.outcome === 'success' && response.reason === 'none'
     && response.provider === 'google_gemini' && response.source === 'fresh' && response.has_session === true
     && response.product === take.savedInputReadback.product && response.client_release_id === releaseSha
-    && response.configured_model === coachingContract.model && response.observed_model === take.authorityReceipt.model
+    && isApprovedCoachingSelection(String(response.configured_model))
+    && (take.source !== 'fresh' || response.configured_model === take.configuredModel)
+    && response.observed_model === take.authorityReceipt.model
+    && (response.configured_model === coachingContract.model
+      ? (response.observed_model === coachingContract.model
+        || /^-\d{3}$/.test(String(response.observed_model).slice(coachingContract.model.length))
+          && String(response.observed_model).startsWith(coachingContract.model))
+      : response.observed_model === response.configured_model)
     && Number.isInteger(response.provider_attempts) && Number(response.provider_attempts) >= 1
     && response.retry_count === Number(response.provider_attempts) - 1
     && response.session_binding_sha256 === expectedSessionBinding;
@@ -354,6 +361,12 @@ function evaluatePromptBinding(take: RwtCoachingTakeEvidence, releaseSha: string
     return { verdict: 'FAIL' as const, reason: 'server_prompt_digest_mismatch', recomputedSha256: computed };
   }
   return { verdict: 'PASS' as const, reason: 'recomputed_from_bound_saved_prompt_inputs', recomputedSha256: computed };
+}
+
+export function isApprovedCoachingSelection(id: string): boolean {
+    if (id === coachingContract.model || /^gemini-4-(hydrogen|neon|argon|carbon)$/.test(id)) return true;
+    const match = /^gemini-(\d{1,3})(?:\.(\d{1,3}))?-(?:pro|flash|flash-lite)(?:-\d{3})?$/.exec(id);
+    return !!match && (Number(match[1]) >= 4 || (Number(match[1]) === 3 && Number(match[2] ?? 0) >= 5));
 }
 
 function validateTake(take: RwtCoachingTakeEvidence, releaseSha: string, label: string): void {
@@ -389,11 +402,11 @@ function validateTake(take: RwtCoachingTakeEvidence, releaseSha: string, label: 
     || take.diagnosticStatus !== 200 || take.diagnosticOutcome !== 'success' || take.diagnosticReason !== 'none'
     || !Number.isInteger(take.providerAttempts) || take.providerAttempts < 0 || take.providerAttempts > EDGE_MAX_PROVIDER_ATTEMPTS
     || !Number.isInteger(take.retryCount) || take.retryCount < 0 || take.retryCount > EDGE_MAX_PROVIDER_ATTEMPTS - 1
-    || !MODEL_ID.test(take.configuredModel) || take.configuredModel !== coachingContract.model
+    || !MODEL_ID.test(take.configuredModel) || !isApprovedCoachingSelection(take.configuredModel)
     || !Number.isFinite(take.providerDurationMs) || take.providerDurationMs < 0
     || !Number.isFinite(take.totalDurationMs) || take.totalDurationMs < take.providerDurationMs
     || (take.promptSha256 !== null && !SHA64.test(take.promptSha256))) {
-    if (take.configuredModel !== coachingContract.model) throw new Error(`${label}: configured model does not match the active coaching contract`);
+    if (!isApprovedCoachingSelection(take.configuredModel)) throw new Error(`${label}: configured model is outside the approved Gemini selection`);
     throw new Error(`${label}: model or timing evidence is incomplete`);
   }
 

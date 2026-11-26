@@ -1,3 +1,4 @@
+import { isApprovedCoachingSelection } from './rwtCoachingEvidence';
 /**
  * #1258 (PM 6114590729) — adapter from the #1589 coaching diagnostics to the #1590 feedback-diagnostic contract.
  *
@@ -348,7 +349,7 @@ export async function feedbackDiagnosticChainRow(input: {
     exchanges: readonly CoachingExchange[];
     /** #1258 R11: the tap's observed events; failure reports are bound to their request by `bindFailureReports`. */
     observedEvents?: readonly ObservedEvent[];
-    configuredModel: string;
+    configuredModel?: string;
     product: 'open_mic' | 'focus_points';
 }): Promise<void> {
     const { receipt } = input;
@@ -359,7 +360,17 @@ export async function feedbackDiagnosticChainRow(input: {
             { reasons: input.reportId ? 'no_saved_take' : 'report_not_found' });
         return;
     }
-    const expected = takeExpectation({ reportId: input.reportId, reportedSessionId, currentSessionId: input.currentSessionId, exchanges: input.exchanges, configuredModel: input.configuredModel });
+    // In the dynamic J1.b lane, compare the received telemetry to the model
+    // reported by the Edge response for the exact browser request, not a global pin.
+    const observedSelection = terminalFor(input.exchanges, reportedSessionId)?.diagnostics?.configured_model;
+    const configuredModel = input.configuredModel ?? (typeof observedSelection === 'string'
+        && isApprovedCoachingSelection(observedSelection) ? observedSelection : null);
+    if (configuredModel === null) {
+        receipt.row('feedback diagnostic chain', 'HOLD', 'the selected model for the reported take is unavailable',
+            { reasons: 'configured_model_not_proven' });
+        return;
+    }
+    const expected = takeExpectation({ reportId: input.reportId, reportedSessionId, currentSessionId: input.currentSessionId, exchanges: input.exchanges, configuredModel });
     if (!expected) {
         receipt.row('feedback diagnostic chain', 'HOLD', 'the run sent no coaching request for the reported take', { reasons: 'request_not_found' });
         return;
@@ -407,7 +418,7 @@ export async function feedbackDiagnosticChainRow(input: {
             reasons: v.reasons.join(',') || 'none', echoMismatches,
             ...(settleable ? {
                 expectedRequestSha256: sha(expected.requestId!), expectedAttemptSha256: sha(expected.attemptId!),
-                expectedProduct: input.product, expectedConfiguredModel: input.configuredModel, expectedOutcome: receivedOutcome,
+                expectedProduct: input.product, expectedConfiguredModel: configuredModel, expectedOutcome: receivedOutcome,
             } : {}),
         });
 }

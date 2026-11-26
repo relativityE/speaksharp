@@ -688,7 +688,7 @@ export function inFlightTimeline(open: readonly { sent: CoachingExchange['sent']
 
 export function coachingRequestBudgetRow(
     receipt: ReceiptLike,
-    tap: { sentCount: number; exchanges: readonly CoachingExchange[]; inFlight?: () => { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[] },
+    tap: { sentCount: number; readinessSentCount?: number; readiness204Count?: number; exchanges: readonly CoachingExchange[]; inFlight?: () => { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[] },
     budget: { maximum: number; oneRequestPerSession?: readonly string[]; sessionIdsVerified?: boolean },
 ): void {
     const answered = tap.exchanges.filter((e) => e.status !== null);
@@ -732,6 +732,7 @@ export function coachingRequestBudgetRow(
                 : holdReason,
         {
             maximum: budget.maximum, browserRequests: tap.sentCount, answered: answered.length,
+            ...(tap.readinessSentCount === undefined ? {} : { readinessBrowserRequests: tap.readinessSentCount, readinessResponses204: tap.readiness204Count ?? 0 }),
             withDiagnostics: readable.length, malformedProviderAttempts: malformed, providerAttemptsReported,
             providerAttemptAllowance, perRequestProviderAttemptCap: EDGE_MAX_PROVIDER_ATTEMPTS, maxProviderAttemptsForOneRequest,
             maxRequestsForOneTake: perSession.length > 0 ? Math.max(...perSession) : 0,

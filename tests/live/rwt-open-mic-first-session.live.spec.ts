@@ -122,7 +122,6 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair, witnessShownTake } from './helpers/rwtCoachingCollector';
 import { answerOrder, deferredLateCoachingSink, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader, reopenWithinCutoff } from './helpers/rwtLateCoaching';
-import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { observeActive } from './helpers/rwtNumericActive';
 import { openProductsItem } from './helpers/productsMenu';
 import { OPEN_MIC_FIRST_SESSION_CONSENT_MODE, captureConsentGate, settleFixedConsentOnPractice, type CaptureConsentGate, type ChoiceClient } from './helpers/rwtPracticeConsent';
@@ -1019,7 +1018,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
                     receipt, admin: admin as never, userId: capturedUid, reportId: feedbackReportId, currentSessionId: persistedId,
-                    exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'open_mic',
+                    exchanges: generations.exchanges, observedEvents: tap.events, product: 'open_mic',
                 });
             });
 

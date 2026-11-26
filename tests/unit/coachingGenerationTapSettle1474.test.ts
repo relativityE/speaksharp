@@ -155,3 +155,35 @@ describe('CoachingGenerationTap.settle — every sent exchange, bounded (#1474)'
         expect(receipt.rows[0].detail).toMatch(/failed in the browser/);
     });
 });
+
+it.each([
+    [1, 'readiness', 'PASS', 1, 1],
+    [4, 'readiness', 'PASS', 4, 1],
+    [4, 'review-425', 'FAIL', 5, 0],
+    [1, 'ordinary-204', 'HOLD', 2, 0],
+    [1, 'mixed-shape', 'HOLD', 2, 0],
+] as const)('counts %s reviews and a %s separately only for exact readiness', async (reviews, kind, verdict, sent, probes) => {
+    const page = new FakePage();
+    const tap = new CoachingGenerationTap();
+    tap.attach(page as never);
+    const request = kind === 'readiness' || kind === 'mixed-shape' ? {
+        ...coachingRequest('unused'),
+        postDataJSON: () => ({ operation: 'mic_start_readiness', leaseId: '7e4fc020-ea55-4bd0-9fc1-2bec97e54965',
+            consentRevision: 1, ...(kind === 'mixed-shape' ? { sessionId: 'take-0' } : {}) }),
+    } : coachingRequest('take-0');
+    page.emit('request', request);
+    page.emit('response', kind === 'review-425'
+        ? { ...answer(request, 0), status: () => 425 }
+        : { request: () => request, status: () => 204, json: async () => { throw new SyntaxError('Empty response'); } });
+    for (let i = 0; i < reviews; i++) {
+        const review = coachingRequest('take-' + i);
+        page.emit('request', review);
+        page.emit('response', answer(review, 1));
+    }
+    await tap.settle(200);
+    const receipt = receiptRows();
+    coachingRequestBudgetRow(receipt, tap, { maximum: 4 });
+    expect(receipt.rows[0]).toMatchObject({ verdict, evidence: {
+        browserRequests: sent, readinessBrowserRequests: probes, readinessResponses204: probes, providerAttemptsReported: reviews,
+    } });
+});

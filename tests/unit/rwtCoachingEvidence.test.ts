@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -204,7 +205,7 @@ describe('RWT restricted synthetic coaching evidence', () => {
     expect(wrongModel.configuredModel).not.toBe('gemini-3.6-flash');
     expect(wrongModel.configuredModel).not.toBe('gemini-3.8-flash');
     expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: wrongModel, repeatTake: take('2') }))
-      .toThrow(/configured model does not match the active coaching contract/);
+      .toThrow(/configured model is outside the approved Gemini selection/);
   });
 
   it('recomputes the canonical saved suggestion digest; changing the pair and matching render cannot reuse old hashes', () => {
@@ -406,3 +407,21 @@ describe('coaching evidence — the option A attempt ceiling', () => {
     expect(() => build(withAttempts(2.5, 1.5))).toThrow();
   });
 });
+
+const cloudBuild = createRequire(import.meta.url)('../../tools/cloud-test/harness/draft-adapters/oracles/pure/rwtCoachingEvidence.cjs')
+  .buildRwtCoachingEvidenceArtifact as typeof buildRwtCoachingEvidenceArtifact;
+it.each([['live', buildRwtCoachingEvidenceArtifact], ['cloud', cloudBuild]] as const)(
+  '%s accepts the selected Gemini 4 and rejects different configured/observed authority', (_lane, build) => {
+    const firstTake = take('1');
+    const repeatTake = take('2');
+    const releaseSha = 'a'.repeat(40);
+    const response = firstTake.promptGenerationReceipt!.response;
+    response.configured_model = response.observed_model = firstTake.configuredModel =
+      firstTake.authorityReceipt.model = 'gemini-4-hydrogen';
+    expect(build({ releaseSha, firstTake, repeatTake }).firstTake.promptBinding.verdict).toBe('PASS');
+    response.observed_model = firstTake.authorityReceipt.model = 'gemini-4-neon';
+    expect(build({ releaseSha, firstTake, repeatTake }).firstTake.promptBinding.verdict).toBe('FAIL');
+    response.observed_model = firstTake.authorityReceipt.model = 'gemini-4-hydrogen';
+    response.configured_model = 'gemini-4-neon';
+    expect(build({ releaseSha, firstTake, repeatTake }).firstTake.promptBinding.verdict).toBe('FAIL');
+  });
