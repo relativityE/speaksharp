@@ -1,3 +1,4 @@
+import { isReportableGeminiModel } from './gemini-ops-row.mjs';
 // Pure rendering / aggregation for the ops-health dashboard. Extracted from ops-health.mjs so the JSON and
 // Markdown output surfaces (and the exit-code rule) are importable and unit-testable without executing the
 // full dashboard. No I/O, no network, no process side effects.
@@ -162,7 +163,6 @@ export function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary
 }
 
 const PUBLIC_GEMINI_GENERATION = new Set(['Gemini generation', 'Gemini highest working model']);
-const PUBLIC_GEMINI_VERSION = /^gemini-\d{1,3}\.\d{1,3}-flash(?:-lite)?(?:-\d{3})?$/;
 
 export function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, summary, checks, canaryActivity }) {
   return {
@@ -186,8 +186,10 @@ export function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, su
       drilldownUrl: check.drilldownUrl,
       ...(check.github ? { github: check.github } : {}),
       ...(PUBLIC_GEMINI_GENERATION.has(check.name) && check.status === 'pass'
-        && typeof check.providerModelVersion === 'string' && PUBLIC_GEMINI_VERSION.test(check.providerModelVersion)
+        && isReportableGeminiModel(check.providerModelVersion)
         ? { providerModelVersion: check.providerModelVersion } : {}),
+      ...(check.name === 'Gemini highest working model' && check.status === 'pass'
+        && isReportableGeminiModel(check.highestWorkingModel) ? { highestWorkingModel: check.highestWorkingModel } : {}),
       ...(check.name === 'Gemini generation' && typeof check.configuredModelVersion === 'string'
         && /^gemini-[a-z0-9][a-z0-9.-]{0,58}$/.test(check.configuredModelVersion)
         ? { configuredModelVersion: check.configuredModelVersion } : {}),

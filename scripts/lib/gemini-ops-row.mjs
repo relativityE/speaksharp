@@ -11,7 +11,11 @@ const MAX_RESPONSE_BYTES = 16_384;
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DRILLDOWN = 'https://aistudio.google.com/';
 const SAFE_VERSION = /^gemini-[a-z0-9][a-z0-9.-]{0,58}$/;
-const CATALOG_MODEL = /^gemini-(\d{1,3})\.(\d{1,3})-flash(-lite)?(?:-(\d{3}))?$/;
+const GEMINI_4 = ['gemini-4-hydrogen', 'gemini-4-neon', 'gemini-4-argon', 'gemini-4-carbon'];
+const CATALOG_MODEL = /^gemini-(\d{1,3})(?:\.(\d{1,3}))?-(pro|flash|flash-lite)(?:-(\d{3}))?$/;
+export function isReportableGeminiModel(id) {
+  return typeof id === 'string' && (GEMINI_4.includes(id) || CATALOG_MODEL.test(id));
+}
 const MAX_CATALOG_PAGES = 4;
 const MAX_PROBES = 8;
 
@@ -94,7 +98,7 @@ async function probeGeneration(key, modelId, fetchImpl, deadlineMs) {
 }
 
 function fixed(status, detail, providerModelVersion = null) {
-  return { status, detail, drilldownUrl: DRILLDOWN, ...(typeof providerModelVersion === 'string' && CATALOG_MODEL.test(providerModelVersion) ? { providerModelVersion } : {}) };
+  return { status, detail, drilldownUrl: DRILLDOWN, ...(isReportableGeminiModel(providerModelVersion) ? { providerModelVersion } : {}) };
 }
 function keyPresent(key) { return typeof key === 'string' && Boolean(key.trim()); }
 
@@ -110,12 +114,14 @@ function rankedModels(entries) {
   const ids = new Map();
   for (const entry of entries) {
     const id = typeof entry?.name === 'string' && entry.name.startsWith('models/') ? entry.name.slice(7) : '';
+    if (!Array.isArray(entry?.supportedGenerationMethods) || !entry.supportedGenerationMethods.includes('generateContent')) continue;
+    const named = GEMINI_4.indexOf(id);
+    if (named >= 0) { ids.set(id, [4, 0, GEMINI_4.length + 2 - named, 0]); continue; }
     const match = CATALOG_MODEL.exec(id);
-    if (!match || !Array.isArray(entry.supportedGenerationMethods)
-        || !entry.supportedGenerationMethods.includes('generateContent') || (!match[3] && entry.thinking === false)) continue;
-    const [, maj, min, lite, rev = '0'] = match;
+    if (!match || (match[3] !== 'flash-lite' && entry.thinking === false)) continue;
+    const [, maj, min = '0', tier, rev = '0'] = match;
     if (Number(maj) < 3 || (Number(maj) === 3 && Number(min) < 5)) continue;
-    ids.set(id, [Number(maj), Number(min), lite ? 0 : 1, Number(rev)]);
+    ids.set(id, [Number(maj), Number(min), tier === 'pro' ? 2 : tier === 'flash' ? 1 : 0, Number(rev)]);
   }
   return [...ids.keys()].sort((a, b) => {
     const aa = ids.get(a), bb = ids.get(b);
@@ -158,6 +164,8 @@ export async function evaluateHighestWorkingGemini(key, { fetchImpl = globalThis
   for (const id of ranked.slice(0, MAX_PROBES)) {
     const result = await probeGeneration(key, id, fetchImpl, 10_000);
     results.push(result);
+    // The response does not establish quota scope; do not fan out on 429.
+    if (result.httpStatus === 429) break;
   }
   const working = results.find((result) => result.reason === 'generated');
   const tests = results.map((r) => `${r.modelId}:${r.httpStatus ?? 'no_http'}:${r.reason}`).join(',') || 'none';
@@ -165,10 +173,9 @@ export async function evaluateHighestWorkingGemini(key, { fetchImpl = globalThis
   const label = working ? `Gemini: 200 · ${working.modelVersion ?? 'version unreported'}; ` : '';
   const detail = `${label}pinned=${pinned}; highest_working=${working?.modelId ?? 'unverified'}; `
     + `provider_model_version=${working?.modelVersion ?? 'unreported'}; tested=${tests}; `
-    + `sweep=${untested.length ? 'incomplete_probe_cap' : 'complete'}; untested_count=${untested.length}; untested_sample=${untested.slice(0, MAX_PROBES).join(',') || 'none'}`;
-  // Keep the legacy success/evidence unchanged. Only the highest successful probe that reported
-  // an allowlisted version may supply the typed field for display.
-  const verified = results.find((result) => result.reason === 'generated' && typeof result.modelVersion === 'string'
-    && CATALOG_MODEL.test(result.modelVersion));
-  return fixed(working ? 'pass' : 'fail', detail, verified?.modelVersion);
+    + `sweep=${untested.length ? (results.at(-1)?.httpStatus === 429 ? 'incomplete_rate_limited' : 'incomplete_probe_cap') : 'complete'}; untested_count=${untested.length}; untested_sample=${untested.slice(0, MAX_PROBES).join(',') || 'none'}`;
+  return {
+    ...fixed(working ? 'pass' : 'fail', detail, working?.modelVersion),
+    ...(working ? { highestWorkingModel: working.modelId } : {}),
+  };
 }
