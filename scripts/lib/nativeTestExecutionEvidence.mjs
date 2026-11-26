@@ -43,6 +43,9 @@ export const SQL_CONTRACTS=Object.freeze([
       'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
       'tests/db/fixtures/practice-privacy-choices-1835.sql',
     ])}),
+  // #1977: execute the isolated schema fixture in PGlite; this is not a shipped migration.
+  Object.freeze({consumer:'tests/db/coaching-model-readiness.test.ts',
+    files:Object.freeze(['tests/db/fixtures/coaching-model-readiness.sql'])}),
   // #1827 D2 repeat tip: the catalog gate test executes the exact migration over the shipped PGlite chain and writes its witness;
   // the native database runs in the account-closure full-chain proof workflow (profile main-repeat-tip-134).
   Object.freeze({consumer:'tests/db/repeatTipPostflight.integration.test.ts',
