@@ -4,7 +4,7 @@ import contract from './contract.json' with { type: 'json' };
 import { parseProviderDescriptor, PROVIDER_CATALOG } from './providers/catalog.ts';
 import { createGeminiAdapter } from './providers/gemini.ts';
 
-// Numbered Gemini text models, without a pinned version range. Ignore moving aliases,
+// Numbered Gemini text models from 3.4 up. Ignore moving aliases,
 // previews and specialist models; the real coaching probe supplies the capability check.
 const GEMINI_TEXT = /^gemini-(\d{1,3})(?:\.(\d{1,3}))?-(pro|flash|flash-lite)(?:-(\d{3}))?$/;
 const descriptor = PROVIDER_CATALOG.find((p) => p.id === 'google_gemini');
@@ -14,6 +14,7 @@ function rank(id: string): number[] | null {
   const match = GEMINI_TEXT.exec(id);
   if (!match) return null;
   const [, major, minor = '0', tier, revision = '0'] = match;
+  if (+major < 3 || (+major === 3 && +minor < 4)) return null;
   return [+major, +minor, tier === 'pro' ? 2 : tier === 'flash' ? 1 : 0, +revision];
 }
 

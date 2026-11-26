@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { handler } from './index.ts';
-import { discoverGeminiReadinessModels, readReadyCoachingModel } from './modelReadinessStore.ts';
+import { discoverGeminiReadinessModels, geminiReadinessModel, readReadyCoachingModel } from './modelReadinessStore.ts';
 import contract from './contract.json' with { type: 'json' };
 
 const user = '0da395d5-2ee3-4c84-9200-5ae232b20c00';
@@ -179,11 +179,13 @@ Deno.test('runtime catalog is bounded and selects only stable Gemini text genera
     }));
     assert.equal(requestUrl.searchParams.get('pageToken'), 'second');
     return Promise.resolve(Response.json({
-      models: [item('gemini-3.8-flash'), item('gemini-3.8-pro'), item('gemini-3.7-flash-lite'), item('gemini-3.4-flash'), item('../gemini-4.0-flash'), item('other-4.0-pro')],
+      models: [item('gemini-3.8-flash'), item('gemini-3.8-pro'), item('gemini-3.7-flash-lite'), item('gemini-3.4-flash'), item('gemini-3.3-pro'), item('gemini-2.5-flash'), item('../gemini-4.0-flash'), item('other-4.0-pro')],
     }));
   };
   assert.deepEqual((await discoverGeminiReadinessModels('fake', signal, fake)).map((model) => model.id),
     ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-3.7-flash-lite', 'gemini-3.4-flash']);
+  assert.equal(geminiReadinessModel('gemini-3.4-flash')?.id, 'gemini-3.4-flash');
+  assert.equal(geminiReadinessModel('gemini-3.3-pro'), null);
   assert.equal(calls.length, 2);
   let repeated = 0;
   assert.deepEqual(await discoverGeminiReadinessModels('fake', signal, () => {

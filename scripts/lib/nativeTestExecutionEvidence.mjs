@@ -492,7 +492,7 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/index.ts':'49d85eb26262148e387fb035aec6aade6aae8ebe6e8f0a8a5e317c0e03c373a9',
     'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'ab869a6ab477fb83511b1b447fa6a8e6256682be58e158401f51510066789e27',
     'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'242aed9faf2c95b6da37650272f9e38bffa066a22b43329c44bc19a6fc3d0a94',
-    'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'95a55c4515dfb1280680d9b0633db21af264ae459f65db003fe04aaa3dd205d4',
+    'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'42c5dfa6aacc4795b6a2ceed0edd8bd8a1193a66b4b877f221943222355ab9b1',
     'backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts':'525f36728d57c98ef03261acabb343c55a3a327319c585cf70df80cc76108015',
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
