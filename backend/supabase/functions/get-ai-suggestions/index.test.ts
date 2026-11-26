@@ -2996,7 +2996,7 @@ Deno.test('LLM evaluator parity: the handler sends exactly the evaluator prompt 
 }
 
 Deno.test('live readiness: only the selected model is persisted; no send while the probe is unresolved', async () => {
-  const selected = 'gemini-3.5-flash-lite';
+  const selected = 'gemini-4-hydrogen';
   const enableReadiness = () => true; // Test dependency; native environment allowlist remains GEMINI_API_KEY only.
   for (const outcome of ['exact', 'wrong', 'pending', 'expired'] as const) {
     resetProvider();

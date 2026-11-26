@@ -12,8 +12,8 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
   let aiCoaching = true, fresh = true, readRevision = 3, answerStatus = 200, valid = true, claims = 0;
   let catalogCalls = 0, revokeAfterCatalog = false, newerAvailable = false;
   const attempted: string[] = [];
-  const next = 'gemini-3.8-flash';
-  const alternate = 'gemini-3.4-flash-lite';
+  const next = 'gemini-4-hydrogen';
+  const alternate = 'gemini-3.5-flash-lite';
   const prompts: string[] = [];
   const completions: Array<Record<string, unknown>> = [];
   globalThis.fetch = async (url, init) => {
@@ -144,7 +144,7 @@ Deno.test('Ops readback: browser and ordinary bearer denied, service role reads 
     const q = { select: () => q, eq: () => q, abortSignal: () => q,
       maybeSingle: async () => {
         reads++;
-        return { data: { model: 'gemini-3.5-flash-lite', revision: 2, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(), probe_deadline: null }, error: null };
+        return { data: { model: 'gemini-4-hydrogen', revision: 2, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(), probe_deadline: null }, error: null };
       } };
     return q;
   } };
@@ -160,7 +160,7 @@ Deno.test('Ops readback: browser and ordinary bearer denied, service role reads 
   assert.equal((await invoke('mock-service-role','http://localhost:5173')).status, 403);
   assert.equal(reads, 0);
   const accepted = await invoke('mock-service-role');
-  assert.deepEqual(await accepted.json(), { model: 'gemini-3.5-flash-lite', revision: 2, readiness: 'verified' });
+  assert.deepEqual(await accepted.json(), { model: 'gemini-4-hydrogen', revision: 2, readiness: 'verified' });
   assert.equal(reads, 1);
 });
 
@@ -179,13 +179,16 @@ Deno.test('runtime catalog is bounded and selects only stable Gemini text genera
     }));
     assert.equal(requestUrl.searchParams.get('pageToken'), 'second');
     return Promise.resolve(Response.json({
-      models: [item('gemini-3.8-flash'), item('gemini-3.8-pro'), item('gemini-3.7-flash-lite'), item('gemini-3.4-flash'), item('gemini-3.3-pro'), item('gemini-2.5-flash'), item('../gemini-4.0-flash'), item('other-4.0-pro')],
+      models: [item('gemini-3.8-flash'), item('gemini-4-carbon'), item('gemini-4-hydrogen'), item('gemini-3.5-flash-lite'), item('gemini-4-neon'),
+        item('gemini-4-argon'), item('gemini-4-hydrogen-preview'), item('gemini-3.7-flash-lite'), item('gemini-3.4-flash'),
+        item('gemini-2.5-flash'), item('../gemini-4.0-flash'), item('other-4.0-pro')],
     }));
   };
   assert.deepEqual((await discoverGeminiReadinessModels('fake', signal, fake)).map((model) => model.id),
-    ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-3.7-flash-lite', 'gemini-3.4-flash']);
-  assert.equal(geminiReadinessModel('gemini-3.4-flash')?.id, 'gemini-3.4-flash');
-  assert.equal(geminiReadinessModel('gemini-3.3-pro'), null);
+    ['gemini-4-hydrogen', 'gemini-4-neon', 'gemini-4-argon', 'gemini-4-carbon',
+      'gemini-3.8-flash', 'gemini-3.7-flash-lite', 'gemini-3.5-flash-lite']);
+  assert.equal(geminiReadinessModel('gemini-3.5-flash-lite')?.id, 'gemini-3.5-flash-lite');
+  assert.equal(geminiReadinessModel('gemini-3.4-flash'), null);
   assert.equal(calls.length, 2);
   let repeated = 0;
   assert.deepEqual(await discoverGeminiReadinessModels('fake', signal, () => {

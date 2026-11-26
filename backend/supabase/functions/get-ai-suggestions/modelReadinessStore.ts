@@ -4,17 +4,21 @@ import contract from './contract.json' with { type: 'json' };
 import { parseProviderDescriptor, PROVIDER_CATALOG } from './providers/catalog.ts';
 import { createGeminiAdapter } from './providers/gemini.ts';
 
-// Numbered Gemini text models from 3.4 up. Ignore moving aliases,
+// Gemini text models from 3.5 up. Ignore moving aliases,
 // previews and specialist models; the real coaching probe supplies the capability check.
 const GEMINI_TEXT = /^gemini-(\d{1,3})(?:\.(\d{1,3}))?-(pro|flash|flash-lite)(?:-(\d{3}))?$/;
+// Gemini 4 uses named variants at the same version. Prefer the faster everyday model first.
+const GEMINI_4_BY_PRIORITY = ['gemini-4-hydrogen', 'gemini-4-neon', 'gemini-4-argon', 'gemini-4-carbon'];
 const descriptor = PROVIDER_CATALOG.find((p) => p.id === 'google_gemini');
 const CATALOG_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 function rank(id: string): number[] | null {
+  const named = GEMINI_4_BY_PRIORITY.indexOf(id);
+  if (named >= 0) return [4, 0, GEMINI_4_BY_PRIORITY.length + 2 - named, 0];
   const match = GEMINI_TEXT.exec(id);
   if (!match) return null;
   const [, major, minor = '0', tier, revision = '0'] = match;
-  if (+major < 3 || (+major === 3 && +minor < 4)) return null;
+  if (+major < 3 || (+major === 3 && +minor < 5)) return null;
   return [+major, +minor, tier === 'pro' ? 2 : tier === 'flash' ? 1 : 0, +revision];
 }
 
