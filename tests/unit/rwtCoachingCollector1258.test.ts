@@ -81,7 +81,7 @@ describe('#1258 RWT coaching-evidence collector', () => {
         const out = coachingEvidenceOutcome({ releaseSha: RELEASE, destination: resolvePrivateEvidenceDir(dir, []), firstTake: take('1'), repeatTake: take('2') });
         expect(out.verdict).toBe('PASS');
         expect(out.evidence).toEqual({
-            configuredModel: coachingContract.model, artifactSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+            firstConfiguredModel: coachingContract.model, repeatConfiguredModel: coachingContract.model, artifactSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
             firstBinding: 'PASS', firstReason: 'recomputed_from_bound_saved_prompt_inputs',
             repeatBinding: 'PASS', repeatReason: 'recomputed_from_bound_saved_prompt_inputs',
         });
@@ -89,9 +89,25 @@ describe('#1258 RWT coaching-evidence collector', () => {
         for (const content of [saved.transcript, pair.what_worked, pair.what_to_try_next, USER]) expect(publicText).not.toContain(content);
     });
 
+    it('reports each take’s proven generation model, including a cache replay after a fallback', () => {
+        const id = identity('2');
+        const selected = 'gemini-4-hydrogen';
+        const fresh = exchangeFor(id, { configured_model: selected, observed_model: selected });
+        const cached = exchangeFor(id, { source: 'cache', observed_model: selected,
+            provider_attempts: 0, retry_count: 0, provider_duration_ms: 0, prompt_sha256: null });
+        const repeatTake = assembleTake({ identity: id, exchanges: [fresh, cached], saved,
+            authority: { ...authorityFor(id), model: selected, cache_read_count: 1 }, rendered: { ...pair } });
+        const out = coachingEvidenceOutcome({ releaseSha: RELEASE, destination: resolvePrivateEvidenceDir(privateDir(), []), firstTake: take('1'), repeatTake });
+        expect(out).toMatchObject({ verdict: 'PASS', evidence: {
+            firstConfiguredModel: coachingContract.model, repeatConfiguredModel: selected,
+        } });
+        expect(out.evidence).not.toHaveProperty('configuredModel');
+        expect(JSON.stringify(out)).not.toContain(id.sessionId);
+    });
+
     it('a server prompt digest that does not match the saved inputs is FAIL', () => {
         const out = coachingEvidenceOutcome({ releaseSha: RELEASE, destination: resolvePrivateEvidenceDir(privateDir(), []), firstTake: take('1', { prompt_sha256: 'b'.repeat(64) }), repeatTake: take('2') });
-        expect(out).toMatchObject({ verdict: 'FAIL', evidence: { firstBinding: 'FAIL', firstReason: 'server_prompt_digest_mismatch' } });
+        expect(out).toMatchObject({ verdict: 'FAIL', evidence: { firstBinding: 'FAIL', firstReason: 'server_prompt_digest_mismatch', firstConfiguredModel: null } });
     });
 
     it('a rendered pair that differs from the server-authorized saved pair is refused (FAIL), never written as PASS', () => {
