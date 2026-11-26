@@ -60,6 +60,7 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
   const service = {
     rpc: async (name: string, data: Record<string, unknown>) => {
       if (name === 'claim_coaching_model_probe_v1') {
+        assert.deepEqual(data, { p_incumbent: contract.model });
         claims++;
         return { data: { kind: 'claimed', lease: { state: { model: contract.model, revision: 1 }, token: lease, deadlineMs: Date.now() + 30_000 } }, error: null };
       }

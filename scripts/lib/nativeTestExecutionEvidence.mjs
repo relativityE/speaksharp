@@ -43,9 +43,9 @@ export const SQL_CONTRACTS=Object.freeze([
       'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
       'tests/db/fixtures/practice-privacy-choices-1835.sql',
     ])}),
-  // #1977: execute the isolated schema fixture in PGlite; this is not a shipped migration.
+  // #1977: execute the exact migration in PGlite; no live database is involved.
   Object.freeze({consumer:'tests/db/coaching-model-readiness.test.ts',
-    files:Object.freeze(['tests/db/fixtures/coaching-model-readiness.sql'])}),
+    files:Object.freeze(['backend/supabase/migrations/20261126005433_coaching_model_readiness.sql'])}),
   // #1827 D2 repeat tip: the catalog gate test executes the exact migration over the shipped PGlite chain and writes its witness;
   // the native database runs in the account-closure full-chain proof workflow (profile main-repeat-tip-134).
   Object.freeze({consumer:'tests/db/repeatTipPostflight.integration.test.ts',
@@ -488,11 +488,11 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/evaluation/evaluator.ts':'6cc2300713d3393cca7c8c026418214fe5a073c297c48cf5b08c8b8d75470074',
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a',
-    'backend/supabase/functions/get-ai-suggestions/index.test.ts':'3ae9e6e3012607d9d0316f030e9575a6a62699e678271d125d65a628ceca4866',
-    'backend/supabase/functions/get-ai-suggestions/index.ts':'49d85eb26262148e387fb035aec6aade6aae8ebe6e8f0a8a5e317c0e03c373a9',
-    'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'ab869a6ab477fb83511b1b447fa6a8e6256682be58e158401f51510066789e27',
+    'backend/supabase/functions/get-ai-suggestions/index.test.ts':'1dd9896f9ded01f6cdec5459f05ba4cd0f8ebf5b247492f63b3353e80516ec4d',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'45d161bca9e994d0910c22592a230b0ecacd3697e513bb81a8cbe6db76dee3c1',
+    'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'c51e7517265dddb5e30f8e25f85814c21bcee751d5741a3a71c9d7022ce3e9c6',
     'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'242aed9faf2c95b6da37650272f9e38bffa066a22b43329c44bc19a6fc3d0a94',
-    'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'962c7d5bf60889dd54e3b57acd346a332fceb718bb36675a6a8274ceb6ac3f04',
+    'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'78c49dbbe42d123234eae38092f9cce887900a2f6d095706b4dfa30304bb15d1',
     'backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts':'525f36728d57c98ef03261acabb343c55a3a327319c585cf70df80cc76108015',
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',

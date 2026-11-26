@@ -930,11 +930,14 @@ export async function handler(
       // Same pre-admission 425 wait path as saved Focus results: no quota, provider call, or write.
       return finish({ error: 'AI coaching is getting ready. Please try again.', code: 'coaching_model_pending' }, 425);
     }
-    const activeModel = readiness.kind === 'ready' ? readiness.model : null;
+    // A pre-rollout take can request its first review before any opted-in Start has probed.
+    // Keep the established route only for that unprobed state, never after a failed check.
+    const useReadinessModel = liveReadiness && readiness.kind !== 'unprobed';
+    const activeModel = readiness.kind === 'ready' ? readiness.model : readiness.kind === 'unprobed' ? coachingContract.model : null;
     configuredProviderModel = activeModel;
-    const expectedModelVersions = liveReadiness
+    const expectedModelVersions = useReadinessModel
       ? geminiReadinessModel(activeModel)?.observedVersions : undefined;
-    const provider = liveReadiness
+    const provider = useReadinessModel
       ? (activeModel ? readinessProvider(activeModel) : null)
       : selectProvider(SELECTED_PROVIDER_ID);
     const apiKey = provider ? Deno.env.get(provider.keyVariable) : undefined;
@@ -1074,7 +1077,7 @@ export async function handler(
             if ('suggestions' in classified) suggestions = classified.suggestions;
             else failureReason = classified.reason;
             if (suggestions && (!observedProviderModel
-              || (liveReadiness && !expectedModelVersions?.includes(observedProviderModel)))) {
+              || (useReadinessModel && !expectedModelVersions?.includes(observedProviderModel)))) {
               if (liveReadiness) suggestions = null;
               failureReason = 'missing_model_version';
             }

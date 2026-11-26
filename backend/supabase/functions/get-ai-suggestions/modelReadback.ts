@@ -12,13 +12,16 @@ export function authorizeModelReadback(req: Request, serviceRole: string | undef
 }
 export async function activeCoachingModelReadback(client: () => SupabaseClient, enabled: boolean, signal: AbortSignal) {
   if (!enabled) return { model: contract.model, revision: null, readiness: 'not_checked' };
-  const { data, error } = await client().from('coaching_model_selection').select('model,revision,verified,verified_until,probe_deadline')
+  const { data, error } = await client().from('coaching_model_selection').select('model,revision,checked,verified,verified_until,probe_deadline')
     .eq('single', true).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(700)])).maybeSingle();
-  if (error || !data || !geminiReadinessModel(data.model)) return null;
+  if (error) return null;
+  if (!data) return { model: contract.model, revision: null, readiness: 'not_checked' };
+  if (!geminiReadinessModel(data.model)) return null;
   return {
     model: data.model, revision: Number.isSafeInteger(data.revision) ? data.revision : null,
     readiness: data.probe_deadline && Date.parse(data.probe_deadline) > Date.now() ? 'checking'
-      : data.verified !== true || data.probe_deadline != null ? 'unavailable'
-        : Date.parse(data.verified_until ?? '') > Date.now() ? 'verified' : 'not_checked',
+      : data.checked === false && data.probe_deadline === null && data.model === contract.model ? 'not_checked'
+        : data.verified !== true || data.probe_deadline != null ? 'unavailable'
+          : Date.parse(data.verified_until ?? '') > Date.now() ? 'verified' : 'not_checked',
   };
 }

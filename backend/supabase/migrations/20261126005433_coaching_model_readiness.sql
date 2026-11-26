@@ -1,22 +1,24 @@
--- Isolated PGlite contract fixture, not a release migration. Do not apply to deployed databases.
--- Shared service-owned model selection. No model is selected or activated by installing this migration.
+-- Shared service-owned model selection. Installing the table does not activate the feature.
+-- The first opted-in claim initializes the row from the service's reviewed contract.
 CREATE TABLE public.coaching_model_selection (
   single boolean PRIMARY KEY DEFAULT true CHECK (single),
   model text NOT NULL CHECK (model ~ '^gemini-[a-z0-9][a-z0-9.-]{0,58}$'),
   revision integer NOT NULL DEFAULT 1 CHECK (revision > 0),
+  checked boolean NOT NULL DEFAULT false,
   verified boolean NOT NULL DEFAULT false,
   verified_until timestamptz,
   probe_token uuid,
   probe_deadline timestamptz,
   next_probe_at timestamptz NOT NULL DEFAULT '-infinity',
   CHECK ((probe_token IS NULL) = (probe_deadline IS NULL)),
-  CHECK (verified = (verified_until IS NOT NULL))
+  CHECK (verified = (verified_until IS NOT NULL)),
+  CHECK (NOT verified OR checked)
 );
 ALTER TABLE public.coaching_model_selection ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.coaching_model_selection FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT, UPDATE ON public.coaching_model_selection TO service_role;
+GRANT SELECT, INSERT, UPDATE ON public.coaching_model_selection TO service_role;
 
-CREATE FUNCTION public.claim_coaching_model_probe_v1() RETURNS jsonb
+CREATE FUNCTION public.claim_coaching_model_probe_v1(p_incumbent text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
 DECLARE
   current_row public.coaching_model_selection%ROWTYPE;
@@ -24,6 +26,11 @@ DECLARE
   token_id uuid;
   deadline_at timestamptz;
 BEGIN
+  IF p_incumbent IS NULL OR p_incumbent !~ '^gemini-[a-z0-9][a-z0-9.-]{0,58}$' THEN RETURN NULL; END IF;
+  -- Lock an existing selection without rewriting it. Competing first claims share one bootstrap row.
+  IF NOT EXISTS (SELECT 1 FROM public.coaching_model_selection WHERE single) THEN
+    INSERT INTO public.coaching_model_selection (model) VALUES (p_incumbent) ON CONFLICT (single) DO NOTHING;
+  END IF;
   SELECT * INTO current_row FROM public.coaching_model_selection WHERE single FOR UPDATE;
   IF NOT FOUND THEN RETURN NULL; END IF;
   now_at := pg_catalog.clock_timestamp();
@@ -42,8 +49,8 @@ BEGIN
     'token', token_id, 'deadlineMs', pg_catalog.floor(EXTRACT(EPOCH FROM deadline_at) * 1000)));
 END;
 $$;
-REVOKE ALL ON FUNCTION public.claim_coaching_model_probe_v1() FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.claim_coaching_model_probe_v1() TO service_role;
+REVOKE ALL ON FUNCTION public.claim_coaching_model_probe_v1(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.claim_coaching_model_probe_v1(text) TO service_role;
 
 CREATE FUNCTION public.finish_coaching_model_probe_v1(
   p_revision integer, p_token uuid, p_verified boolean, p_promote_to text, p_retry_after_ms integer
@@ -56,6 +63,7 @@ BEGIN
   UPDATE public.coaching_model_selection
      SET model = COALESCE(p_promote_to, model),
          revision = revision + CASE WHEN p_promote_to IS NOT NULL AND p_promote_to <> model THEN 1 ELSE 0 END,
+         checked = checked OR p_verified IS NOT NULL,
          verified = COALESCE(p_verified, verified),
          verified_until = CASE WHEN p_verified THEN now_at + interval '60 seconds'
            WHEN p_verified IS FALSE THEN NULL ELSE verified_until END,

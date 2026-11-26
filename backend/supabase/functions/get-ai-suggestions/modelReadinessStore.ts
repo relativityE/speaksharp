@@ -97,7 +97,7 @@ function state(value: unknown): value is { model: string; revision: number } {
 export function createReadinessStore(client: SupabaseClient): ReadinessStore {
   return {
     async claim() {
-      const { data, error } = await client.rpc('claim_coaching_model_probe_v1');
+      const { data, error } = await client.rpc('claim_coaching_model_probe_v1', { p_incumbent: contract.model });
       if (error || !data) throw Error('coaching_model_selection_unavailable');
       if (data.kind === 'claimed' && state(data.lease?.state)
         && typeof data.lease.token === 'string' && Number.isSafeInteger(data.lease.deadlineMs)) return data as ClaimResult;
@@ -121,7 +121,7 @@ export function createReadinessStore(client: SupabaseClient): ReadinessStore {
 /** Report exactly the active row for a fresh request. Do not use a stale or configured candidate while a check is pending. */
 export type CoachingModelReadiness =
   | { kind: 'ready'; model: string }
-  | { kind: 'pending' }
+  | { kind: 'pending' | 'unprobed' }
   | { kind: 'unavailable' };
 
 export async function readReadyCoachingModel(client: SupabaseClient, signal: AbortSignal): Promise<CoachingModelReadiness> {
@@ -131,12 +131,16 @@ export async function readReadyCoachingModel(client: SupabaseClient, signal: Abo
     const remaining = deadline - Date.now();
     if (signal.aborted) return { kind: 'unavailable' };
     if (remaining <= 0) return { kind: probeUntil > Date.now() ? 'pending' : 'unavailable' };
-    const { data, error } = await client.from('coaching_model_selection').select('model,verified,probe_deadline')
+    const { data, error } = await client.from('coaching_model_selection').select('model,checked,verified,probe_deadline')
       .eq('single', true).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(Math.min(700, remaining))])).maybeSingle();
-    if (error || !data || signal.aborted) return { kind: 'unavailable' };
+    if (error || signal.aborted) return { kind: 'unavailable' };
+    if (!data) return { kind: 'unprobed' };
     // Probe-sharing freshness is not a recording duration cap.
-    if (data.probe_deadline === null) return data.verified === true && typeof data.model === 'string'
-      ? { kind: 'ready', model: data.model } : { kind: 'unavailable' };
+    if (data.probe_deadline === null) {
+      if (data.checked === false && data.model === contract.model) return { kind: 'unprobed' };
+      return data.verified === true && typeof data.model === 'string'
+        ? { kind: 'ready', model: data.model } : { kind: 'unavailable' };
+    }
     probeUntil = typeof data.probe_deadline === 'string' ? Date.parse(data.probe_deadline) : NaN;
     if (!(probeUntil > Date.now())) return { kind: 'unavailable' };
     await new Promise((resolve) => setTimeout(resolve, Math.min(150, Math.max(0, deadline - Date.now()))));
