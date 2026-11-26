@@ -508,3 +508,15 @@ describe('in-page functions run from their serialized text alone (what page.eval
         expect(src).toMatch(/page\.evaluate\(armMarkerObserverInPage, \{[^}]*sampleMs: MARKER_SAMPLE_MS/);
     });
 });
+
+it('requires the entire widened cued-playback interval to meet the original point deadline', () => {
+    const first = (lo: number, hi: number) => classifyMarkerTiming({
+        windows: [[2.91, 6.21], [9.02, 13.2], null], expectsLive: [true, false, false],
+        invokedAtMs: 1000, audioStartLatestMs: 1080,
+        observations: [{ point: 0, status: 'covered', afterMs: 1000 + lo, observedAtMs: 1000 + hi }] as Parameters<typeof classifyMarkerTiming>[0]['observations'],
+    })[0];
+    expect(first(6900, 7010)).toMatch(/^ok@/);
+    expect(first(9000, 9050)).toMatch(/^uncertain-late@/);
+    expect(first(9120, 9190)).toMatch(/^late@/);
+    expect(first(-100, -50)).toMatch(/^early@/);
+});

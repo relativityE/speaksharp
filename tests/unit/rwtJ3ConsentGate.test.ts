@@ -350,6 +350,7 @@ describe('J1 later presses: the real J1 gate at each press of the shared helpers
 
 describe('J3 runner source: every capture-capable press reads back at its click', () => {
     const src = readFileSync('tests/live/helpers/rwtFocusPointsJourney.ts', 'utf8');
+    const saveConsentHook = /again = await practiceAgainEvidence\([^\n]+\n\s*\{ saveTakeMs, beforeCapture: async \(\) => \{\s*if \(cueAligned\) await resetFixtureAudioToStart\(page\);\s*await captureGate\(\)\.confirm\(\);\s*\},/;
     it('the cold model helper and each of the four direct Starts pass the click-time readback, and nothing confirms outside it', () => {
         for (const press of [
             'const setup = await preparePrivateModelIfPrompted(page, 900_000, atClick());',
@@ -364,7 +365,8 @@ describe('J3 runner source: every capture-capable press reads back at its click'
         // The only confirm is the one inside atClick (beforeClick) and the two helper hooks; none sits before a helper call.
         expect(src.match(/captureGate\(\)\.confirm\(\)/g)).toHaveLength(3);
         expect(src).toContain('beforeClick: async () => { const t = Date.now(); try { await captureGate().confirm(); } finally { spent += Date.now() - t; } },');
-        expect(src).not.toMatch(/^\s*await captureGate\(\)\.confirm\(\);$/m);
+        expect(src).toMatch(saveConsentHook);
+        expect(src.replace(saveConsentHook, '')).not.toMatch(/^\s*await captureGate\(\)\.confirm\(\);$/m);
         expect(src).toContain('const switchClick = atClick();');
         expect(src).toContain('const editedClick = atClick();');
     });
@@ -378,7 +380,7 @@ describe('J3 runner source: every capture-capable press reads back at its click'
         expect(src.match(/captureGate\(\)\.recordPass\(\)/g)).toHaveLength(2);
     });
     it('the shared helpers\' presses get the same readback', () => {
-        expect(src).toMatch(/practiceAgainEvidence\([\s\S]*?\{ saveTakeMs, beforeCapture: \(\) => captureGate\(\)\.confirm\(\) \}\)/);
+        expect(src).toMatch(saveConsentHook);
         expect(src).toContain('const next = await nextStartEvidence(page, `${suite}-next`, () => captureGate().confirm());');
     });
     it('the gate is built in row 8 from the settled choice, before the first take; an unsettled prompt records HOLD and stops', () => {

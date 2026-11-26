@@ -281,10 +281,14 @@ export function classifyMarkerTiming(input: {
     windows: readonly ([number, number] | null)[];
     observations: readonly MarkerObservation[];
     invokedAtMs: number;
+    /** Latest possible render start for the cued fixture. For a point clock the endpoints are identical. */
+    audioStartLatestMs?: number;
     expectsLive: readonly boolean[];
     /** The heartbeat's last observed-pending time per point (snapshot.pendingSeenAtMs); absent = the delivery bound only. */
     pendingSeenAtMs?: readonly (number | null)[];
 }): string[] {
+    const latest = input.audioStartLatestMs ?? input.invokedAtMs;
+    if (!Number.isFinite(latest) || latest < input.invokedAtMs) return input.expectsLive.map(() => 'uncertain-audio-origin');
     const first = (i: number) => input.observations.find((o) => o.point === i && o.status !== 'pending') ?? null;
     const nextStart = (i: number): number | null => {
         for (let j = i + 1; j < input.windows.length; j += 1) { const w = input.windows[j]; if (w) return w[0]; }
@@ -296,7 +300,7 @@ export function classifyMarkerTiming(input: {
         // The lower bound is the LATER of the previous delivery and the last heartbeat that read this row still pending.
         const seen = input.pendingSeenAtMs?.[i] ?? null;
         const loMs = change ? (seen !== null && Number.isFinite(seen) ? Math.max(change.afterMs, seen) : change.afterMs) : 0;
-        const lo = change ? (loMs - input.invokedAtMs) / 1000 : 0;
+        const lo = change ? (loMs - latest) / 1000 : 0;
         const hi = change ? (change.observedAtMs - input.invokedAtMs) / 1000 : 0;
         const bounds = `${lo.toFixed(3)}..${hi.toFixed(3)}`;
         // A pre-removal change whose resulting value is not established is evidence of a write, not of a marker: non-PASS.

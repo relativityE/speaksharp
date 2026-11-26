@@ -14,18 +14,26 @@ import {
 } from './fixtureAudioStream.ts';
 
 // Tests the harness state machine only, without claiming browser/audio/model qualification.
-async function harness(t, playback = 'controlled-once') {
+async function harness(t, playback = 'controlled-once', zeroPreroll = false) {
   const dir = await mkdtemp(join(tmpdir(), 'ss-fixture-state-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, 'fixture.wav');
   await writeFile(path, new Uint8Array([0]));
   const sources = [];
+  const witnesses = [];
   let resumeBarrier = null;
   let fetchBarrier = null;
   let decodeBarrier = null;
   const tracks = [];
   class AudioContext {
     state = 'running';
+    currentTime = 1;
+    sampleRate = 16000;
+    createBuffer(_channels, length) { const pcm = new Float32Array(length); return { getChannelData: () => pcm }; }
+    createConstantSource() {
+      const witness = { offset: { value: 1 }, onended: null, connect() {}, disconnect() {}, start() {}, stop() {} };
+      witnesses.push(witness); return witness;
+    }
     async resume() { if (resumeBarrier) await resumeBarrier; this.state = 'running'; }
     async close() { this.state = 'closed'; }
     async decodeAudioData() { if (decodeBarrier) await decodeBarrier; return { duration: 2 }; }
@@ -55,8 +63,8 @@ async function harness(t, playback = 'controlled-once') {
     addInitScript: async (fn, arg) => runInContext(`(${fn.toString()})(${JSON.stringify(arg)})`, context),
     evaluate: async (fn) => runInContext(`(${fn.toString()})()`, context),
   };
-  await injectAlignedFixtureAudio(page, path, { playback });
-  return { page, sources, tracks, capture: () => browser.navigator.mediaDevices.getUserMedia({ audio: true }),
+  await injectAlignedFixtureAudio(page, path, { playback, zeroPreroll });
+  return { page, sources, witnesses, tracks, capture: () => browser.navigator.mediaDevices.getUserMedia({ audio: true }),
     setFetchBarrier: (value) => { fetchBarrier = value; },
     setDecodeBarrier: (value) => { decodeBarrier = value; },
     setResumeBarrier: (value) => { resumeBarrier = value; } };
@@ -221,4 +229,34 @@ test('reset/count are safe before injection and unsupported environments preserv
   const missing=fakePage();
   await assert.rejects(injectAlignedFixtureAudio(missing.page,path.join(dir,'absent.wav')),/ENOENT/);
   assert.equal(missing.routes.length,0);
+});
+
+test('cue-loop warms with bounded non-speech audio, preserves looping WAV, and rejects stale render witnesses', async (t) => {
+  const h = await harness(t, 'cue-loop');
+  await h.capture();
+  const preroll = h.sources[0].buffer.getChannelData(0);
+  assert.ok(preroll.some((sample) => sample !== 0));
+  assert.ok(preroll.every((sample) => Math.abs(sample) < 0.003));
+  assert.equal(h.sources.length, 1);
+  const started = await playFixtureAudioOnce(h.page);
+  assert.equal(started.onsetLatestMs, null);
+  assert.equal(h.sources[1].loop, true);
+  const olderWitness = h.witnesses[0].onended;
+  olderWitness();
+  assert.ok((await readFixturePlaybackState(h.page)).onsetLatestMs >= started.onsetEarliestMs);
+  await resetFixtureAudioToStart(h.page);
+  await playFixtureAudioOnce(h.page);
+  olderWitness();
+  assert.equal((await readFixturePlaybackState(h.page)).onsetLatestMs, null);
+  h.witnesses[1].onended();
+  assert.ok((await readFixturePlaybackState(h.page)).onsetLatestMs >= started.onsetEarliestMs);
+  await disposeFixtureAudio(h.page);
+});
+
+test('cue-loop zero negative leaves the stream without a pre-cue source', async (t) => {
+  const h = await harness(t, 'cue-loop', true);
+  await h.capture();
+  assert.equal(h.sources.length, 0);
+  assert.equal((await readFixturePlaybackState(h.page)).phase, 'ready');
+  await disposeFixtureAudio(h.page);
 });

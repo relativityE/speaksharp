@@ -1,3 +1,4 @@
+import { injectAlignedFixtureAudio, playFixtureAudioOnce, readFixturePlaybackState, resetFixtureAudioToStart } from './fixtureAudioStream';
 /**
  * RWT Focus Points journey (PO script rows 8–12), shared by the two INDEPENDENT Focus Points specs — the PO corpus
  * (`rwt-focus-points-session.live.spec.ts`) and the partial Dev fixture (`rwt-focus-points-partial.live.spec.ts`).
@@ -211,6 +212,22 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     // The numeric adapter requires BOTH source and repeat eligible. Keep the marker window unchanged,
     // then extend only the partial source, without resampling, to the same candidate eligibility floor.
     const sourceTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : Math.round((fixture.entry.speechSeconds + 4) * 1000);
+    const cueAligned = fixtureKey === 'focus_points_partial_tts';
+    if (cueAligned) await injectAlignedFixtureAudio(page, fixture.path, { playback: 'cue-loop' });
+    const playAfterCue = async () => {
+        const cue = page.getByTestId('live-session-header').getByText('Speak now', { exact: true });
+        await expect(cue).toBeVisible({ timeout: 60_000 });
+        const cueAtMs = await cue.evaluate(() => Date.now());
+        const start = await playFixtureAudioOnce(page);
+        await expect.poll(async () => (await readFixturePlaybackState(page)).onsetLatestMs,
+            { timeout: 2_000 }).toEqual(expect.any(Number));
+        const rendered = await readFixturePlaybackState(page);
+        const lo = rendered.onsetEarliestMs;
+        const hi = rendered.onsetLatestMs;
+        if (rendered.generation !== start.generation || !Number.isFinite(lo) || !Number.isFinite(hi)
+            || lo! < cueAtMs || hi! < lo! || hi! - lo! > 120) throw new Error('J3.b fixture playback clock is not bounded');
+        return { cueAtMs, lo: lo!, hi: hi! };
+    };
     const topic = fixture.entry.topic ?? '';
     const points = fixture.entry.points ?? [];
     const expectedFinal = fixture.entry.expectedFinal ?? [];
@@ -627,6 +644,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 try { await startBenchmarkRecording(page, suite, undefined, firstClick); } finally { firstPressedAt += firstClick.spentMs(); }
                 captureGate().recordPass();
             }
+            const playback = cueAligned ? await playAfterCue() : null;
             startedAt = Date.now();
             modelIdentityRow(receipt, run, await readSttIdentity(page), startedAt - acquisitionStarted, await readCpuRuntime(page));
 
@@ -674,22 +692,27 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             } else if (!sealed.initialAllPending) {
                 receipt.row('marker timing vs audio', 'HOLD', 'a point was already marked when the observer armed, so the take has no clean baseline',
                     { initialStatuses: sealed.initialStatuses.map(String).join(','), polledFirstSec });
-            } else if (!binding || !binding.ok) {
+            } else if (!binding || !binding.ok || (playback && playback.cueAtMs < binding.invokedAtMs)) {
                 receipt.row('marker timing vs audio', 'HOLD', 'the take could not be bound to exactly one fresh granted microphone acquisition',
                     { acquisition: binding && !binding.ok ? binding.reason : 'missing', acquisitionsAtArm: sealed.acquisitionsAtArm, polledFirstSec });
             } else {
-                const verdicts = classifyMarkerTiming({ windows, observations: sealed.observations, invokedAtMs: binding.invokedAtMs,
+                // The proof interval is widened by the render-clock bound, never shifted later to rescue a late marker.
+                const origin = playback?.lo ?? binding.invokedAtMs;
+                const verdicts = classifyMarkerTiming({ windows, observations: sealed.observations, invokedAtMs: origin,
+                    ...(playback ? { audioStartLatestMs: playback.hi } : {}),
                     expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])), pendingSeenAtMs: sealed.pendingSeenAtMs });
                 const status = markerTimingStatus(verdicts);
                 receipt.row('marker timing vs audio', status,
                     status === 'PASS' ? 'each marker\'s whole change interval lies while its point was spoken or within 5 s after, before the next point'
                         : status === 'HOLD' ? 'a marker\'s change interval crosses a timing boundary, so its timing is not established either way'
                             : 'a marker changed before its point was spoken, more than 5 s after it or after the next point began, or for an unspoken point',
-                    { perPoint: verdicts.join(','), maxAfterPointSec: LIVE_MARKER_MAX_AFTER_SECONDS, clock: 'page-side observation after getUserMedia invocation',
+                    { perPoint: verdicts.join(','), maxAfterPointSec: LIVE_MARKER_MAX_AFTER_SECONDS, clock: playback ? 'page-side observation after cue-aligned actual render bound' : 'page-side observation after getUserMedia invocation',
+                        ...(playback ? { micOpenToCueMs: Math.round(playback.cueAtMs - binding.invokedAtMs),
+                            playbackWindowMs: Math.ceil(playback.hi - playback.lo) } : {}),
                         invokedAtMs: binding.invokedAtMs, armedAtMs: sealed.armedAtMs, frozenAtMs: sealed.frozenAtMs ?? 'none',
-                        boundsMs: sealed.observations.map((o) => `${o.point}:${o.status}:${o.afterMs - binding.invokedAtMs}..${o.observedAtMs - binding.invokedAtMs}`).join(','),
+                        boundsMs: sealed.observations.map((o) => `${o.point}:${o.status}:${o.afterMs - origin}..${o.observedAtMs - origin}`).join(','),
                         observations: sealed.observations.length, railGenerations: sealed.railGenerations, rejected: sealed.rejected.length, polledFirstSec,
-                        pendingSeenMs: (sealed.pendingSeenAtMs ?? []).map((t) => (t === null ? 'none' : String(t - binding.invokedAtMs))).join(',') });
+                        pendingSeenMs: (sealed.pendingSeenAtMs ?? []).map((t) => (t === null ? 'none' : String(t - origin))).join(',') });
             }
             // Runbook v12: red "Not detected" is a FINAL, after-Stop verdict only — never during speech.
             const redDuring = await page.locator('[data-testid="focus-points-rail-list"] [data-marker="missed"]').count();
@@ -1044,7 +1067,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             let again: Awaited<ReturnType<typeof practiceAgainEvidence>>;
             try {
                 again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; targetWatch = false; },
-                    { saveTakeMs, beforeCapture: () => captureGate().confirm() });
+                    { saveTakeMs, beforeCapture: async () => {
+                        if (cueAligned) await resetFixtureAudioToStart(page);
+                        await captureGate().confirm();
+                    }, ...(cueAligned ? { onSaveTakeRecording: async () => { await playAfterCue(); } } : {}) });
             } finally {
                 targetWatch = false;
                 await targetWatcher;
