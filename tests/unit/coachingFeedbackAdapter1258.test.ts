@@ -168,6 +168,27 @@ describe('#1258 coaching → feedback adapter', () => {
         for (const raw of [SES, REQ, ATT1]) expect(JSON.stringify(rows[rows.length - 1])).not.toContain(raw);
     });
 
+    it('J1.b uses a valid observed Gemini selection only from the reported take, without a global pin', async () => {
+        const rows: Array<{ verdict: string; evidence?: Record<string, unknown> }> = [];
+        const receipt = { rows, row: (_step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', _detail: string, evidence?: Record<string, string | number | boolean | null>) => { rows.push({ verdict, evidence }); } };
+        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ id: 'rep-1', session_id: SES, metadata: { coaching_diagnostic_ref: REQ } }], error: null }) }) }) }) };
+        const otherReq = '66666666-6666-4666-8666-666666666666';
+        const other = exchange({
+            sent: { sessionId: OLD, product: 'open_mic', requestId: otherReq, attemptId: ATT2, clientAttempt: 1, clientReleaseId: null },
+            diag: { request_id: otherReq, attempt_id: ATT2, configured_model: MODEL },
+            at: 2,
+        });
+        for (const model of ['gemini-4-neon', 'gemini-3.4-flash', null] as const) {
+            await feedbackDiagnosticChainRow({ receipt, admin, userId: 'uid-1', reportId: 'rep-1', currentSessionId: SES,
+                exchanges: [exchange({ diag: { configured_model: model } }), other], product: 'open_mic', acknowledgementVisible: true });
+        }
+        expect(rows).toEqual([
+            { verdict: 'HOLD', evidence: expect.objectContaining({ reasons: 'telemetry_not_received', expectedConfiguredModel: 'gemini-4-neon' }) },
+            { verdict: 'HOLD', evidence: { reasons: 'configured_model_not_proven' } },
+            { verdict: 'HOLD', evidence: { reasons: 'configured_model_not_proven' } },
+        ]);
+    });
+
     it('Codex P1 r4247280690: an explicitly observed acknowledgement counts without a core `feedback` row', async () => {
         const rows: Array<{ step: string; verdict: string; detail: string; evidence?: Record<string, unknown> }> = [];
         const receipt = { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>) => { rows.push({ step, verdict, detail, evidence }); } };
