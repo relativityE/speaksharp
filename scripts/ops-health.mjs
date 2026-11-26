@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { evaluateCanaryActivity } from './lib/github-canary-activity.mjs';
+import { readDeployedCoachingModel } from './lib/coaching-model-readback.mjs';
 import { evaluateGeminiGeneration, evaluateHighestWorkingGemini } from './lib/gemini-ops-row.mjs';
 import { evaluateGithubRow } from './lib/github-ops-row.mjs';
 import { summarize, renderMarkdown, renderPublicSummary, exitCodeForRows } from './lib/ops-health-report.mjs';
@@ -49,11 +50,19 @@ await row('Gemini API', 'Can AI suggestions provider credentials reach Gemini?',
   return simple(response.ok, `models=${response.status}`, 'https://aistudio.google.com/', response.ms);
 });
 
-await row('Gemini generation', 'Can the current coaching model generate a response to a synthetic prompt?', async () =>
-  evaluateGeminiGeneration(env('GEMINI_API_KEY', ['GOOGLE_API_KEY'])));
+const deployedCoaching = await readDeployedCoachingModel({
+  url: optionalEnv('SUPABASE_URL'), projectRef: optionalEnv('SUPABASE_PROJECT_ID'),
+  serviceKey: optionalEnv('SUPABASE_SERVICE_ROLE_KEY'),
+});
+await row('Gemini generation', 'Can the deployed coaching model generate a response to a synthetic prompt?', async () => {
+  if (!deployedCoaching) return { status: 'skip', detail: 'active_model_readback_unavailable' };
+  const result = await evaluateGeminiGeneration(optionalEnv('GEMINI_API_KEY', ['GOOGLE_API_KEY']),
+    { modelId: deployedCoaching.model });
+  return { ...result, configuredModelVersion: deployedCoaching.model, coachingReadiness: deployedCoaching.readiness };
+});
 
 await row('Gemini highest working model', 'Which listed eligible model passes a synthetic generation probe?', async () =>
-  evaluateHighestWorkingGemini(env('GEMINI_API_KEY', ['GOOGLE_API_KEY'])));
+  evaluateHighestWorkingGemini(env('GEMINI_API_KEY', ['GOOGLE_API_KEY']), { modelId: deployedCoaching?.model ?? null }));
 
 await row('Stripe API', 'Can billing credentials reach Stripe and read product prices?', async () => {
   const secret = env('STRIPE_SECRET_KEY');
@@ -132,6 +141,8 @@ async function row(name, question, fn) {
       checkedAt: new Date().toISOString(),
       ...(result.github ? { github: result.github } : {}),
       ...(result.providerModelVersion ? { providerModelVersion: result.providerModelVersion } : {}),
+      ...(result.configuredModelVersion ? { configuredModelVersion: result.configuredModelVersion } : {}),
+      ...(result.coachingReadiness ? { coachingReadiness: result.coachingReadiness } : {}),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

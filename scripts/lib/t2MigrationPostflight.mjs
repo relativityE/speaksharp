@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { EXACT_MIGRATION_ALLOWLIST, resolveExactMigrationConfig } from './exactMigrationGate.mjs';
+import { COACHING_READINESS_MIGRATION, EXACT_MIGRATION_ALLOWLIST, resolveExactMigrationConfig } from './exactMigrationGate.mjs';
 import { completionSettlementContract, completionSettlementSnapshotQuery } from './completionSettlementMigrationPostflight.mjs';
 import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './c1MigrationPostflight.mjs';
 import { RETIREMENT_CATALOG_DELTA } from './retirementCatalogPins.mjs';
@@ -474,16 +474,25 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release catalog context unknown');
   }
   const observed = typeof installed === 'string' ? JSON.parse(installed) : installed;
+  const readiness = Array.isArray(observed) && observed.at(-1) === COACHING_READINESS_MIGRATION.version;
+  const prior = readiness ? observed.slice(0, -1) : observed;
+  if (readiness) {
+    const file = join(root, 'backend/supabase/migrations', COACHING_READINESS_MIGRATION.file);
+    if (!prior.includes(SAVE_JOURNAL_CLEANUP_VERSION) || !lstatSync(file).isFile() || realpathSync(file) !== file
+      || createHash('sha256').update(readFileSync(file)).digest('hex') !== COACHING_READINESS_MIGRATION.sha256) {
+      throw new Error('T2 coaching readiness migration source or predecessor mismatch');
+    }
+  }
   // Migration 129 sorts INSIDE this window. The post-129 order is DERIVED from the observed ledger: without 129 it must
   // be a release ledger this contract already admits (validated below, by identity), and with 129 exactly that ledger
   // with 129 at its version-ordered position. No count of later migrations is assumed.
-  const settled = Array.isArray(observed) && observed.includes(NEXT_RELEASE_SOURCE.version);
-  const ledger = settled ? observed.filter(version => version !== NEXT_RELEASE_SOURCE.version) : observed;
+  const settled = Array.isArray(prior) && prior.includes(NEXT_RELEASE_SOURCE.version);
+  const ledger = settled ? prior.filter(version => version !== NEXT_RELEASE_SOURCE.version) : prior;
   // 129 is admitted only where its exact apply could have produced it: every version the exact gate requires before
   // 129 that falls in this window must be present (identity from the gate, not a count). Earlier ledgers stay refused.
   const settlementPrerequisites = settled ? resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: NEXT_RELEASE_SOURCE.version })
     .requiredAppliedVersions.filter(version => version >= T2_VERSIONS[0]) : [];
-  if (settled && (JSON.stringify(observed) !== JSON.stringify([...ledger, NEXT_RELEASE_SOURCE.version].sort())
+  if (settled && (JSON.stringify(prior) !== JSON.stringify([...ledger, NEXT_RELEASE_SOURCE.version].sort())
     || settlementPrerequisites.some(version => !ledger.includes(version)))) {
     throw new Error('T2 release ledger unknown, mixed or incomplete');
   }
@@ -554,7 +563,7 @@ export function t2ReleaseContract(root, installed, options = {}) {
     : stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`;
   // Post-129 the settle family is no longer known-absent: it must be present and exact, with completion OFF/unbound.
   const settlement = settled ? completionSettlementContract(root, 'after', NEXT_RELEASE_SOURCE.version).expectedFunction : null;
-  return { profile, catalogContext, stage, ledger: [...observed], pins, inventory, expected, c1, settlement,
+  return { profile, catalogContext, stage, ledger: [...observed], pins, inventory, expected, c1, settlement, ...readiness && { readiness },
     knownAbsent: { ...NEXT_RELEASE_SOURCE, families: [...absentFamilies, ...(stage < 3 ? RETIREMENT_FUNCTIONS : []),
       ...(stage < 4 ? ABANDONMENT_FUNCTIONS : []), ...(stage < 5 ? FEEDBACK_FENCE_FUNCTIONS : [])],
       tables: [...(stage < 3 ? RETIREMENT_TABLES : []), ...(stage < 4 ? ABANDONMENT_TABLES : []),
@@ -588,7 +597,8 @@ export function assertT2ReleaseSnapshot(contract, rows) {
   // The ledger row is judged first, so another stage's rows (post-129 adds a settlement row) read as a ledger change.
   const ledger = JSON.parse(rows[0]);
   if (JSON.stringify(ledger) !== JSON.stringify(contract.ledger)) throw new Error('T2 release ledger changed');
-  if (rows.length !== (contract.settlement ? 7 : 6)) throw new Error('incomplete T2 release evidence');
+  if (rows.length !== 6 + Number(Boolean(contract.settlement)) + Number(Boolean(contract.readiness))) throw new Error('incomplete T2 release evidence');
+  if (contract.readiness && rows.at(-1) !== 'true') throw new Error('T2 coaching readiness catalog or ACL mismatch');
   if (rows[5] !== 'true') throw new Error('T2 release known129 function family must be absent');
   if (contract.settlement) {
     const settlement = JSON.parse(rows[6]);
@@ -621,6 +631,28 @@ export function assertT2ReleaseSnapshot(contract, rows) {
   return { profile: contract.profile, catalogContext: contract.catalogContext, catalog, disabled, c1Checks: names.length, passed: true };
 }
 
+export function coachingReadinessCatalogQuery() {
+  return `SELECT ((
+    EXISTS (SELECT 1 FROM pg_class
+      WHERE oid = to_regclass('public.coaching_model_selection') AND relkind = 'r' AND relrowsecurity)
+    AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.coaching_model_selection')
+      AND attname = 'checked' AND atttypid = 'boolean'::regtype AND attnotnull AND NOT attisdropped)
+    AND has_table_privilege('service_role', to_regclass('public.coaching_model_selection'), 'SELECT')
+    AND has_table_privilege('service_role', to_regclass('public.coaching_model_selection'), 'INSERT')
+    AND has_table_privilege('service_role', to_regclass('public.coaching_model_selection'), 'UPDATE')
+    AND NOT EXISTS (SELECT 1 FROM (VALUES ('anon'), ('authenticated')) roles(role_name)
+      CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) acl(privilege)
+      WHERE has_table_privilege(roles.role_name, to_regclass('public.coaching_model_selection'), acl.privilege))
+    AND 2 = (SELECT count(*) FROM pg_proc p WHERE p.oid IN (
+      to_regprocedure('public.claim_coaching_model_probe_v1(text)'),
+      to_regprocedure('public.finish_coaching_model_probe_v1(integer,uuid,boolean,text,integer)'))
+      AND NOT p.prosecdef
+      AND has_function_privilege('service_role', p.oid, 'EXECUTE')
+      AND NOT has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      AND NOT has_function_privilege('anon', p.oid, 'EXECUTE'))
+  ) IS TRUE)::text AS ok;`;
+}
+
 export function t2ReleaseSnapshotQuery(contract) {
   return `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL search_path=public,pg_temp;
 ${t2ReleaseLedgerQuery()}
@@ -630,5 +662,6 @@ ${t2AdmissionQuery(true)}
 ${c1CatalogQuery(contract.c1).sql}
 ${t2KnownAbsentQuery(contract)}
 ${contract.settlement ? completionSettlementSnapshotQuery() : ''}
+${contract.readiness ? coachingReadinessCatalogQuery() : ''}
 COMMIT;`;
 }

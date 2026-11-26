@@ -1,6 +1,7 @@
 import coachingContract from '../contract.json' with { type: 'json' };
 import { decodeProviderAnswer, decodeProviderError, readBoundedBody } from '../providerDecode.ts';
 import { descriptorUrl, PROVIDER_CATALOG, type ProviderDescriptor } from './catalog.ts';
+import { readGeminiReadinessQuota } from '../readinessQuota.ts';
 import { type CoachingProvider, type ProviderAttemptInput, type ProviderAttemptResult, SAFE_MODEL_ID } from './types.ts';
 
 // #1416 — the selected stable model is pinned in contract.json; runtime URL construction uses that single reviewed value
@@ -33,11 +34,11 @@ export function createGeminiAdapter(descriptor: ProviderDescriptor): CoachingPro
   return Object.freeze({
     id: descriptor.id,
     keyVariable: descriptor.keyVariable,
-    attempt: (input: ProviderAttemptInput) => geminiAttempt(url, input),
+    attempt: (input: ProviderAttemptInput) => geminiAttempt(url, descriptor.model, input),
   });
 }
 
-async function geminiAttempt(url: string, { prompt, apiKey, signal, onResponse }: ProviderAttemptInput): Promise<ProviderAttemptResult> {
+async function geminiAttempt(url: string, model: string, { prompt, apiKey, signal, onResponse, readinessProbe }: ProviderAttemptInput): Promise<ProviderAttemptResult> {
   // `fetch` is resolved at call time so the handler's tests (and only they) can replace it.
   const response = await fetch(`${url}?key=${apiKey}`, {
     method: 'POST',
@@ -49,8 +50,10 @@ async function geminiAttempt(url: string, { prompt, apiKey, signal, onResponse }
   onResponse(response.status, response.ok ? undefined : response.headers.get('retry-after'));
   if (!response.ok) {
     // #1258 (PM 5953504835 / PO 2026-10-12): the error body is decoded to its closed codes only, never logged or returned.
-    const errorCodes = decodeProviderError(await readBoundedBody(response));
-    return { status: response.status, ok: false, errorCodes, bodyUnreadable: false, answer: null };
+    const body = await readBoundedBody(response);
+    const errorCodes = decodeProviderError(body);
+    const quota = readinessProbe && response.status === 429 ? readGeminiReadinessQuota(body, model) : null;
+    return { status: response.status, ok: false, errorCodes, bodyUnreadable: false, answer: null, ...(quota ? { readinessQuota: quota } : {}) };
   }
   let data: Awaited<ReturnType<Response['json']>>;
   try {

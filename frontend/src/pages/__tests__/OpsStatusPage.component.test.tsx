@@ -162,24 +162,24 @@ describe('OpsStatusPage', () => {
 
   it('does not show a green generation or end-to-end status from legacy Gemini catalog success', async () => {
     view();
-    await screen.findByText('Gemini · Version: Not reported');
+    await screen.findByText('Gemini · Configured model: Not in this report');
     expect(status(service('AI Service -- LLM'))).toHaveTextContent('Review');
     expect(status(service('AI Service -- LLM'))).not.toHaveTextContent('Working');
     expect(screen.queryByText('* Latest working version')).not.toBeInTheDocument();
   });
 
-  it('groups Gemini checks and shows the highest verified version without claiming the configured model passed', async () => {
+  it('keeps the configured model visible on failure and reports a working candidate separately', async () => {
     vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ ...payload, checks: [
       ...payload.checks,
-      { name: 'Gemini generation', status: 'fail', evidence: 'generation=rate_limited_429' },
+      { name: 'Gemini generation', status: 'fail', configuredModelVersion: 'gemini-3.6-flash', evidence: 'generation=rate_limited_429' },
       { name: 'Gemini highest working model', status: 'pass', evidence: 'provider_model_version=gemini-3.5-flash-lite-001; tested=gemini-3.6-flash:429:rate_limited_429,gemini-3.5-flash-lite:200:generated; untested_count=2;' },
     ] }) as Response);
     view();
     await screen.findByText('AI Service -- LLM');
     const row = service('AI Service -- LLM');
     expect(status(row)).toHaveTextContent('Check failed');
-    expect(info(row)).toHaveTextContent('Gemini · Version: gemini-3.5-flash-lite-001*');
-    expect(within(row).getByText('* Latest working version')).toBeInTheDocument();
+    expect(info(row)).toHaveTextContent('Gemini · Configured model: gemini-3.6-flash');
+    expect(within(row).queryByText('* Latest working version')).not.toBeInTheDocument();
     expect(toggle(row)).toHaveAttribute('aria-expanded', 'false');
     expect(panel(row)).not.toBeVisible();
     const summaries = Array.from(screen.getByRole('table').querySelectorAll('tbody th[scope=row]')).map(item => item.textContent);
@@ -190,19 +190,19 @@ describe('OpsStatusPage', () => {
     expect(panel(row)).toBeVisible();
     expect(within(panel(row)).getByText('Gemini API: Passed.')).toBeInTheDocument();
     expect(within(panel(row)).getByText('Gemini generation: Did not pass.')).toBeInTheDocument();
-    expect(within(panel(row)).getByText(/Highest tested model.*gemini-3.5-flash-lite-001/)).toBeInTheDocument();
+    expect(within(panel(row)).getByText(/Highest working candidate.*gemini-3.5-flash-lite-001/)).toBeInTheDocument();
     expect(within(panel(row)).getByText('gemini-3.6-flash: Rate limited (HTTP 429)')).toBeInTheDocument();
     expect(within(panel(row)).getByText('2 listed model(s) were not tested.')).toBeInTheDocument();
   });
 
-  it('shows a safe typed observed version without relying on free-form evidence and never marks stale data current', async () => {
+  it('does not infer a configured model from a legacy sweep and marks stale data historical', async () => {
     const ai = { name: 'Gemini highest working model', status: 'pass', providerModelVersion: 'gemini-3.5-flash-lite-002', checkedAt: now };
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(jsonResponse({ ...payload, checks: [...payload.checks, ai] }) as Response);
     view();
     await screen.findByText('AI Service -- LLM');
     let row = service('AI Service -- LLM');
-    expect(info(row)).toHaveTextContent('Gemini · Version: gemini-3.5-flash-lite-002*');
-    expect(within(row).getByText('* Latest working version')).toBeInTheDocument();
+    expect(info(row)).toHaveTextContent('Gemini · Configured model: Not in this report');
+    expect(within(row).queryByText('* Latest working version')).not.toBeInTheDocument();
     expect(screen.queryByText('Gemini highest working model')).not.toBeInTheDocument();
 
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(jsonResponse({ ...payload,
@@ -216,13 +216,29 @@ describe('OpsStatusPage', () => {
     expect(row.querySelector('sup')).toBeNull();
   });
 
+  it('updates the configured model from new reports, not from the observed version', async () => {
+    const report = (configuredModelVersion: string) => jsonResponse({ ...payload, checks: [...payload.checks, {
+      name: 'Gemini generation', status: 'pass', configuredModelVersion, providerModelVersion: 'gemini-3.5-flash-lite-001',
+    }] }) as Response;
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(report('gemini-3.6-flash'));
+    view();
+    await screen.findByText('Gemini · Configured model: gemini-3.6-flash');
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(report('gemini-3.5-flash-lite'));
+    fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
+    await screen.findByText('Gemini · Configured model: gemini-3.5-flash-lite');
+    const row = service('AI Service -- LLM');
+    expect(info(row)).not.toHaveTextContent('gemini-3.5-flash-lite-001');
+    fireEvent.click(toggle(row));
+    expect(within(panel(row)).getByText('Configured model probe reported: gemini-3.5-flash-lite-001.')).toBeInTheDocument();
+  });
+
   it('does not display unsafe or unreported model versions', async () => {
     vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ ...payload, checks: [...payload.checks, {
       name: 'Gemini highest working model', status: 'pass', providerModelVersion: 'gemini-secret=value',
       evidence: 'provider_model_version=unreported; highest_working=gemini-3.5-flash',
     }] }) as Response);
     view();
-    await screen.findByText('Gemini · Version: Not reported');
+    await screen.findByText('Gemini · Configured model: Not in this report');
     expect(screen.queryByText('* Latest working version')).not.toBeInTheDocument();
     expect(service('AI Service -- LLM')).not.toHaveTextContent('secret=value');
     expect(info(service('AI Service -- LLM'))).not.toHaveTextContent('gemini-3.5-flash');

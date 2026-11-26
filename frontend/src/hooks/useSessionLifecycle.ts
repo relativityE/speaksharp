@@ -50,6 +50,9 @@ import { toast } from '@/lib/toast';
 import { hydrateServerProgressObligations } from '@/services/progress/serverProgressObligations';
 import { reconstructGateFromQueue } from '@/services/progress/progressStartGate';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
+import { captureCoachingConsent, coachingConsentStillHolds } from '@/services/practicePrivacy';
+import { startMicCoachingCheck } from '@/services/micStartCoachingCheck';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 import {
     beginSessionReviewLatency,
     beginSessionSaveLatency,
@@ -1018,12 +1021,31 @@ export const useSessionLifecycle = ({
                  * treated as possibly recorded, so uncertainty never abandons.
                  */
                 const leaseOfStart = acquiredLeaseId ?? currentTakeLeaseId();
+                let probeDecided = false;
+                const scheduleReadiness = () => {
+                    if (probeDecided || currentStartAttempt()?.id !== startAttempt.id) return;
+                    probeDecided = true;
+                    // Read the checkbox at the first confirmed RECORDING state, not at the initial click.
+                    const choice = captureCoachingConsent();
+                    if (!choice || choice.ownerId !== user?.id || !leaseOfStart) return;
+                    startMicCoachingCheck({
+                        enabled: import.meta.env.VITE_COACHING_MODEL_READINESS_ENABLED === 'true',
+                        recordingConfirmed: true,
+                        consentStillHolds: () => currentStartAttempt()?.id === startAttempt.id
+                            && useSessionStore.getState().runtimeState === 'RECORDING'
+                            && currentTakeLeaseId() === leaseOfStart
+                            && coachingConsentStillHolds(choice),
+                    }, () => getSupabaseClient().functions.invoke('get-ai-suggestions', {
+                        body: { operation: 'mic_start_readiness', leaseId: leaseOfStart, consentRevision: choice.revision },
+                    }));
+                };
                 let startSawRecording = useSessionStore.getState().runtimeState === 'RECORDING';
                 const stopWatchingRecording = typeof useSessionStore.subscribe === 'function'
                     ? useSessionStore.subscribe((state) => {
                         if (state.runtimeState !== 'RECORDING') return;
                         startSawRecording = true;
                         markLeaseMayHaveRecorded(leaseOfStart);
+                        scheduleReadiness();
                     })
                     : null;
                 if (startSawRecording || stopWatchingRecording === null) markLeaseMayHaveRecorded(leaseOfStart);
@@ -1042,6 +1064,7 @@ export const useSessionLifecycle = ({
                         return;
                     }
                     stopWatchingRecording?.();
+                    scheduleReadiness();
                     startLatency.settle('recording_started');
                 } catch (error) {
                     // A cancellation settles no outcome and leaves the lease to the unmount/successor that owns it.

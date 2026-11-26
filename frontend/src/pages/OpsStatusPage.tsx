@@ -25,6 +25,8 @@ type Check = {
   drilldownUrl?: string | null;
   github?: GitHub;
   providerModelVersion?: string;
+  configuredModelVersion?: string;
+  coachingReadiness?: string;
 };
 type Report = {
   generatedAt?: string;
@@ -36,7 +38,6 @@ type Service = {
   name: string;
   status: Status;
   headline: string;
-  versionVerified?: boolean;
   reason?: string;
   details: string[];
   checkedAt?: string;
@@ -164,6 +165,9 @@ function checksForDisplay(checks: Check[]): Service[] {
     const sweepVersion = observedGeminiVersion(sweep);
     const generationVersion = observedGeminiVersion(generation);
     const validVersion = sweepVersion ?? generationVersion;
+    const configuredModel = typeof generation?.configuredModelVersion === 'string'
+      && /^gemini-[a-z0-9][a-z0-9.-]{0,58}$/.test(generation.configuredModelVersion)
+      ? generation.configuredModelVersion : undefined;
     const models = evidenceText(sweep).match(/\btested=([^;]+)/)?.[1]?.split(',').slice(0, 8) ?? [];
     const modelResults = models
       .map((entry) => entry.match(/^(gemini-\d{1,3}\.\d{1,3}-flash(?:-lite)?(?:-\d{3})?):([1-5]\d{2}|no_http):(generated|empty|malformed|rate_limited_429|unavailable_503|http_error|timeout|network_error)$/))
@@ -174,22 +178,30 @@ function checksForDisplay(checks: Check[]): Service[] {
           timeout: 'Timed out', network_error: 'Connection failed' };
         return modelId + ': ' + wording[reason] + (code === 'no_http' ? '' : ' (HTTP ' + code + ')');
       });
-    const status = generation?.status === 'fail' || gemini?.status === 'fail' || sweep?.status === 'fail' ? 'fail'
-      : generation?.status === 'pass' && gemini?.status === 'pass' && (validVersion || !sweep) ? 'pass'
+    const readiness = generation?.coachingReadiness;
+    const status = generation?.status === 'fail' || gemini?.status === 'fail' || sweep?.status === 'fail' || readiness === 'unavailable' ? 'fail'
+      : readiness === 'checking' || readiness === 'not_checked' ? 'warn'
+        : generation?.status === 'pass' && gemini?.status === 'pass' && (validVersion || !sweep) ? 'pass'
         : generation?.status === 'pass' || validVersion || gemini?.status === 'pass' ? 'warn' : 'skip';
     cards.push({ name: 'AI Service -- LLM', status,
-      reason: generation?.status === 'fail' ? 'Configured model generation failed'
+      reason: readiness === 'unavailable' ? 'Valid coaching not verified'
+        : readiness === 'checking' ? 'Coaching readiness check pending'
+          : readiness === 'not_checked' && generation?.status === 'pass' ? 'Coaching readiness not checked'
+            : generation?.status === 'fail' ? 'Configured model generation failed'
         : gemini?.status === 'fail' ? 'Model list check failed'
           : sweep?.status === 'fail' ? 'No tested model generated text'
             : !generation || generation.status === 'skip' ? 'Generation not checked' : 'Model version not verified',
-      headline: 'Gemini · Version: ' + (validVersion ?? 'Not reported'), versionVerified: Boolean(validVersion),
+      headline: 'Gemini · Configured model: ' + (configuredModel ?? 'Not in this report'),
       checkedAt: (sweepVersion ? sweep?.checkedAt : generation?.checkedAt) ?? gemini?.checkedAt ?? sweep?.checkedAt,
       details: ['Gemini API: ' + outcomeText(gemini?.status ?? 'skip') + '.',
         'Gemini generation: ' + outcomeText(generation?.status ?? 'skip') + '.',
         'The API check reads the model list. The generation check sends test text to the configured model.',
-        sweepVersion ? 'Highest tested model that generated text and reported its version: ' + sweepVersion + '.'
-          : generationVersion ? 'Configured model reported version: ' + generationVersion + '.'
-            : 'No tested generation result with a reported model version is available.',
+        ...(readiness === 'verified' ? ['Deployed coaching passed the recording-start readiness check.']
+          : readiness === 'checking' || readiness === 'not_checked' || readiness === 'unavailable'
+            ? ['Deployed coaching readiness is not verified in this report.'] : []),
+        generationVersion ? 'Configured model probe reported: ' + generationVersion + '.'
+          : 'Configured model probe did not report a version.',
+        ...(sweepVersion ? ['Highest working candidate in this probe: ' + sweepVersion + '.'] : []),
         ...modelResults,
         ...(untested && Number(untested) > 0 ? [untested + ' listed model(s) were not tested.'] : []),
         'Synthetic text only. Does not verify coaching in SpeakSharp or change its configured model.'],
@@ -377,9 +389,7 @@ const ServiceRow: React.FC<React.PropsWithChildren<{ service: Service; historica
             </span>
           </span>
           {ai ? <div className="break-words text-sm font-normal leading-tight text-muted-foreground">
-            {service.headline}{service.versionVerified && !historical ? (
-              <><sup aria-hidden="true">*</sup><span className="block text-xs">* Latest working version</span></>
-            ) : null}
+            {service.headline}
           </div> : null}
         </th>
         <td className="py-1.5 align-top">

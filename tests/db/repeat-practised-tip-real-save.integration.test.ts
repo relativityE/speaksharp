@@ -18,9 +18,11 @@ import { resolve } from 'node:path';
 const DIR = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
 const SHIPPED = readdirSync(DIR).filter((f) => /^\d{8,14}_.+\.sql$/.test(f)).sort();
 const D2 = '20261119120000_repeat_practised_tip.sql';
-// #1906 (merged after D2): the deleted-account save-journal cleanup is the only shipped migration after D2. It touches no
-// sessions, attempt or coaching object, so the shipped chain keeps it; any OTHER later migration must be reviewed here.
-const AFTER_D2 = ['20261119200000_deleted_account_save_journal_cleanup_1643.sql'];
+// Both successors are part of the shipped chain, without replacing the D2 target or its save/retention oracles.
+const AFTER_D2 = [
+    '20261119200000_deleted_account_save_journal_cleanup_1643.sql',
+    '20261126005433_coaching_model_readiness.sql',
+];
 
 /** Only what Supabase provides outside the migrations (verbatim from the trial current-chain suite). */
 const SUPABASE_BOOTSTRAP = `

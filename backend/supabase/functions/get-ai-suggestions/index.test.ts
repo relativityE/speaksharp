@@ -2994,3 +2994,54 @@ Deno.test('LLM evaluator parity: the handler sends exactly the evaluator prompt 
     assertEquals([b.body.diagnostics?.source, b.providerCalls, b.quota], ['cache', 0, 0]);
   });
 }
+
+Deno.test('live readiness: only the selected model is persisted; no send while the probe is unresolved', async () => {
+  const selected = 'gemini-4-hydrogen';
+  const enableReadiness = () => true; // Test dependency; native environment allowlist remains GEMINI_API_KEY only.
+  for (const outcome of ['exact', 'wrong', 'pending', 'expired', 'initial', 'cancelled', 'unavailable'] as const) {
+    resetProvider();
+    let probePending = outcome === 'pending';
+    const mock = mockSupabase();
+    const base = mock.create();
+    let reads = 0;
+    const from = (name: string) => {
+      if (name !== 'coaching_model_selection') return base.from(name);
+      const selection = { select: () => selection, eq: () => selection, abortSignal: () => selection,
+        maybeSingle: async () => {
+          reads++;
+          if (outcome === 'initial') return { data: null, error: null };
+          if (outcome === 'unavailable' || outcome === 'cancelled') return { data: {
+            model: coachingContract.model, checked: outcome === 'unavailable', verified: false, probe_deadline: null,
+          }, error: null };
+          return { data: { model: selected, checked: true, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(),
+            probe_deadline: probePending ? new Date(Date.now() + 25_000).toISOString()
+              : outcome === 'expired' ? new Date(Date.now() - 1_000).toISOString() : null }, error: null };
+        } };
+      return selection;
+    };
+    geminiModelVersion = ['wrong', 'initial', 'cancelled', 'unavailable'].includes(outcome) ? coachingContract.model : selected;
+    const response = await handler(request(), mock.create, () => ({ ...base, from }), enableReadiness);
+    assertEquals(reads > 0, true);
+    assertEquals(response.status, ['exact', 'initial', 'cancelled'].includes(outcome) ? 200 : outcome === 'wrong' ? 502 : outcome === 'pending' ? 425 : 503);
+    assertEquals(fetchCount, ['pending', 'expired', 'unavailable'].includes(outcome) ? 0 : 1);
+    if (outcome === 'exact') assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + selected + ':generateContent');
+    if (outcome === 'initial' || outcome === 'cancelled') assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + coachingContract.model + ':generateContent');
+    if (outcome === 'expired' || outcome === 'unavailable') {
+      assertEquals((await response.json()).code, 'service_configuration');
+      assertEquals(mock.state.quotaCount, 0);
+    }
+    if (outcome === 'pending') {
+      assertEquals((await response.json()).code, 'coaching_model_pending');
+      assertEquals([mock.state.quotaCount, mock.state.updated], [0, null]);
+      probePending = false;
+      assertEquals((await handler(request(), mock.create, () => ({ ...base, from }), enableReadiness)).status, 200);
+      assertEquals([fetchCount, mock.state.quotaCount], [1, 1]);
+      assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + selected + ':generateContent');
+    }
+    if (outcome === 'wrong') {
+      const value = await response.json();
+      assertEquals(value.suggestions, undefined);
+      assertEquals(mock.state.updated, null);
+    }
+  }
+});

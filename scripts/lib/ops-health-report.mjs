@@ -188,6 +188,12 @@ export function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, su
       ...(PUBLIC_GEMINI_GENERATION.has(check.name) && check.status === 'pass'
         && typeof check.providerModelVersion === 'string' && PUBLIC_GEMINI_VERSION.test(check.providerModelVersion)
         ? { providerModelVersion: check.providerModelVersion } : {}),
+      ...(check.name === 'Gemini generation' && typeof check.configuredModelVersion === 'string'
+        && /^gemini-[a-z0-9][a-z0-9.-]{0,58}$/.test(check.configuredModelVersion)
+        ? { configuredModelVersion: check.configuredModelVersion } : {}),
+      ...(check.name === 'Gemini generation'
+        && ['not_checked', 'checking', 'verified', 'unavailable'].includes(check.coachingReadiness)
+        ? { coachingReadiness: check.coachingReadiness } : {}),
     })),
   };
 }

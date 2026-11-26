@@ -43,6 +43,9 @@ export const SQL_CONTRACTS=Object.freeze([
       'backend/supabase/migrations/20261117105700_practice_privacy_choices_1835.sql',
       'tests/db/fixtures/practice-privacy-choices-1835.sql',
     ])}),
+  // #1977: execute the exact migration in PGlite; no live database is involved.
+  Object.freeze({consumer:'tests/db/coaching-model-readiness.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261126005433_coaching_model_readiness.sql'])}),
   // #1827 D2 repeat tip: the catalog gate test executes the exact migration over the shipped PGlite chain and writes its witness;
   // the native database runs in the account-closure full-chain proof workflow (profile main-repeat-tip-134).
   Object.freeze({consumer:'tests/db/repeatTipPostflight.integration.test.ts',
@@ -291,6 +294,7 @@ const checkoutTest='backend/supabase/functions/stripe-checkout/index.test.ts';
 export const COACHING_EDGE_TEST='backend/supabase/functions/get-ai-suggestions/index.test.ts';
 export const COACHING_EDGE_CONSENT_CASE='#1905 saved Open Mic and Focus coaching honor owner consent at send and persist';
 const COACHING_EFFICACY_PROFILE='coaching-consent-efficacy-1905';
+const COACHING_READINESS_EFFICACY_PROFILE='coaching-readiness-efficacy-1977';
 export const COACHING_QUALITY_TEST='backend/supabase/functions/get-ai-suggestions/evaluation/coachingBotChecks.test.ts';
 const COACHING_WRONG_TAKE_CASE='#1905 wrong-take coaching fails when only one advice section is cross-wired';
 const coachingTest=COACHING_EDGE_TEST;
@@ -475,6 +479,31 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1977: exact runtime, config and local import closure. The native permission policy is unchanged.
+  {id:COACHING_READINESS_EFFICACY_PROFILE,files:{
+    'backend/supabase/functions/_shared/cors.ts':'74ab664c710d733534d8e0af433b0c4c48110a2dec1d5436f04f55147225e608',
+    'backend/supabase/functions/deno.json':'6e88bc8b0df10b78fb39e1c26492164a351f350d6d4046eca09df4ebebd681a0',
+    'backend/supabase/functions/deno.lock':'fdb2c5763d857063bde2fd3560f3f23c35bb11da5843ca2649cd961992c7bfdb',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/evaluator.ts':'6cc2300713d3393cca7c8c026418214fe5a073c297c48cf5b08c8b8d75470074',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a',
+    'backend/supabase/functions/get-ai-suggestions/index.test.ts':'1dd9896f9ded01f6cdec5459f05ba4cd0f8ebf5b247492f63b3353e80516ec4d',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'45d161bca9e994d0910c22592a230b0ecacd3697e513bb81a8cbe6db76dee3c1',
+    'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'c51e7517265dddb5e30f8e25f85814c21bcee751d5741a3a71c9d7022ce3e9c6',
+    'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'242aed9faf2c95b6da37650272f9e38bffa066a22b43329c44bc19a6fc3d0a94',
+    'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'78c49dbbe42d123234eae38092f9cce887900a2f6d095706b4dfa30304bb15d1',
+    'backend/supabase/functions/get-ai-suggestions/practicePrivacy.ts':'525f36728d57c98ef03261acabb343c55a3a327319c585cf70df80cc76108015',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'eda8685f3f005e3cb774c54cadf8a04e43bb483d68c7a31130fd268b06ff7820',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'fe32c21fa3b35a549813234447f2b19358f8dbd670c5c161fec4ce58427495f1',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'ac6303cb3299b142f825be09d9b18ec3d1b3b71f79cfb0982ede8d1af09ad85a',
+    'backend/supabase/functions/get-ai-suggestions/readinessQuota.ts':'8cebc384f62221aa5fcdaadbc2d3cc88233a51fdbc4c2e6eb4a59ac7c2a51b8f',
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'pnpm-lock.yaml':'847997ce69bb4fe97c27eafd0ca40c1021fef6ac32adbe4be240a56be3867b55',
+  }},
 ]);
 // #1905 adds assertions only. The authority, permission envelope and every import remain pinned.
 const coachingEfficacyProfiles=coachingProfiles.filter(item=>item.id==='coaching-persist-entitlement-1899').map(item=>({
@@ -869,7 +898,7 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
   }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
   const requiredCases=contract.testFile===COACHING_QUALITY_TEST?[COACHING_WRONG_TAKE_CASE]
-    :b.syntheticSource?.id===COACHING_EFFICACY_PROFILE?[COACHING_EDGE_CONSENT_CASE]:[];
+    :[COACHING_EFFICACY_PROFILE,COACHING_READINESS_EFFICACY_PROFILE].includes(b.syntheticSource?.id)?[COACHING_EDGE_CONSENT_CASE]:[];
   const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root,requiredCases):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
   return {counts,helpers:validateNativeCallables(phase.coverage,b,root,contract.helpers)};

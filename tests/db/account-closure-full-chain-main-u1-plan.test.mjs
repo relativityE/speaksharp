@@ -145,7 +145,9 @@ const REPEAT_TIP=Object.freeze({name:'20261119120000_repeat_practised_tip.sql',
 // #1643 follow-up: deleted proof-account save-journal cleanup. Repository inventory that no historical profile replays.
 const SAVE_JOURNAL_CLEANUP=Object.freeze({name:'20261119200000_deleted_account_save_journal_cleanup_1643.sql',
   version:'20261119200000',sha256:'48088287571cca34007a42018a67df6ccd702bddcda1579ec85f208daaef834c'});
-const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name].includes(row.name));
+const COACHING_READINESS=Object.freeze({name:'20261126005433_coaching_model_readiness.sql',version:'20261126005433',
+  sha256:'fa07703cef9764d346621e6a2a2543606a1e3eb5b24fa1e1265bd0f24e243079'});
+const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -174,8 +176,8 @@ test('reviewed withheld retirement is repository inventory, never historical rep
   // Adding the exact withheld pin does not let an old profile accept later applied members.
   assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,137);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,138);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name]);
 });
 // Repository registration is NOT an installed-schema or release attestation.
 test('the feedback fence is pinned and excluded from every profile before main-feedback-fence-131',()=>{
@@ -262,8 +264,8 @@ test('the refund follow-up migration is pinned inventory that no profile replays
     assert.throws(()=>buildMainU1ReplayPlan([...rows,{...REFUND,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
   }
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-coaching-retirement-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,137);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,138);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name]);
 });
 test('the deleted-account save-journal cleanup is digest-pinned inventory that no profile replays',()=>{
   const observed=repositoryPhysical.find(row=>row.name===SAVE_JOURNAL_CLEANUP.name);
@@ -723,4 +725,15 @@ test('missing-Start native proof runs on the exact head and retains its separate
     assert.ok(workflow.includes("- 'tests/db/"+file+"'"));
   assert.ok(workflow.indexOf('node tests/db/recording-start-abandonment-realpg.test.mjs')>workflow.indexOf('[ "$actual_head" = "$PROOF_HEAD_SHA" ]'));
   assert.ok(workflow.includes('artifacts/recording-start-abandonment/receipts.json'));
+});
+
+test('coaching readiness is pinned physical inventory but never added to a historical account replay', () => {
+  assert.deepEqual(repositoryPhysical.find(row => row.name === COACHING_READINESS.name), COACHING_READINESS);
+  const profile = 'main-completion-billing-129';
+  const plan = buildMainU1ReplayPlan(repositoryPhysical, profile);
+  assert.deepEqual(plan.withheld.find(row => row.name === COACHING_READINESS.name), {...COACHING_READINESS, status:'NOT REPLAYED'});
+  assert.ok(!plan.replayFiles.includes(COACHING_READINESS.name));
+  assert.ok(plan.stages.every(stage => !stage.versions.includes(COACHING_READINESS.version)));
+  assert.throws(() => buildMainU1ReplayPlan(repositoryPhysical.map(row => row.name === COACHING_READINESS.name
+    ? {...row, sha256:'0'.repeat(64)} : row), profile), /withheld migration digest changed/);
 });

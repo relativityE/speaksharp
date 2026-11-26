@@ -444,9 +444,12 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
 
-    assert.equal(admitted.id,'coaching-consent-efficacy-1905');
-    assert.equal(Object.keys(admitted.files).length,17);
-    for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json','practicePrivacy.ts'])
+    assert.equal(admitted.id,'coaching-readiness-efficacy-1977');
+    assert.equal(Object.keys(admitted.files).length,22);
+    assert.deepEqual(nativeDenoPolicy(entry).environment.names,['GEMINI_API_KEY']);
+    assert.equal(nativeDenoPolicy(entry).network,'denied');
+    for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json','evaluation/evaluator.ts','practicePrivacy.ts',
+      'modelReadback.ts','modelReadiness.ts','modelReadinessStore.ts','readinessQuota.ts'])
       assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
     assert.deepEqual(Object.keys(admitted.files).sort(),files.sort());
     for(const file of files) {
@@ -457,7 +460,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
       f.write(file,original);
     }
 
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-consent-efficacy-1905');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-readiness-efficacy-1977');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{

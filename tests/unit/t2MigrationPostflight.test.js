@@ -10,8 +10,8 @@ import { spawnSync } from 'node:child_process';
 import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVENTORY,
   t2ExpectedCatalog, t2DisabledQuery, assertT2Disabled, t2AdmissionQuery, t2LedgerQuery,
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot,
-  t2KnownAbsentQuery, t2EdgeReleaseContract } from '../../scripts/lib/t2MigrationPostflight.mjs';
-import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
+  t2KnownAbsentQuery, t2EdgeReleaseContract, coachingReadinessCatalogQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
+import { COACHING_READINESS_MIGRATION, EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from '../../scripts/lib/abandonmentCatalogPins.mjs';
 import { FEEDBACK_FENCE_CATALOG_DELTA } from '../../scripts/lib/feedbackFenceCatalogPins.mjs';
 import { PAYMENT_WALL_T2_CATALOG_DELTA, PRACTICE_PRIVACY_T2_CATALOG_DELTA, PENDING_NATIVE_PIN } from '../../scripts/lib/paymentWallPrivacyT2CatalogPins.mjs';
@@ -915,4 +915,32 @@ describe('T2 catalog digest of a foreign key is independent of physical column o
     expect(await digestWith(idFirst, toOther)).not.toBe(await digestWith(idFirst, toId));
     expect(await digestWith(idSecond, toOther)).not.toBe(await digestWith(idSecond, toId));
   });
+});
+
+it('accepts only the exact coaching migration successor and checks its service-only catalog', async () => {
+  const before = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000',
+    '20261114170000', '20261117105700', '20261119120000', '20261119200000'];
+  const next = [...before, COACHING_READINESS_MIGRATION.version];
+  for (const ledger of [next, [...next, '20261027192550'].sort()]) {
+    const contract = t2EdgeReleaseContract(process.cwd(), ledger);
+    expect(contract.readiness).toBe(true);
+    expect(t2ReleaseSnapshotQuery(contract)).toContain(coachingReadinessCatalogQuery());
+    const prefix = [JSON.stringify(ledger), null, null, 'true', null, 'true', ...(contract.settlement ? ['null'] : [])];
+    expect(() => assertT2ReleaseSnapshot(contract, [...prefix, 'false'])).toThrow(/coaching readiness catalog/);
+    expect(() => assertT2ReleaseSnapshot(contract, prefix)).toThrow(/incomplete T2 release/);
+  }
+  expect(() => t2EdgeReleaseContract(process.cwd(), [...before.slice(0, -1), next.at(-1)])).toThrow(/predecessor/);
+  expect(() => t2EdgeReleaseContract(process.cwd(), [...next, '20261126005434'])).toThrow(/ledger/);
+
+  const sql = readFileSync(join('backend/supabase/migrations', COACHING_READINESS_MIGRATION.file), 'utf8');
+  const pg = new PGlite();
+  try {
+    await pg.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;');
+    const check = async () => (await pg.query(coachingReadinessCatalogQuery())).rows[0].ok;
+    expect(await check()).toBe('false');
+    await pg.exec(sql);
+    expect(await check()).toBe('true');
+    await pg.exec('GRANT EXECUTE ON FUNCTION public.claim_coaching_model_probe_v1(text) TO authenticated;');
+    expect(await check()).toBe('false');
+  } finally { await pg.close(); }
 });

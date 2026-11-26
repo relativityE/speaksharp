@@ -98,11 +98,11 @@ function fixed(status, detail, providerModelVersion = null) {
 }
 function keyPresent(key) { return typeof key === 'string' && Boolean(key.trim()); }
 
-export async function evaluateGeminiGeneration(key, { fetchImpl = globalThis.fetch, timeoutMs = 10_000 } = {}) {
+export async function evaluateGeminiGeneration(key, { fetchImpl = globalThis.fetch, timeoutMs = 10_000, modelId = model } = {}) {
   if (!keyPresent(key)) return fixed('skip', 'missing=GEMINI_API_KEY');
-  if (typeof model !== 'string' || !SAFE_VERSION.test(model)) return fixed('fail', 'generation=invalid_model_contract');
+  if (typeof modelId !== 'string' || !SAFE_VERSION.test(modelId)) return fixed('fail', 'generation=invalid_model_contract');
   const deadlineMs = Number.isFinite(timeoutMs) ? Math.min(10_000, Math.max(1, timeoutMs)) : 10_000;
-  const { reason, modelVersion } = await probeGeneration(key, model, fetchImpl, deadlineMs);
+  const { reason, modelVersion } = await probeGeneration(key, modelId, fetchImpl, deadlineMs);
   return fixed(reason === 'generated' ? 'pass' : 'fail', `generation=${reason}`, modelVersion);
 }
 
@@ -149,10 +149,10 @@ async function listModels(key, fetchImpl) {
 }
 
 // At most four bounded catalog pages and eight sequential synthetic calls; report every tested rank.
-export async function evaluateHighestWorkingGemini(key, { fetchImpl = globalThis.fetch } = {}) {
+export async function evaluateHighestWorkingGemini(key, { fetchImpl = globalThis.fetch, modelId = model } = {}) {
   if (!keyPresent(key)) return fixed('skip', 'missing=GEMINI_API_KEY');
   const ranked = await listModels(key, fetchImpl);
-  const pinned = typeof model === 'string' && SAFE_VERSION.test(model) ? model : 'unknown';
+  const pinned = typeof modelId === 'string' && SAFE_VERSION.test(modelId) ? modelId : 'unknown';
   if (ranked === null) return fixed('fail', `catalog_unavailable; pinned=${pinned}; highest_working=unverified; sweep=incomplete_catalog`);
   const results = [];
   for (const id of ranked.slice(0, MAX_PROBES)) {

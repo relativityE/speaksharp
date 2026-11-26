@@ -152,7 +152,7 @@ const diagnosticEvent = (
     Number.isInteger(value) && Number(value) >= 0 ? Math.min(max, Number(value)) : null;
   const knownReason = new Set([
     'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
-    'focus_context_unavailable', 'focus_results_pending', 'transcript_unavailable', 'product_unknown',
+    'focus_context_unavailable', 'focus_results_pending', 'coaching_model_pending', 'transcript_unavailable', 'product_unknown',
     'service_configuration', 'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded',
     'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
     'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed',
@@ -830,13 +830,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         if (lifecycle.watchdog) { clearTimeout(lifecycle.watchdog); lifecycle.watchdog = null; }
         lifecycle.abort = null;
         serverDiagnostic = await readServerDiagnostic(err);
-        // #1258 — Focus Points results not saved yet: nothing was spent, so wait and ask again (still "coming",
-        // never an error), without consuming a lifecycle attempt. Bounded by FOCUS_RESULTS_PENDING_WAITS.
+        // Focus results or model readiness can be briefly pending before any quota or provider call.
+        // Both use the same bounded wait without consuming a lifecycle attempt.
         if (errorStatus(err) === 425 && pendingWaits < FOCUS_RESULTS_PENDING_WAITS) {
-          serverDiagnostic = await readServerDiagnostic(err);
           trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
             requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
-            outcome: 'retrying', reason: 'focus_results_pending',
+            outcome: 'retrying', reason: serverDiagnostic?.reason === 'coaching_model_pending' ? 'coaching_model_pending' : 'focus_results_pending',
             totalMs: performance.now() - attemptStartedAt, product,
           }));
           pendingWaits += 1;
