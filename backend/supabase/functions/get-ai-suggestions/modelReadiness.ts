@@ -26,7 +26,8 @@ export interface ReadinessStore {
     retryAfterMs?: number;
   }): Promise<boolean>;
 }
-const MAX_FALLBACKS = 3;
+// Match the existing bounded catalog sweep and respect the shared lease deadline.
+const MAX_FALLBACKS = 8;
 
 type Probe = (model: ReadinessModel, product: ProbeProduct, signal: AbortSignal) => Promise<ProbeResult>;
 

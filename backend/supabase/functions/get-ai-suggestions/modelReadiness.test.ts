@@ -81,10 +81,13 @@ Deno.test('tries distinct variants in catalog order and stops at the first valid
 });
 
 Deno.test('falling back respects the variant cap and stops on shared throttling', async () => {
-  const candidates = [...models, ...['third', 'fourth', 'fifth'].map((id) => ({ id, observedVersions: [id] }))];
+  const candidates = [...models, ...Array.from({ length: 8 }, (_, i) => {
+    const id = 'candidate-' + (i + 2);
+    return { id, observedVersions: [id] };
+  })];
   const capped = harness(() => ({ status: 'model_unavailable' }), true, candidates);
   assert.equal(await runMicStartReadiness(live, capped.options), 'unavailable');
-  assert.deepEqual(capped.calls, ['incumbent:open_mic', 'alt:open_mic', 'third:open_mic', 'fourth:open_mic']);
+  assert.deepEqual(capped.calls, candidates.slice(0, 9).map(({ id }) => id + ':open_mic'));
   const shared = harness((id) => id === 'incumbent' ? { status: 'model_unavailable' } : provider(429, 'project'), true, candidates);
   assert.equal(await runMicStartReadiness(live, shared.options), 'unavailable');
   assert.deepEqual(shared.calls, ['incumbent:open_mic', 'alt:open_mic']);

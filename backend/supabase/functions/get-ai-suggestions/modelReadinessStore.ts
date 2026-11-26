@@ -4,18 +4,17 @@ import contract from './contract.json' with { type: 'json' };
 import { parseProviderDescriptor, PROVIDER_CATALOG } from './providers/catalog.ts';
 import { createGeminiAdapter } from './providers/gemini.ts';
 
-// Match the existing Ops Health stable Flash/Flash-Lite family. No provider aliases,
-// preview IDs or caller-supplied URLs can become the active model.
-const FLASH = /^gemini-(\d{1,3})\.(\d{1,3})-flash(-lite)?(?:-(\d{3}))?$/;
+// Numbered Gemini text models, without a pinned version range. Ignore moving aliases,
+// previews and specialist models; the real coaching probe supplies the capability check.
+const GEMINI_TEXT = /^gemini-(\d{1,3})(?:\.(\d{1,3}))?-(pro|flash|flash-lite)(?:-(\d{3}))?$/;
 const descriptor = PROVIDER_CATALOG.find((p) => p.id === 'google_gemini');
 const CATALOG_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 function rank(id: string): number[] | null {
-  const match = FLASH.exec(id);
+  const match = GEMINI_TEXT.exec(id);
   if (!match) return null;
-  const [, major, minor, lite, revision = '0'] = match;
-  if (+major < 3 || (+major === 3 && +minor < 5)) return null;
-  return [+major, +minor, lite ? 0 : 1, +revision];
+  const [, major, minor = '0', tier, revision = '0'] = match;
+  return [+major, +minor, tier === 'pro' ? 2 : tier === 'flash' ? 1 : 0, +revision];
 }
 
 export function geminiReadinessModel(id: unknown): ReadinessModel | null {

@@ -10,10 +10,10 @@ const body = { operation: 'mic_start_readiness', consentRevision: 3, leaseId: le
 Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned lease can start the synthetic probe', async () => {
   const savedFetch = globalThis.fetch;
   let aiCoaching = true, fresh = true, readRevision = 3, answerStatus = 200, valid = true, claims = 0;
-  let catalogCalls = 0, revokeAfterCatalog = false;
+  let catalogCalls = 0, revokeAfterCatalog = false, newerAvailable = false;
   const attempted: string[] = [];
   const next = 'gemini-3.8-flash';
-  const alternate = 'gemini-3.5-flash-lite';
+  const alternate = 'gemini-3.4-flash-lite';
   const prompts: string[] = [];
   const completions: Array<Record<string, unknown>> = [];
   globalThis.fetch = async (url, init) => {
@@ -34,7 +34,7 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
     const posted = JSON.parse(String(init && 'body' in init ? init.body : undefined));
     prompts.push(posted.contents[0].parts[0].text);
     assert.deepEqual(posted.generationConfig, contract.generationConfig);
-    const status = id === contract.model ? answerStatus : id === next ? 404 : 200;
+    const status = id === contract.model ? answerStatus : id === next && !newerAvailable ? 404 : 200;
     return status === 200
       ? Response.json({ modelVersion: id, candidates: [{ finishReason: 'STOP', content: { parts: [{
         text: valid ? JSON.stringify({ version: contract.version, what_worked: /Focus Points/i.test(prompts.at(-1) ?? '') ? 'You named the phone line problem first.' : 'You opened with the onboarding checklist.',
@@ -105,6 +105,11 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
     assert.deepEqual(attempted.slice(before), [contract.model, next, alternate, alternate]);
     assert.equal(completions.at(-1)?.p_verified, true);
     assert.equal(completions.at(-1)?.p_promote_to, alternate);
+    newerAvailable = true;
+    const beforeNewer = attempted.length;
+    assert.equal((await invoke()).status, 204);
+    assert.deepEqual(attempted.slice(beforeNewer), [contract.model, next, next]);
+    assert.equal(completions.at(-1)?.p_promote_to, next);
     revokeAfterCatalog = true;
     const beforeOptOut = attempted.length;
     assert.equal((await invoke()).status, 204);
@@ -174,11 +179,11 @@ Deno.test('runtime catalog is bounded and selects only stable Gemini text genera
     }));
     assert.equal(requestUrl.searchParams.get('pageToken'), 'second');
     return Promise.resolve(Response.json({
-      models: [item('gemini-3.8-flash'), item('gemini-3.7-flash-lite'), item('gemini-3.4-flash'), item('../gemini-4.0-flash')],
+      models: [item('gemini-3.8-flash'), item('gemini-3.8-pro'), item('gemini-3.7-flash-lite'), item('gemini-3.4-flash'), item('../gemini-4.0-flash'), item('other-4.0-pro')],
     }));
   };
   assert.deepEqual((await discoverGeminiReadinessModels('fake', signal, fake)).map((model) => model.id),
-    ['gemini-3.8-flash', 'gemini-3.7-flash-lite']);
+    ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-3.7-flash-lite', 'gemini-3.4-flash']);
   assert.equal(calls.length, 2);
   let repeated = 0;
   assert.deepEqual(await discoverGeminiReadinessModels('fake', signal, () => {
