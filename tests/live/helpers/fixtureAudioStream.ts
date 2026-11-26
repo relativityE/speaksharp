@@ -11,11 +11,16 @@ export interface FixturePlaybackState {
   endedAtMs: number | null;
   durationSeconds: number | null;
   activeStreams: number;
+  /** Cued mode only: browser-clock interval bounding the first rendered sample at fixture position zero. */
+  onsetEarliestMs?: number | null;
+  onsetLatestMs?: number | null;
 }
 
 export interface FixtureAudioOptions {
-  /** Default preserves legacy looping behavior. Controlled playback stays silent until explicitly played. */
-  playback?: 'legacy-loop' | 'controlled-once';
+  /** Default preserves legacy looping. Cue-loop warms with non-speech PCM, then loops from position zero on demand. */
+  playback?: 'legacy-loop' | 'controlled-once' | 'cue-loop';
+  /** Negative control: no warm-up PCM even when the cue loop is configured. */
+  zeroPreroll?: boolean;
 }
 
 /**
@@ -40,7 +45,7 @@ export async function injectAlignedFixtureAudio(
     route.fulfill({ status: 200, contentType: 'audio/wav', body: wav }),
   );
 
-  await page.addInitScript(({ fixtureUrlPath, controlled }) => {
+  await page.addInitScript(({ fixtureUrlPath, controlled, cueLoop, zeroPreroll }) => {
     const md = navigator.mediaDevices;
     if (!md || typeof md.getUserMedia !== 'function') return;
 
@@ -52,6 +57,8 @@ export async function injectAlignedFixtureAudio(
     interface FixtureEntry {
       dest: MediaStreamAudioDestinationNode;
       source: AudioBufferSourceNode | null;
+      preroll?: AudioBufferSourceNode;
+      witness?: ConstantSourceNode;
     }
     const w = window as unknown as {
       __ss_fixtureEntries__?: FixtureEntry[];
@@ -70,15 +77,30 @@ export async function injectAlignedFixtureAudio(
     let generation = 0;
     let startedAtMs: number | null = null;
     let endedAtMs: number | null = null;
+    let onsetEarliestMs: number | null = null;
+    let onsetLatestMs: number | null = null;
+    const pageEpochNow = () => Date.now();
     const activeEntries = () => (w.__ss_fixtureEntries__ ?? [])
       .filter((entry) => entry.dest.stream.getAudioTracks().some((track) => track.readyState === 'live'));
     const snapshot = (): FixturePlaybackState => ({
       phase, generation, startedAtMs, endedAtMs,
       durationSeconds: decoded?.duration ?? null,
       activeStreams: activeEntries().length,
+      ...(cueLoop ? { onsetEarliestMs, onsetLatestMs } : {}),
     });
     const stopSources = () => {
       for (const entry of w.__ss_fixtureEntries__ ?? []) {
+        if (entry.preroll) {
+          try { entry.preroll.stop(); } catch { /* already stopped */ }
+          entry.preroll.disconnect();
+          entry.preroll = undefined;
+        }
+        if (entry.witness) {
+          entry.witness.onended = null;
+          try { entry.witness.stop(); } catch { /* already stopped */ }
+          entry.witness.disconnect();
+          entry.witness = undefined;
+        }
         if (entry.source) {
           entry.source.onended = null;
           try { entry.source.stop(); } catch { /* already stopped */ }
@@ -88,14 +110,29 @@ export async function injectAlignedFixtureAudio(
       }
     };
 
-    const startAtZero = (entry: FixtureEntry) => {
+    // Nonzero quiet PCM lets the real mic readiness gate settle without giving it speech.
+    // Peak 0.001 is below both the 0.003 speech floor and the leading-trim anchor.
+    const warm = (entry: FixtureEntry) => {
+      if (!cueLoop || zeroPreroll || !ctx) return;
+      const preroll = ctx.createBufferSource();
+      const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = 0.001 * Math.sin(2 * Math.PI * 110 * i / ctx.sampleRate);
+      preroll.buffer = buffer;
+      preroll.loop = true;
+      preroll.connect(entry.dest);
+      preroll.start(0);
+      entry.preroll = preroll;
+    };
+
+    const startAtZero = (entry: FixtureEntry, when = 0) => {
       if (!ctx || !decoded) return;
       try { entry.source?.stop(); } catch { /* already stopped */ }
       const src = ctx.createBufferSource();
       src.buffer = decoded;
-      src.loop = !controlled;
+      src.loop = !controlled || cueLoop;
       src.connect(entry.dest);
-      src.start(0); // fixture position 0
+      src.start(when, 0); // fixture position 0
       entry.source = src;
     };
 
@@ -106,7 +143,8 @@ export async function injectAlignedFixtureAudio(
         if (phase === 'disposed') throw new Error('Fixture audio was disposed');
         stopSources();
         generation += 1;
-        startedAtMs = endedAtMs = null;
+        startedAtMs = endedAtMs = onsetEarliestMs = onsetLatestMs = null;
+        activeEntries().forEach(warm);
         phase = activeEntries().length ? 'ready' : 'waiting-for-capture';
         return;
       }
@@ -130,7 +168,25 @@ export async function injectAlignedFixtureAudio(
       const take = generation;
       phase = 'playing';
       startedAtMs = performance.now();
-      startAtZero(entry);
+      if (cueLoop) {
+        // Both sources share the audio render clock and destination. A zero-valued
+        // one-quantum witness does not modify the recorded WAV. Its end bounds
+        // the render start from above; the scheduling call bounds it below.
+        const when = ctx.currentTime + 0.02;
+        const witness = ctx.createConstantSource();
+        witness.offset.value = 0;
+        witness.connect(entry.dest);
+        entry.witness = witness;
+        onsetEarliestMs = pageEpochNow();
+        witness.onended = () => {
+          if (generation === take && phase === 'playing') onsetLatestMs = pageEpochNow();
+          witness.disconnect();
+        };
+        entry.preroll?.stop(when);
+        startAtZero(entry, when);
+        witness.start(when);
+        witness.stop(when + 128 / ctx.sampleRate);
+      } else startAtZero(entry);
       entry.source!.onended = () => {
         if (generation !== take || phase !== 'playing') return;
         phase = 'ended';
@@ -181,6 +237,7 @@ export async function injectAlignedFixtureAudio(
       const entry: FixtureEntry = { dest: ctx.createMediaStreamDestination(), source: null };
       try {
         if (!controlled) startAtZero(entry);
+        else warm(entry);
         (w.__ss_fixtureEntries__ ?? []).push(entry);
         if (controlled && phase !== 'playing' && phase !== 'ended') phase = 'ready';
         return entry.dest.stream;
@@ -191,7 +248,8 @@ export async function injectAlignedFixtureAudio(
         throw error;
       }
     };
-  }, { fixtureUrlPath: FIXTURE_URL_PATH, controlled: options.playback === 'controlled-once' });
+  }, { fixtureUrlPath: FIXTURE_URL_PATH, controlled: options.playback === 'controlled-once' || options.playback === 'cue-loop',
+    cueLoop: options.playback === 'cue-loop', zeroPreroll: options.zeroPreroll === true });
 }
 
 /** Call only after the product has acknowledged capture readiness. This never presses Start or injects a transcript. */

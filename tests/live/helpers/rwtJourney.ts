@@ -1801,6 +1801,8 @@ export async function practiceAgainEvidence(
     /** How long the save take records (default SAVE_TAKE_PERSIST_MS; out-of-range values fall back to it). `beforeCapture`
      *  (#1835): the caller's consent readback, awaited immediately before the save take's Start and the repeat action's press. */
     opts: { saveTakeMs?: number; beforeCapture?: () => Promise<void>;
+        /** J3.b controlled fixture only: feed the original audio once the save take can hear it. */
+        onSaveTakeRecording?: () => Promise<void>;
         /** J1 option B: hold the repeated take past the 5 s save minimum before its Stop (default: Stop at once). */
         holdRepeatPastSaveMinimum?: boolean;
         /** J1.b (Sam, 22 Nov): a side check of the SAVE take, started once the repeat records and run inside its hold. It
@@ -1853,6 +1855,7 @@ export async function practiceAgainEvidence(
         ev.saveTakeStartPressed = true;
         step = 'recording_started';
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
+        await opts.onSaveTakeRecording?.();
         await page.waitForTimeout(saveTakeDuration(opts.saveTakeMs)); // past the 5 s no-persist guard, so this take saves
         step = 'stop';
         // Codex P2 r4278702635: the flag is set when the CLICK resolves, inside the helper — so `stop` with the flag true
