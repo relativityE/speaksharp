@@ -18,7 +18,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, type Page } from '@playwright/test';
 import type { CoachingExchange, CoachingSentRequest, CoachingSuggestionPair } from './coachingGenerationTap';
-import { EDGE_MAX_PROVIDER_ATTEMPTS, buildRwtCoachingEvidenceArtifact, coachingContract, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from './rwtCoachingEvidence';
+import { EDGE_MAX_PROVIDER_ATTEMPTS, buildRwtCoachingEvidenceArtifact, isApprovedCoachingSelection, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from './rwtCoachingEvidence';
 import { takesDifferVerdict } from './rwtCoachingConsistency';
 
 type Verdict = 'PASS' | 'FAIL' | 'HOLD';
@@ -493,12 +493,11 @@ export function coachingEvidenceOutcome(input: {
     repeatTake: ReturnType<typeof assembleTake>;
     write?: typeof writeRwtCoachingEvidenceArtifact;
 }): CoachingEvidenceOutcome {
-    const base = { configuredModel: coachingContract.model };
-    if ('hold' in input.destination) return { verdict: 'HOLD', detail: 'no private evidence destination; the restricted artifact was not written', evidence: { ...base, reason: input.destination.hold } };
-    if ('hold' in input.firstTake) return { verdict: 'HOLD', detail: 'the first take\'s evidence is unavailable', evidence: { ...base, reason: input.firstTake.hold, take: 'first' } };
-    if ('hold' in input.repeatTake) return { verdict: 'HOLD', detail: 'the repeat take\'s evidence is unavailable', evidence: { ...base, reason: input.repeatTake.hold, take: 'repeat' } };
+    if ('hold' in input.destination) return { verdict: 'HOLD', detail: 'no private evidence destination; the restricted artifact was not written', evidence: { reason: input.destination.hold } };
+    if ('hold' in input.firstTake) return { verdict: 'HOLD', detail: 'the first take\'s evidence is unavailable', evidence: { reason: input.firstTake.hold, take: 'first' } };
+    if ('hold' in input.repeatTake) return { verdict: 'HOLD', detail: 'the repeat take\'s evidence is unavailable', evidence: { reason: input.repeatTake.hold, take: 'repeat' } };
     let written: { file: string; sha256: string; mode: number };
-    let artifact: { firstTake: { promptBinding: { verdict: Verdict; reason: string } }; repeatTake: { promptBinding: { verdict: Verdict; reason: string } } };
+    let artifact: ReturnType<typeof buildRwtCoachingEvidenceArtifact>;
     try {
         written = (input.write ?? writeRwtCoachingEvidenceArtifact)({ releaseSha: input.releaseSha, firstTake: input.firstTake.take, repeatTake: input.repeatTake.take }, input.destination.dir);
         artifact = JSON.parse(readFileSync(written.file, 'utf8'));
@@ -506,8 +505,14 @@ export function coachingEvidenceOutcome(input: {
         // The helper's refusals are fixed sentences naming the take and the failed check — never a field VALUE.
         const message = error instanceof Error ? error.message : 'unknown';
         const refusal = /^(firstTake|repeatTake)[.:\w]*: [a-z][a-z ,/-]+$/i.test(message) ? message.slice(0, 160) : 'artifact_write_refused';
-        return { verdict: 'FAIL', detail: 'the run\'s coaching evidence did not satisfy the restricted artifact contract', evidence: { ...base, refusal } };
+        return { verdict: 'FAIL', detail: 'the run\'s coaching evidence did not satisfy the restricted artifact contract', evidence: { refusal } };
     }
+    // For a cache replay, the terminal request's configured model can be the
+    // default. Only the bound original generation says what generated the pair.
+    const provenModel = (take: typeof artifact.firstTake): string | null => {
+        const model = take.promptGenerationReceipt?.response.configured_model;
+        return take.promptBinding.verdict === 'PASS' && typeof model === 'string' && isApprovedCoachingSelection(model) ? model : null;
+    };
     const first = artifact.firstTake.promptBinding;
     const repeat = artifact.repeatTake.promptBinding;
     const verdict: Verdict = first.verdict === 'FAIL' || repeat.verdict === 'FAIL' ? 'FAIL'
@@ -516,7 +521,8 @@ export function coachingEvidenceOutcome(input: {
         verdict,
         detail: verdict === 'PASS' ? 'both takes\' coaching is bound to their saved prompt inputs and the server generation receipt'
             : verdict === 'FAIL' ? 'a take\'s generation does not match its saved prompt inputs or binding' : 'a take\'s prompt binding could not be proven',
-        evidence: { ...base, artifactSha256: written.sha256, firstBinding: first.verdict, firstReason: first.reason, repeatBinding: repeat.verdict, repeatReason: repeat.reason },
+        evidence: { firstConfiguredModel: provenModel(artifact.firstTake), repeatConfiguredModel: provenModel(artifact.repeatTake),
+            artifactSha256: written.sha256, firstBinding: first.verdict, firstReason: first.reason, repeatBinding: repeat.verdict, repeatReason: repeat.reason },
     };
 }
 
@@ -688,7 +694,7 @@ export function inFlightTimeline(open: readonly { sent: CoachingExchange['sent']
 
 export function coachingRequestBudgetRow(
     receipt: ReceiptLike,
-    tap: { sentCount: number; exchanges: readonly CoachingExchange[]; inFlight?: () => { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[] },
+    tap: { sentCount: number; readinessSentCount?: number; readiness204Count?: number; exchanges: readonly CoachingExchange[]; inFlight?: () => { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[] },
     budget: { maximum: number; oneRequestPerSession?: readonly string[]; sessionIdsVerified?: boolean },
 ): void {
     const answered = tap.exchanges.filter((e) => e.status !== null);
@@ -732,6 +738,7 @@ export function coachingRequestBudgetRow(
                 : holdReason,
         {
             maximum: budget.maximum, browserRequests: tap.sentCount, answered: answered.length,
+            ...(tap.readinessSentCount === undefined ? {} : { readinessBrowserRequests: tap.readinessSentCount, readinessResponses204: tap.readiness204Count ?? 0 }),
             withDiagnostics: readable.length, malformedProviderAttempts: malformed, providerAttemptsReported,
             providerAttemptAllowance, perRequestProviderAttemptCap: EDGE_MAX_PROVIDER_ATTEMPTS, maxProviderAttemptsForOneRequest,
             maxRequestsForOneTake: perSession.length > 0 ? Math.max(...perSession) : 0,

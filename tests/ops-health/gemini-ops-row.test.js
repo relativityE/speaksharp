@@ -150,7 +150,7 @@ describe('Ops Health highest working Gemini', () => {
 });
 
 
-it('publishes a safe observed version from the highest versioned success but preserves the raw probe verdict', async () => {
+it('never borrows a version from a lower ranked success', async () => {
   const result = await evaluateHighestWorkingGemini(key, { fetchImpl: async (url, init) => {
     if (init.method === 'GET') return Response.json({ models: catalog(['gemini-3.6-flash', 'gemini-3.5-flash-lite']) });
     const candidates = [{ content: { parts: [{ text: hidden }] } }];
@@ -162,7 +162,39 @@ it('publishes a safe observed version from the highest versioned success but pre
   const checks = [row, { ...row, name: 'Gemini generation', providerModelVersion: 'gemini-3.6-flash?key=hidden' },
     { ...row, name: 'Gemini API' }, { ...row, name: 'Gemini generation', status: 'fail' }];
   const { checks: publicChecks } = renderPublicSummary({ checks, summary: summarize(checks) });
-  expect(publicChecks.map((check) => check.providerModelVersion)).toEqual(['gemini-3.5-flash-lite-001', undefined, undefined, undefined]);
+  expect(publicChecks.map((check) => check.providerModelVersion)).toEqual([undefined, undefined, undefined, undefined]);
+  expect(publicChecks.map((check) => check.highestWorkingModel)).toEqual(['gemini-3.6-flash', undefined, undefined, undefined]);
   expect(JSON.stringify(publicChecks)).not.toContain('key=hidden');
   expect(JSON.stringify(publicChecks)).not.toContain(hidden);
+});
+
+it('carries a named Gemini 4 winner and its own version through publication', async () => {
+  const results = [];
+  const variants = ['gemini-4-hydrogen', 'gemini-4-neon', 'gemini-4-argon', 'gemini-4-carbon'];
+  const winner = variants[0];
+  const fetchImpl = async (url, init) => {
+    if (init.method === 'GET') return Response.json({ models: catalog([...variants].reverse()) });
+    const modelVersion = new URL(url).pathname.split('/').at(-1).split(':')[0];
+    results.push(modelVersion);
+    return Response.json({ modelVersion, candidates: [{ content: { parts: [{ text: 'ready' }] } }] });
+  };
+  const generation = await evaluateGeminiGeneration(key, { fetchImpl, modelId: winner });
+  const sweep = await evaluateHighestWorkingGemini(key, { fetchImpl });
+  expect(results).toEqual([winner, ...variants]);
+  const checks = [{ ...generation, name: 'Gemini generation' }, { ...sweep, name: 'Gemini highest working model' }];
+  const report = renderPublicSummary({ checks, summary: summarize(checks) });
+  expect(report.checks[0]).toMatchObject({ status: 'pass', providerModelVersion: winner });
+  expect(report.checks[1]).toMatchObject({ status: 'pass', highestWorkingModel: winner, providerModelVersion: winner });
+});
+
+it('does not fan out after an opaque quota response', async () => {
+  const posts = [];
+  const sweep = await evaluateHighestWorkingGemini(key, { fetchImpl: async (url, init) => {
+    if (init.method === 'GET') return Response.json({ models: catalog(['gemini-3.5-flash', 'gemini-4-hydrogen']) });
+    posts.push(new URL(url).pathname);
+    return new Response(hidden, { status: 429 });
+  } });
+  expect(posts).toEqual(['/v1beta/models/gemini-4-hydrogen:generateContent']);
+  expect(sweep.detail).toContain('sweep=incomplete_rate_limited; untested_count=1');
+  expect(sweep.detail).not.toContain(hidden);
 });

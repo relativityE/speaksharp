@@ -22,6 +22,15 @@ export const HELPER_CONTRACTS = Object.freeze([{
   testFile: 'tests/unit/practicePrivacyE2EFixtures1835.test.ts',
   callables: ['setupE2EManifest'],
 }, {
+  // J1.b: qualify actual request observation and take-bound feedback assembly, not live acceptance.
+  helperFile: 'tests/live/helpers/coachingGenerationTap.ts',
+  testFile: 'tests/unit/coachingGenerationTapSettle1474.test.ts',
+  callables: ['CoachingGenerationTap#attach', 'CoachingGenerationTap#settle'],
+}, {
+  helperFile: 'tests/live/helpers/coachingFeedbackAdapter.ts',
+  testFile: 'tests/unit/coachingFeedbackAdapter1258.test.ts',
+  callables: ['feedbackDiagnosticChainRow'],
+}, {
   helperFile: 'tests/live/helpers/rwtMarkerObserver.ts',
   testFile: 'tests/unit/rwtMarkerObserver1593.test.ts',
   callables: ['armMarkerObserverInPage', 'freezeMarkerObserverInPage', 'classifyMarkerTiming'],

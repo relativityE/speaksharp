@@ -140,6 +140,7 @@ async function row(name, question, fn) {
       drilldownUrl: result.drilldownUrl ?? null,
       checkedAt: new Date().toISOString(),
       ...(result.github ? { github: result.github } : {}),
+      ...(result.highestWorkingModel ? { highestWorkingModel: result.highestWorkingModel } : {}),
       ...(result.providerModelVersion ? { providerModelVersion: result.providerModelVersion } : {}),
       ...(result.configuredModelVersion ? { configuredModelVersion: result.configuredModelVersion } : {}),
       ...(result.coachingReadiness ? { coachingReadiness: result.coachingReadiness } : {}),

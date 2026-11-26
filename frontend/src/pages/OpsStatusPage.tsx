@@ -25,6 +25,7 @@ type Check = {
   drilldownUrl?: string | null;
   github?: GitHub;
   providerModelVersion?: string;
+  highestWorkingModel?: string;
   configuredModelVersion?: string;
   coachingReadiness?: string;
 };
@@ -38,6 +39,7 @@ type Service = {
   name: string;
   status: Status;
   headline: string;
+  versionVerified?: boolean;
   reason?: string;
   details: string[];
   checkedAt?: string;
@@ -45,7 +47,7 @@ type Service = {
 };
 
 const STATUS_ICONS = { pass: '🟢', warn: '🟡', fail: '🔴' } as const;
-const LABELS: Record<Status, string> = { pass: 'Working', fail: 'Check failed', warn: 'Review', skip: 'Not checked' };
+const LABELS: Record<Status, string> = { pass: 'Working', fail: 'Check failed', warn: 'Review or not checked', skip: 'Review or not checked' };
 const ORDER: Record<Status, number> = { fail: 0, warn: 1, skip: 2, pass: 3 };
 const WORKFLOWS = { ci: 'Latest CI run', canary: 'Latest canary run', release: 'Full live release gate on main' } as const;
 const OUTCOMES = { passed: 'Passed', failed: 'Failed', pending: 'In progress', missing: 'No qualifying run found', unavailable: 'Could not read' } as const;
@@ -88,7 +90,7 @@ function outcomeText(status: Status) {
 }
 
 const evidenceText = (check?: Check) => typeof check?.evidence === 'string' ? check.evidence.slice(0, 5000) : '';
-const SAFE_GEMINI_VERSION = /^gemini-\d{1,3}\.\d{1,3}-flash(?:-lite)?(?:-\d{3})?$/;
+const SAFE_GEMINI_VERSION = /^gemini-(?:4-(?:hydrogen|neon|argon|carbon)|\d{1,3}(?:\.\d{1,3})?-(?:pro|flash|flash-lite)(?:-\d{3})?)$/;
 function observedGeminiVersion(check?: Check) {
   if (check?.status !== 'pass') return undefined;
   if (typeof check.providerModelVersion === 'string' && SAFE_GEMINI_VERSION.test(check.providerModelVersion)) {
@@ -162,16 +164,21 @@ function checksForDisplay(checks: Check[]): Service[] {
   const sweep = checks.find((check) => check.name === 'Gemini highest working model');
   if (gemini || generation || sweep) {
     const untested = evidenceText(sweep).match(/\buntested_count=(\d{1,3})(?:;|$)/)?.[1];
-    const sweepVersion = observedGeminiVersion(sweep);
+    const legacyWinner = evidenceText(sweep).match(/\bhighest_working=([^;]+)(?:;|$)/)?.[1];
+    const sweepWinner = sweep?.status === 'pass'
+      ? [sweep.highestWorkingModel, legacyWinner].find((id) => id && SAFE_GEMINI_VERSION.test(id)) : undefined;
+    // Older typed reports could pick a lower-ranked result's observed version.
+    const legacyVersion = evidenceText(sweep).match(/\bprovider_model_version=([^;]+)(?:;|$)/)?.[1];
+    const sweepVersion = sweepWinner && sweep?.highestWorkingModel === sweepWinner
+      ? observedGeminiVersion(sweep) : legacyVersion && SAFE_GEMINI_VERSION.test(legacyVersion) ? legacyVersion : undefined;
     const generationVersion = observedGeminiVersion(generation);
-    const validVersion = sweepVersion ?? generationVersion;
     const configuredModel = typeof generation?.configuredModelVersion === 'string'
       && /^gemini-[a-z0-9][a-z0-9.-]{0,58}$/.test(generation.configuredModelVersion)
       ? generation.configuredModelVersion : undefined;
     const models = evidenceText(sweep).match(/\btested=([^;]+)/)?.[1]?.split(',').slice(0, 8) ?? [];
     const modelResults = models
-      .map((entry) => entry.match(/^(gemini-\d{1,3}\.\d{1,3}-flash(?:-lite)?(?:-\d{3})?):([1-5]\d{2}|no_http):(generated|empty|malformed|rate_limited_429|unavailable_503|http_error|timeout|network_error)$/))
-      .filter((match): match is RegExpMatchArray => !!match)
+      .map((entry) => entry.match(/^([^:]+):([1-5]\d{2}|no_http):(generated|empty|malformed|rate_limited_429|unavailable_503|http_error|timeout|network_error)$/))
+      .filter((match): match is RegExpMatchArray => !!match && SAFE_GEMINI_VERSION.test(match[1]))
       .map(([, modelId, code, reason]) => {
         const wording: Record<string, string> = { generated: 'Generated text', empty: 'No text', malformed: 'Unreadable response',
           rate_limited_429: 'Rate limited', unavailable_503: 'Unavailable', http_error: 'Request failed',
@@ -179,10 +186,10 @@ function checksForDisplay(checks: Check[]): Service[] {
         return modelId + ': ' + wording[reason] + (code === 'no_http' ? '' : ' (HTTP ' + code + ')');
       });
     const readiness = generation?.coachingReadiness;
-    const status = generation?.status === 'fail' || gemini?.status === 'fail' || sweep?.status === 'fail' || readiness === 'unavailable' ? 'fail'
+    const status = generation?.status === 'fail' || gemini?.status === 'fail' || readiness === 'unavailable' ? 'fail'
       : readiness === 'checking' || readiness === 'not_checked' ? 'warn'
-        : generation?.status === 'pass' && gemini?.status === 'pass' && (validVersion || !sweep) ? 'pass'
-        : generation?.status === 'pass' || validVersion || gemini?.status === 'pass' ? 'warn' : 'skip';
+        : generation?.status === 'pass' && gemini?.status === 'pass' ? 'pass'
+        : generation?.status === 'pass' || sweepWinner || gemini?.status === 'pass' ? 'warn' : 'skip';
     cards.push({ name: 'AI Service -- LLM', status,
       reason: readiness === 'unavailable' ? 'Valid coaching not verified'
         : readiness === 'checking' ? 'Coaching readiness check pending'
@@ -192,7 +199,8 @@ function checksForDisplay(checks: Check[]): Service[] {
           : sweep?.status === 'fail' ? 'No tested model generated text'
             : !generation || generation.status === 'skip' ? 'Generation not checked' : 'Model version not verified',
       headline: 'Gemini · Configured model: ' + (configuredModel ?? 'Not in this report'),
-      checkedAt: (sweepVersion ? sweep?.checkedAt : generation?.checkedAt) ?? gemini?.checkedAt ?? sweep?.checkedAt,
+      versionVerified: Boolean(sweepWinner && sweepVersion),
+      checkedAt: generation?.checkedAt ?? gemini?.checkedAt ?? sweep?.checkedAt,
       details: ['Gemini API: ' + outcomeText(gemini?.status ?? 'skip') + '.',
         'Gemini generation: ' + outcomeText(generation?.status ?? 'skip') + '.',
         'The API check reads the model list. The generation check sends test text to the configured model.',
@@ -201,7 +209,7 @@ function checksForDisplay(checks: Check[]): Service[] {
             ? ['Deployed coaching readiness is not verified in this report.'] : []),
         generationVersion ? 'Configured model probe reported: ' + generationVersion + '.'
           : 'Configured model probe did not report a version.',
-        ...(sweepVersion ? ['Highest working candidate in this probe: ' + sweepVersion + '.'] : []),
+        ...(sweepWinner ? ['Highest working candidate in this probe: ' + sweepWinner + ' (observed version: ' + (sweepVersion ?? 'unreported') + (sweepVersion ? '*).' : ').')] : []),
         ...modelResults,
         ...(untested && Number(untested) > 0 ? [untested + ' listed model(s) were not tested.'] : []),
         'Synthetic text only. Does not verify coaching in SpeakSharp or change its configured model.'],
@@ -218,10 +226,10 @@ function checksForDisplay(checks: Check[]): Service[] {
         : repository === 'pass' || actions === 'warn' ? 'warn' : 'skip';
     cards.push({ name: 'GitHub', status, checkedAt: git.checkedAt,
       headline: 'Repository and Actions APIs readable',
-      reason: !github ? 'Older report did not separate access from workflow results'
+      reason: !github ? undefined
         : repository === 'fail' ? 'Repository API did not respond as expected'
           : actions === 'fail' ? 'Actions run list unavailable' : 'Actions access not fully verified',
-      details: ['Repository API: ' + outcomeText(repository) + '.', 'Actions API: ' + outcomeText(actions) + '.',
+      details: [...(!github ? ['Older report did not separate access from workflow results.'] : []), 'Repository API: ' + outcomeText(repository) + '.', 'Actions API: ' + outcomeText(actions) + '.',
         'CI, canary and release outcomes are listed separately below.'],
       links: [{ label: 'Open repository', url: github?.repositoryUrl }, { label: 'Open Actions', url: github?.actionsUrl ?? git.drilldownUrl }] });
   }
@@ -233,26 +241,34 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
   const [bundled, setBundled] = React.useState(false);
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+  const [reloadResult, setReloadResult] = React.useState('');
+  const publishedAt = React.useRef<string | null>(null);
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (manual = false) => {
     setLoading(true);
     setLoadFailed(false);
+    if (manual) setReloadResult('Checking for a new report…');
     const published = summaryEndpoint ?? publishedEndpoint();
     for (const endpoint of [published, '/ops-health/ops-health.summary.json', '/ops-health.summary.json']) {
       if (!endpoint) continue;
       try {
-        const response = await fetch(endpoint, { cache: 'no-store' });
+        const response = await fetch(endpoint, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
         if (!response.ok) continue;
         const next = JSON.parse(await response.text()) as Report;
         if (!Array.isArray(next?.checks)
           || !next.checks.every((check) => check && typeof check.name === 'string' && isStatus(check.status))) continue;
         setReport(next);
-        setBundled(endpoint !== published || next.runContext !== 'GitHub Actions');
+        const isBundled = endpoint !== published || next.runContext !== 'GitHub Actions';
+        setBundled(isBundled);
+        if (manual) setReloadResult(isBundled || !currentAge(next.generatedAt) ? 'No current report available.'
+          : publishedAt.current === next.generatedAt ? 'No new report published.' : 'New report loaded.');
+        if (!isBundled) publishedAt.current = next.generatedAt ?? null;
         setLoading(false);
         return;
       } catch { /* Try historical fallback. Never display endpoint errors or raw response. */ }
     }
     setLoadFailed(true);
+    if (manual) setReloadResult('Could not reload the report.');
     setLoading(false);
   }, [summaryEndpoint]);
   React.useEffect(() => { void load(); }, [load]);
@@ -278,25 +294,14 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
           <div>
             <h1 className="text-3xl font-extrabold text-foreground">Software health</h1>
           </div>
-          <Button onClick={() => { void load(); }} disabled={loading}>
+          <Button onClick={() => { void load(true); }} disabled={loading}>
             <RefreshCw aria-hidden="true" className={'mr-2 h-4 w-4 ' + (loading ? 'animate-spin' : '')} />
             Reload report
           </Button>
         </header>
 
-        {report ? (
-          <p className="text-sm text-muted-foreground">
-            {historical ? 'Stale or bundled report. Current status is not verified.' : 'Latest published report.'}
-            {timestamp(report.generatedAt) ? <> Published <time dateTime={report.generatedAt}>{timestamp(report.generatedAt)}</time>.</> : ''}
-          </p>
-        ) : <p role={loadFailed ? 'status' : undefined}>{loading ? 'Loading health report…' : 'No health report available.'}</p>}
-
-        {report ? (
-          <div className="flex items-center gap-2 text-sm" aria-label="SpeakSharp release checks">
-            <span>Release checks:</span>
-            <strong data-testid="ops-status-verdict">{releaseLabel}</strong>
-          </div>
-        ) : null}
+        <p role="status" className="text-sm text-muted-foreground">{reloadResult ||
+          (!report ? (loading ? 'Loading report…' : 'No report available.') : '')}</p>
         {services.length > 0 ? (
           <section data-testid="ops-status-checks">
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 py-2 text-sm text-foreground" aria-label="Status legend">
@@ -313,7 +318,14 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
               </thead>
               <tbody>{services.map((service) => (
                 <ServiceRow key={service.name} service={service} historical={historical || (!!service.checkedAt && !currentAge(service.checkedAt))}>
-                  {service.name === 'GitHub' ? <ReleaseDetails workflows={workflows} /> : null}
+                  {service.name === 'GitHub' ? <>
+                    <p className="text-muted-foreground">
+                      {historical ? 'Stale or bundled report. Current status is not verified.' : 'Latest published report.'}
+                      {timestamp(report?.generatedAt) ? <> Published <time dateTime={report?.generatedAt}>{timestamp(report?.generatedAt)}</time>.</> : ''}
+                    </p>
+                    <p>Release checks: <strong data-testid="ops-status-verdict">{releaseLabel}</strong></p>
+                    <ReleaseDetails workflows={workflows} />
+                  </> : null}
                 </ServiceRow>
               ))}</tbody>
             </table>
@@ -367,38 +379,21 @@ const StatusIcon: React.FC<{ tone: keyof typeof STATUS_ICONS }> = ({ tone }) => 
 
 const ServiceRow: React.FC<React.PropsWithChildren<{ service: Service; historical: boolean }>> = ({ service, historical, children }) => {
   const [open, setOpen] = React.useState(false);
-  const [tooltipOpen, setTooltipOpen] = React.useState(false);
-  const [focused, setFocused] = React.useState(false);
   const id = React.useId();
-  const ai = service.name === 'AI Service -- LLM';
   const tone = historical || service.status === 'skip' ? 'warn' : service.status;
   const reason = historical ? 'Stale report' : service.status === 'pass' ? '' : (service.reason ?? 'Check unavailable');
   return (
     <>
       <tr className="border-b border-border">
         <th scope="row" className="py-1.5 pr-3 text-left align-top font-semibold text-foreground">
-          <span className="relative inline-block" onMouseEnter={() => setTooltipOpen(true)} onMouseLeave={() => setTooltipOpen(false)}>
-            <span tabIndex={0} aria-describedby={id + '-tip'} onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)} onKeyDown={(event) => {
-                if (event.key === 'Escape') { setTooltipOpen(false); setFocused(false); }
-              }}>{service.name}</span>
-            <span id={id + '-tip'} role="tooltip"
-              className={'absolute left-0 top-full z-10 w-max max-w-60 rounded border border-border bg-background px-2 py-1 text-xs font-normal shadow ' +
-                (tooltipOpen || focused ? '' : 'sr-only')}>
-              {ai ? 'Gemini model list and test generation checked' : service.headline}
-            </span>
-          </span>
-          {ai ? <div className="break-words text-sm font-normal leading-tight text-muted-foreground">
-            {service.headline}
-          </div> : null}
+          {service.name}
         </th>
         <td className="py-1.5 align-top">
           <div className="flex items-start justify-between gap-1 sm:gap-3">
             <div className="min-w-0">
               <span className="inline-flex items-center gap-2 font-medium text-foreground">
-                <StatusIcon tone={tone} />{historical ? 'Historical' : LABELS[service.status]}
+                <StatusIcon tone={tone} />{LABELS[tone]}
               </span>
-              {reason ? <p className="break-words text-sm leading-tight text-muted-foreground">{reason}</p> : null}
             </div>
             <button type="button"
               className="inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -411,12 +406,15 @@ const ServiceRow: React.FC<React.PropsWithChildren<{ service: Service; historica
       </tr>
       <tr id={id + '-details'} hidden={!open}>
         <td colSpan={2} className="space-y-2 break-words py-2 pl-3 text-sm">
+          {service.headline ? <p>{service.headline}</p> : null}
+          {reason && !service.details.includes(reason) ? <p>{reason}</p> : null}
           <ul className="list-disc space-y-1 pl-5">{service.details.map((detail) => <li key={detail}>{detail}</li>)}</ul>
           {timestamp(service.checkedAt) ? <p className="text-muted-foreground">Last checked <time dateTime={service.checkedAt}>{timestamp(service.checkedAt)}</time></p> : null}
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {service.links?.map((link) => <DetailLink key={link.label} {...link} />)}
           </div>
           {children}
+          {service.versionVerified && !historical ? <p className="text-xs text-muted-foreground">* Latest working version</p> : null}
         </td>
       </tr>
     </>
