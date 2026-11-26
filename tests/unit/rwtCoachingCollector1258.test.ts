@@ -72,8 +72,18 @@ describe('#1258 RWT coaching-evidence collector', () => {
         expect(resolvePrivateEvidenceDir(path.join(REPO_ROOT, '.private-evidence'), roots)).toEqual({ hold: 'private_evidence_destination_inside_forbidden_tree' });
         // A destination that CONTAINS a forbidden tree is refused too.
         expect(resolvePrivateEvidenceDir(path.dirname(REPO_ROOT), roots)).toEqual({ hold: 'private_evidence_destination_inside_forbidden_tree' });
+        // The evidence runner intentionally puts its OS temp dir inside its checkout.
+        // Model a separate checkout and report tree inside the fixture instead of assuming tmpdir() is external.
         const ok = privateDir();
-        expect(resolvePrivateEvidenceDir(ok, roots)).toEqual({ dir: expect.stringContaining('rwt-private-test-') });
+        const fixtureRoot = path.dirname(ok);
+        const fixtureCheckout = path.join(fixtureRoot, 'checkout');
+        const fixtureReports = path.join(fixtureRoot, 'reports');
+        const fixtureRoots = [fixtureCheckout, fixtureReports];
+        expect(resolvePrivateEvidenceDir(path.join(fixtureReports, 'private'), fixtureRoots))
+            .toEqual({ hold: 'private_evidence_destination_inside_forbidden_tree' });
+        expect(resolvePrivateEvidenceDir(path.join(fixtureCheckout, '.efficacy-tmp', 'private'), fixtureRoots))
+            .toEqual({ hold: 'private_evidence_destination_inside_forbidden_tree' });
+        expect(resolvePrivateEvidenceDir(ok, fixtureRoots)).toEqual({ dir: expect.stringContaining('rwt-private-test-') });
     });
 
     it('both takes bound → PASS; the public evidence is closed codes and the artifact digest only', () => {
