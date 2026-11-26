@@ -8,18 +8,6 @@ const rwtCoachingEvidence_cjs_1 = require("./rwtCoachingEvidence.cjs");
 const ENDPOINT = '/functions/v1/get-ai-suggestions';
 const str = (v) => (typeof v === 'string' && v.length > 0 ? v : null);
 const int = (v) => (Number.isInteger(v) ? Number(v) : null);
-// Count probes separately: an empty 204 never proves a provider attempt.
-function isMicStartReadiness(request) {
-    try {
-        const body = request.postDataJSON();
-        return body?.operation === 'mic_start_readiness'
-            && Object.keys(body).sort().join(',') === 'consentRevision,leaseId,operation'
-            && typeof body.leaseId === 'string'
-            && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.leaseId)
-            && Number.isSafeInteger(body.consentRevision);
-    } catch { return false; }
-}
-
 function readSentRequest(request) {
     let body = null;
     try {
@@ -53,9 +41,6 @@ class CoachingGenerationTap {
     exchanges = [];
     /** Coaching POSTs the BROWSER sent (including any still unanswered). Not a provider-invocation count. */
     sentCount = 0;
-    readinessSentCount = 0;
-    readiness204Count = 0;
-    readinessRequests = new WeakSet();
     startedAt = new WeakMap();
     /** #1593 (Sam, #1656 review) — what each request named, captured AT THE REQUEST EVENT, so one still in flight is identifiable. */
     sentInfo = new WeakMap();
@@ -93,11 +78,6 @@ class CoachingGenerationTap {
         page.on('request', (request) => {
             if (!isCoaching(request))
                 return;
-            if (isMicStartReadiness(request)) {
-                this.readinessRequests.add(request);
-                this.readinessSentCount += 1;
-                return;
-            }
             this.sentCount += 1;
             this.startedAt.set(request, Date.now());
             this.sentInfo.set(request, readSentRequest(request));
@@ -110,10 +90,6 @@ class CoachingGenerationTap {
             const request = response.request();
             if (!isCoaching(request))
                 return;
-            if (this.readinessRequests.has(request)) {
-                if (response.status() === 204) this.readiness204Count += 1;
-                return;
-            }
             const sent = readSentRequest(request);
             const status = response.status();
             const clientMs = elapsed(request);
@@ -129,7 +105,7 @@ class CoachingGenerationTap {
             }, () => { this.record(request, { sent, status, diagnostics: null, suggestions: null, clientMs, at: Date.now(), outcome: 'answered' }); });
         });
         page.on('requestfailed', (request) => {
-            if (!isCoaching(request) || this.readinessRequests.has(request))
+            if (!isCoaching(request))
                 return;
             this.record(request, {
                 sent: readSentRequest(request), status: this.statusSeen.get(request) ?? null, diagnostics: null, suggestions: null,
