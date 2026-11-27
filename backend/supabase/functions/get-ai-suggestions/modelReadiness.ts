@@ -35,7 +35,7 @@ export async function runMicStartReadiness(
   input: { recordingConfirmed: boolean; coachingSelected: boolean },
   options: { store: ReadinessStore;
     modelFor: (id: string) => ReadinessModel | null;
-    discover: (signal: AbortSignal) => Promise<readonly ReadinessModel[]>;
+    discover: (signal: AbortSignal) => Promise<readonly ReadinessModel[] | null>;
     probe: Probe; now: () => number },
 ): Promise<CheckResult> {
   if (input.recordingConfirmed !== true || input.coachingSelected !== true) return 'not_requested';
@@ -112,7 +112,8 @@ export async function runMicStartReadiness(
       }
     }
   } finally {
-    if (blocked) verified = undefined;
+    // A blocked fallback says nothing about the incumbent beyond its own
+    // already observed result. Preserve false if that result was conclusive.
     if (verified !== true) retryAfterMs = retryAfterMs ?? modelRetryAfterMs;
     accepted = await store.finish(lease, { promoteTo, verified, retryAfterMs });
   }

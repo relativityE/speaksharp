@@ -91,7 +91,7 @@ Deno.test('falling back respects the variant cap and stops on shared throttling'
   assert.deepEqual(capped.calls, candidates.slice(0, 9).map(({ id }) => id + ':open_mic'));
   const shared = harness((id) => id === 'incumbent' ? { status: 'model_unavailable' } : provider(429, 'project'), true, candidates);
   assert.equal(await runMicStartReadiness(live, shared.options), 'inconclusive');
-  assert.equal(shared.results[0].verified, undefined);
+  assert.equal(shared.results[0].verified, false);
   assert.deepEqual(shared.calls, ['incumbent:open_mic', 'alt:open_mic']);
   assert.equal(shared.results[0].promoteTo, undefined);
 });
@@ -116,4 +116,21 @@ Deno.test('client abort or unknown transport failure cannot demote a verified mo
   assert.equal(await runMicStartReadiness(live, h.options), 'inconclusive');
   assert.equal(h.results[0].verified, undefined);
   assert.equal(h.discoveries(), 0);
+});
+
+Deno.test('a blocked fallback cannot restore the known-bad incumbent', async () => {
+  const h = harness((id) => id === 'incumbent'
+    ? { status: 200, coachingValid: false, observedVersion: 'incumbent-001' }
+    : provider(429, 'project', 7_000));
+  assert.equal(await runMicStartReadiness(live, h.options), 'backoff');
+  assert.deepEqual(h.results[0], { promoteTo: undefined, verified: false, retryAfterMs: 7_000 });
+  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic']);
+});
+
+Deno.test('a failed catalog is inconclusive for fallback, not a failed or restored incumbent', async () => {
+  const h = harness(() => ({ status: 'model_unavailable' }));
+  const down = { ...h.options, discover: () => Promise.reject(new Error('catalog unavailable')) };
+  assert.equal(await runMicStartReadiness(live, down), 'inconclusive');
+  assert.deepEqual(h.results[0], { promoteTo: undefined, verified: false, retryAfterMs: undefined });
+  assert.deepEqual(h.calls, ['incumbent:open_mic']);
 });

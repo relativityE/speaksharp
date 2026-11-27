@@ -671,9 +671,9 @@ export async function handler(
         const outcome = await runMicStartReadiness({ recordingConfirmed: true, coachingSelected: true }, {
           modelFor: geminiReadinessModel,
           discover: async (signal) => {
-            if (req.signal.aborted || signal.aborted || !await consentStillHolds()) return [];
+            if (req.signal.aborted || signal.aborted || !await consentStillHolds()) return null;
             const apiKey = readinessSecrets.providerKey('GEMINI_API_KEY');
-            return apiKey ? await discoverGeminiReadinessModels(apiKey, AbortSignal.any([signal, req.signal])) : [];
+            return apiKey ? await discoverGeminiReadinessModels(apiKey, AbortSignal.any([signal, req.signal])) : null;
           },
           now: Date.now,
           store: {

@@ -222,7 +222,7 @@ Deno.test('runtime catalog is bounded and selects only stable Gemini text genera
         item('gemini-2.5-flash'), item('../gemini-4.0-flash'), item('other-4.0-pro')],
     }));
   };
-  assert.deepEqual((await discoverGeminiReadinessModels('fake', signal, fake)).map((model) => model.id),
+  assert.deepEqual((await discoverGeminiReadinessModels('fake', signal, fake))?.map((model) => model.id),
     ['gemini-4-hydrogen', 'gemini-4-neon', 'gemini-4-argon', 'gemini-4-carbon',
       'gemini-3.8-flash', 'gemini-3.7-flash-lite', 'gemini-3.5-flash-lite']);
   assert.equal(geminiReadinessModel('gemini-3.5-flash-lite')?.id, 'gemini-3.5-flash-lite');
@@ -232,6 +232,8 @@ Deno.test('runtime catalog is bounded and selects only stable Gemini text genera
   assert.deepEqual(await discoverGeminiReadinessModels('fake', signal, () => {
     repeated++;
     return Promise.resolve(Response.json({ models: [item('gemini-3.8-flash')], nextPageToken: 'again' }));
-  }), []);
+  }), null);
   assert.equal(repeated, 2);
+  assert.deepEqual(await discoverGeminiReadinessModels('fake', signal, () => Promise.resolve(Response.json({ models: [] }))), []);
+  assert.equal(await discoverGeminiReadinessModels('fake', signal, () => Promise.resolve(new Response(null, { status: 503 }))), null);
 });

@@ -53,7 +53,7 @@ async function catalogPage(response: Response) {
 
 export async function discoverGeminiReadinessModels(
   apiKey: string, signal: AbortSignal, fetchImpl: typeof fetch = globalThis.fetch,
-): Promise<ReadinessModel[]> {
+): Promise<ReadinessModel[] | null> {
   const models = new Map<string, number[]>();
   const tokens = new Set<string>();
   let token: string | undefined;
@@ -65,10 +65,10 @@ export async function discoverGeminiReadinessModels(
       const response = await fetchImpl(url, { method: 'GET', headers: { 'x-goog-api-key': apiKey }, redirect: 'error', signal });
       if (response.status !== 200) {
         void response.body?.cancel().catch(() => {});
-        return [];
+        return null;
       }
       const page = await catalogPage(response);
-      if (!Array.isArray(page?.models) || page.models.length > 100) return [];
+      if (!Array.isArray(page?.models) || page.models.length > 100) return null;
       for (const item of page.models) {
         const id = typeof item?.name === 'string' && item.name.startsWith('models/') ? item.name.slice(7) : '';
         const order = rank(id);
@@ -76,17 +76,18 @@ export async function discoverGeminiReadinessModels(
           models.set(id, order);
         }
       }
+      if (signal.aborted) return null;
       const next: unknown = page.nextPageToken;
       if (next === undefined || next === '') {
         return [...models.entries()].sort(([a, x], [b, y]) => y[0] - x[0] || y[1] - x[1] || y[2] - x[2] || y[3] - x[3] || a.localeCompare(b))
           .map(([id]) => ({ id, observedVersions: [id] }));
       }
-      if (typeof next !== 'string' || next.length > 2048 || tokens.has(next)) return [];
+      if (typeof next !== 'string' || next.length > 2048 || tokens.has(next)) return null;
       tokens.add(next);
       token = next;
     }
   } catch { /* Unavailable or incomplete catalog cannot select a model. */ }
-  return [];
+  return null;
 }
 
 function state(value: unknown): value is { model: string; revision: number } {
