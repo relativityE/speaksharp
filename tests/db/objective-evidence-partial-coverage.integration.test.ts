@@ -4,9 +4,9 @@
  */
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const DIR = resolve(process.cwd(), 'backend/supabase/migrations');
 const CANDIDATE = '20261127210000_objective_evidence_partial_coverage.sql';
@@ -15,14 +15,31 @@ const BOOTSTRAP = CONTRACT.split('const BOOTSTRAP = `')[1].split('`;')[0];
 
 describe('objective evidence keeps partial coverage (20261127210000)', () => {
     let db: PGlite;
+    const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+    const consumed: Array<{ file: string; sha256: string; beforeSha256: string; afterSha256: string }> = [];
     beforeAll(async () => {
         db = new PGlite();
         await db.exec(BOOTSTRAP);
         const files = readdirSync(DIR).filter(f => /^\d{8,14}_.+\.sql$/.test(f)).sort();
         if (!files.includes(CANDIDATE)) throw new Error(`${CANDIDATE} is not in the checked-in chain`);
-        for (const file of files) await db.exec(readFileSync(resolve(DIR, file), 'utf8'));
+        for (const file of files) {
+            const bytes = readFileSync(resolve(DIR, file));
+            await db.exec(bytes.toString('utf8'));
+            if (file === CANDIDATE) {
+                const beforeSha256 = sha256(bytes);
+                const afterSha256 = sha256(readFileSync(resolve(DIR, file)));
+                if (afterSha256 !== beforeSha256) throw new Error('migration bytes changed during execution');
+                consumed.push({ file: `backend/supabase/migrations/${CANDIDATE}`, sha256: beforeSha256, beforeSha256, afterSha256 });
+            }
+        }
     }, 180_000);
-    afterAll(async () => { await db?.close(); });
+    afterAll(async () => {
+        await db?.close();
+        const binding = JSON.parse(process.env.TEST_EFFICACY_BINDING ?? 'null');
+        if (binding?.sql) writeFileSync(binding.sql.witnessFile, JSON.stringify({ schemaVersion: 1, phaseId: binding.phaseId,
+            bindingSha256: createHash('sha256').update(JSON.stringify(binding)).digest('hex'),
+            consumer: 'tests/db/objective-evidence-partial-coverage.integration.test.ts', consumed }));
+    });
 
     async function asUser<T>(uid: string, work: () => Promise<T>): Promise<T> {
         await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [uid]);

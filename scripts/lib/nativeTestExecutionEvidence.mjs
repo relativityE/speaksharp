@@ -48,6 +48,10 @@ export const SQL_CONTRACTS=Object.freeze([
     files:Object.freeze(['backend/supabase/migrations/20261126005433_coaching_model_readiness.sql'])}),
   Object.freeze({consumer:'tests/db/coaching-model-selection-checks.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261127144500_coaching_model_selection_checks.sql'])}),
+  // Focus Points partial coverage: the integration suite executes the exact migration over the full PGlite chain, proves the
+  // finalize behavior (and its negative cases) as the owning user, and writes its witness. No live database is involved.
+  Object.freeze({consumer:'tests/db/objective-evidence-partial-coverage.integration.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261127210000_objective_evidence_partial_coverage.sql'])}),
   // #1827 D2 repeat tip: the catalog gate test executes the exact migration over the shipped PGlite chain and writes its witness;
   // the native database runs in the account-closure full-chain proof workflow (profile main-repeat-tip-134).
   Object.freeze({consumer:'tests/db/repeatTipPostflight.integration.test.ts',
