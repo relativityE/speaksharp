@@ -63,7 +63,7 @@ export function deletionLoopStep(s: { terminal: TerminalMessage; completeVisible
  * still tied to the deleted user (accountDeletionLocalStack.mjs retainedDataSql):
  *   - the Auth user and the account's owned storage: removed (0), else a violation;
  *   - the trial email: exactly one row for the address and no longer linked to the user ("retained"), else a violation;
- *   - historical billing and support records: may remain;
+ *   - historical billing and support records: may remain, as the exact record types in `mayRemain` only;
  *   - anything else: removed (0). A record type the policy does not name that still holds rows is a GAP between code and
  *     policy. It is reported by type and count, never "fixed" here by widening this list or changing the code.
  */
@@ -72,11 +72,15 @@ export const RETENTION_POLICY = Object.freeze({
     removedToZero: Object.freeze(['auth.users.id', 'storage.owned.objects']),
     trialEmail: 'public.trial_entitlements.email',
     trialEmailUnlinked: 'public.trial_entitlements.email_unlinked',
-    /** "Historical billing and support records may remain": support reports and Stripe/billing history tables only. */
-    billingOrSupport: /^public\.(user_issue_reports|stripe_[a-z0-9_]+|billing_[a-z0-9_]+)\.[a-z0-9_]+$/,
+    /**
+     * "Historical billing and support records may remain", as EXACT record types, never a name pattern (Sam on 999d88d2: a new
+     * or operational table must not pass on its name). Support reports are user-keyed; billing history is keyed by Stripe
+     * customer, not by user, so no user-keyed billing type is policy-backed today. Anything else that remains is a GAP.
+     */
+    mayRemain: Object.freeze(['public.user_issue_reports.user_id']),
 });
 export type RetainedVerdict = 'removed' | 'retained_allowed' | 'violation' | 'gap';
-/** One record type: its schema.table.column name, row count, how many of those rows still carry an email field, and a verdict. */
+/** One record type: its schema.table.column name, row count, how many of those rows carry any email (each row once), and a verdict. */
 export interface RetainedRecord { type: string; count: number; withEmail: number; verdict: RetainedVerdict }
 /** PASS: only what the policy allows remains. GAP: a type the policy does not name remains. FAIL: a promise is broken. */
 export interface RetainedData { verdict: 'PASS' | 'GAP' | 'FAIL' | 'UNREAD'; records: RetainedRecord[] }
@@ -104,7 +108,7 @@ export function classifyRetainedData(output: string): RetainedData {
         if (type === RETENTION_POLICY.trialEmail || type === RETENTION_POLICY.trialEmailUnlinked) verdict = trialKept ? 'retained_allowed' : 'violation';
         else if (count === 0) verdict = 'removed';
         else if ((RETENTION_POLICY.removedToZero as readonly string[]).includes(type)) verdict = 'violation';
-        else if (RETENTION_POLICY.billingOrSupport.test(type)) verdict = 'retained_allowed';
+        else if ((RETENTION_POLICY.mayRemain as readonly string[]).includes(type)) verdict = 'retained_allowed';
         else verdict = 'gap';
         return { type, count, withEmail, verdict };
     });

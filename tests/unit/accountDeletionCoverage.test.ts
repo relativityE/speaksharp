@@ -134,6 +134,21 @@ describe('retained data after deletion, counted from the live catalog (retainedD
         expect(r.verdict).toBe('GAP');
         expect(retainedGaps(r)).toContain('public.account_closure_attempts.user_id');
     });
+    it('counts each row carrying an email at most once, however many email fields it has, and the trial row as carrying one', async () => {
+        const { user } = await pendingUser();
+        const email = (await one('SELECT email FROM auth.users WHERE id=$1', [user])) as string;
+        await one('INSERT INTO public.trial_entitlements(email,user_id) VALUES($1,$2) ON CONFLICT (email) DO UPDATE SET user_id=excluded.user_id', [email, user]);
+        // A synthetic user-keyed table with two email fields: one row with both set, one with neither.
+        await db.exec('CREATE TABLE IF NOT EXISTS public.zz_two_email_probe(user_id uuid, email text, contact_email text)');
+        await one("INSERT INTO public.zz_two_email_probe VALUES($1,'a@example.invalid','b@example.invalid'),($1,NULL,NULL)", [user]);
+        await one('DELETE FROM auth.users WHERE id=$1', [user]);
+        try {
+            const r = classifyRetainedData(await psqlScript(retainedDataSql(user, email)));
+            expect(r.records.find((x) => x.type === 'public.zz_two_email_probe.user_id')).toEqual({ type: 'public.zz_two_email_probe.user_id', count: 2, withEmail: 1, verdict: 'gap' });
+            expect(r.records.find((x) => x.type === 'public.trial_entitlements.email')).toMatchObject({ count: 1, withEmail: 1 });
+            expect(r.records.find((x) => x.type === 'public.trial_entitlements.email_unlinked')).toMatchObject({ count: 1, withEmail: 1 });
+        } finally { await db.exec('DROP TABLE public.zz_two_email_probe'); }
+    });
     it('a user who still exists is FAIL (the Auth user is counted), and the read changes nothing', async () => {
         const { user } = await pendingUser();
         const email = (await one('SELECT email FROM auth.users WHERE id=$1', [user])) as string;

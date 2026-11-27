@@ -170,8 +170,15 @@ describe('classifyRetainedData: only what the deletion page says may remain, rem
         expect(retainedGaps(r)).toEqual(['public.account_closure_attempts.user_id', 'public.account_completion_stages.user_id']);
         expect(r.records.find((x) => x.type === 'public.account_closure_attempts.user_id')).toEqual({ type: 'public.account_closure_attempts.user_id', count: 1, withEmail: 1, verdict: 'gap' });
     });
-    it('historical billing and support records may remain', () => {
-        expect(classifyRetainedData(lines('public.user_issue_reports.user_id|2|0', 'public.stripe_customers.user_id|1|0')).verdict).toBe('PASS');
+    it('only the exact, policy-backed support record type may remain; a billing- or stripe-named table is judged like any other', () => {
+        // Billing history is keyed by Stripe customer, not by user, so no user-keyed billing type is policy-backed today.
+        expect(RETENTION_POLICY.mayRemain).toEqual(['public.user_issue_reports.user_id']);
+        expect(classifyRetainedData(lines('public.user_issue_reports.user_id|2|0')).verdict).toBe('PASS');
+        // Sam on 999d88d2: a new or operational table must not pass on its name.
+        for (const over of ['public.stripe_customers.user_id|1|0', 'public.billing_events.user_id|1|0', 'public.stripe_refund_followups.owner_id|1|0']) {
+            const r = classifyRetainedData(lines(over));
+            expect({ over, verdict: r.verdict, gaps: retainedGaps(r) }).toEqual({ over, verdict: 'GAP', gaps: [over.split('|')[0]] });
+        }
         expect(classifyRetainedData(lines('public.account_checkout_operations.user_id|1|0')).verdict).toBe('GAP');
     });
     it('anything unreadable is UNREAD, never a pass: empty, a stray line, a repeated type, or a missing fixed type', () => {

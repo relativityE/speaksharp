@@ -129,8 +129,9 @@ export const USER_KEY_COLUMNS = Object.freeze(['user_id', 'owner_id', 'owner_uid
  *   - every public uuid column named in USER_KEY_COLUMNS, with or without a foreign key;
  *   - the Auth user itself, and the account's owned storage (list_account_closure_storage);
  *   - the retained trial-email record for the address, and how many of those rows are no longer linked to any user.
- * Each output line is `type|count|emailFieldsNonNull`: a schema.table.column name, a row count and how many of those rows still
- * carry a non-null column whose name contains "email". No value from any row is ever selected or printed.
+ * Each output line is `type|count|withEmail`: a schema.table.column name, a row count and how many of those rows carry at least
+ * one non-null column whose name contains "email" (each row counted once, however many such columns it has). The trial-email
+ * rows are keyed by the address, so each carries it. No value from any row is ever selected or printed.
  */
 export function retainedDataSql(userId, email) {
     if (!UUID.test(String(userId))) throw new Error('retained data: the user id must be a uuid');
@@ -154,16 +155,16 @@ export function retainedDataSql(userId, email) {
         "   WHERE n.nspname = 'public' AND t.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped",
         `     AND a.atttypid = 'uuid'::regtype AND a.attname = ANY (${cols})`,
         ')',
-        "SELECT format('SELECT %L || ''|'' || count(*) || ''|'' || coalesce(sum(%s), 0) FROM %I.%I WHERE %I = %L::uuid',",
+        "SELECT format('SELECT %L || ''|'' || count(*) || ''|'' || count(*) FILTER (WHERE %s) FROM %I.%I WHERE %I = %L::uuid',",
         "    s || '.' || r || '.' || c,",
-        "    coalesce((SELECT string_agg(format('(%I IS NOT NULL)::int', e.attname), ' + ') FROM pg_catalog.pg_attribute e",
-        "      WHERE e.attrelid = keyed.rel AND e.attnum > 0 AND NOT e.attisdropped AND e.attname ILIKE '%email%'), '0'),",
+        "    coalesce((SELECT string_agg(format('%I IS NOT NULL', e.attname), ' OR ') FROM pg_catalog.pg_attribute e",
+        "      WHERE e.attrelid = keyed.rel AND e.attnum > 0 AND NOT e.attisdropped AND e.attname ILIKE '%email%'), 'false'),",
         `    s, r, c, '${userId}')`,
         '  FROM keyed ORDER BY s, r, c \\gexec',
         `SELECT 'auth.users.id|' || count(*) || '|0' FROM auth.users WHERE id = '${userId}'::uuid;`,
         `SELECT 'storage.owned.objects|' || count(*) || '|0' FROM public.list_account_closure_storage('${userId}'::uuid);`,
-        `SELECT 'public.trial_entitlements.email|' || count(*) || '|0' FROM public.trial_entitlements WHERE email = '${address}';`,
-        `SELECT 'public.trial_entitlements.email_unlinked|' || count(*) || '|0' FROM public.trial_entitlements WHERE email = '${address}' AND user_id IS NULL;`,
+        `SELECT 'public.trial_entitlements.email|' || count(*) || '|' || count(*) FROM public.trial_entitlements WHERE email = '${address}';`,
+        `SELECT 'public.trial_entitlements.email_unlinked|' || count(*) || '|' || count(*) FROM public.trial_entitlements WHERE email = '${address}' AND user_id IS NULL;`,
         'ROLLBACK;',
         '',
     ].join('\n');
