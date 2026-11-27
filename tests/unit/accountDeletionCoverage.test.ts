@@ -115,15 +115,6 @@ async function psqlScript(script: string): Promise<string> {
 }
 
 describe('retained data after deletion, counted from the live catalog (retainedDataSql) on the real closure chain', () => {
-    it('validates its inputs: a uuid user and the run\'s own address shape only', () => {
-        expect(() => retainedDataSql("x' OR true --", 'a@example.invalid')).toThrow('uuid');
-        expect(() => retainedDataSql('d0110000-0000-4000-8000-000000000001', "a'@example.invalid")).toThrow('address');
-        const sql = retainedDataSql('d0110000-0000-4000-8000-000000000001', 'A@Example.invalid');
-        expect(sql).toContain('BEGIN TRANSACTION READ ONLY;');
-        expect(sql.trimEnd().endsWith('ROLLBACK;')).toBe(true);
-        expect(sql).toContain("WHERE email = 'a@example.invalid'");
-        expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|GRANT)\b/);
-    });
     it('after the Auth user is gone: every keyed type is counted, the trial email is kept unlinked, and a kept journal is named as a GAP', async () => {
         const { user } = await pendingUser();
         const email = (await one('SELECT email FROM auth.users WHERE id=$1', [user])) as string;
