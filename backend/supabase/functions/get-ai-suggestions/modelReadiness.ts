@@ -11,7 +11,7 @@ export interface ProbeLease {
 }
 export type ClaimResult = { kind: 'claimed'; lease: ProbeLease }
   | { kind: 'busy' | 'fresh' | 'cooldown'; state: ReadinessState };
-export type CheckResult = 'not_requested' | 'shared' | 'healthy' | 'promoted' | 'unavailable' | 'stale';
+export type CheckResult = 'not_requested' | 'shared' | 'healthy' | 'promoted' | 'unavailable' | 'backoff' | 'inconclusive' | 'stale';
 export type ProbeResult =
   | { status: 200; observedVersion: string | null; coachingValid: boolean }
   | { status: 429 | 503; scope: 'model' | 'project' | 'unknown'; retryAfterMs?: number }
@@ -35,7 +35,7 @@ export async function runMicStartReadiness(
   input: { recordingConfirmed: boolean; coachingSelected: boolean },
   options: { store: ReadinessStore;
     modelFor: (id: string) => ReadinessModel | null;
-    discover: (signal: AbortSignal) => Promise<readonly ReadinessModel[]>;
+    discover: (signal: AbortSignal) => Promise<readonly ReadinessModel[] | null>;
     probe: Probe; now: () => number },
 ): Promise<CheckResult> {
   if (input.recordingConfirmed !== true || input.coachingSelected !== true) return 'not_requested';
@@ -44,9 +44,12 @@ export async function runMicStartReadiness(
   if (claim.kind !== 'claimed') return 'shared';
   const { lease } = claim;
   const active = modelFor(lease.state.model);
-  let verified = false;
+  // undefined is SQL NULL: uncertainty must not clear the last verified state.
+  let verified: boolean | undefined;
+  let blocked = false;
   let promoteTo: string | undefined;
   let retryAfterMs: number | undefined;
+  let modelRetryAfterMs: number | undefined;
   const check = async (candidate: ReadinessModel): Promise<'valid' | 'local_failure' | 'blocked'> => {
     for (const product of ['open_mic', 'focus_points'] as const) {
       const availableMs = lease.deadlineMs - now();
@@ -54,20 +57,24 @@ export async function runMicStartReadiness(
       let status: ProbeResult;
       const signal = AbortSignal.timeout(Math.min(availableMs, 6_000));
       try { status = await probe(candidate, product, signal); }
-      catch { return signal.aborted && now() < lease.deadlineMs ? 'local_failure' : 'blocked'; }
+      catch { return 'blocked'; }
       if (now() >= lease.deadlineMs) return 'blocked';
-      if (signal.aborted) return 'local_failure';
+      if (signal.aborted) return 'blocked';
       if (status.status === 200 && status.coachingValid && status.observedVersion !== null
         && candidate.observedVersions.includes(status.observedVersion)) continue;
       if (status.status === 200 || status.status === 'model_unavailable') return 'local_failure';
       if (status.status === 429 || status.status === 503) {
         const hint = status.retryAfterMs;
-        if (typeof hint === 'number' && Number.isFinite(hint) && hint > 0) {
-          retryAfterMs = Math.min(Math.ceil(hint), 86_400_000);
-          return 'blocked';
+        const bounded = typeof hint === 'number' && Number.isFinite(hint) && hint > 0
+          ? Math.min(Math.ceil(hint), 86_400_000) : undefined;
+        // A proven model-local limit is not a project-wide stop. The sweep
+        // tracks that model in seen; it never spends the hint retrying it.
+        if (status.scope === 'model') {
+          modelRetryAfterMs = bounded === undefined ? modelRetryAfterMs : Math.max(modelRetryAfterMs ?? 0, bounded);
+          return 'local_failure';
         }
-        // Only classified model capacity/rate failures may try a second known model. Shared or opaque quota must cool down.
-        return status.scope === 'model' ? 'local_failure' : 'blocked';
+        retryAfterMs = bounded;
+        return 'blocked';
       }
       return 'blocked';
     }
@@ -78,19 +85,23 @@ export async function runMicStartReadiness(
     if (active) {
       const status = await check(active);
       if (status === 'valid') verified = true;
+      else if (status === 'blocked') blocked = true;
       else if (status === 'local_failure') {
+        verified = false;
         const remaining = lease.deadlineMs - now();
         const signal = remaining > 0 ? AbortSignal.timeout(Math.min(5_000, remaining)) : null;
-        const candidates = signal ? await discover(signal).catch(() => []) : [];
-        if (signal && !signal.aborted) {
+        const candidates = signal ? await discover(signal).catch(() => null) : null;
+        if (!candidates || !signal || signal.aborted || now() >= lease.deadlineMs) blocked = true;
+        else {
           const seen = new Set([active.id]);
           for (const candidate of candidates) {
-            if (seen.size > MAX_FALLBACKS || now() >= lease.deadlineMs) break;
+            if (seen.size > MAX_FALLBACKS) break;
+            if (now() >= lease.deadlineMs) { blocked = true; break; }
             const fallback = modelFor(candidate.id);
             if (!fallback || seen.has(fallback.id)) continue;
             seen.add(fallback.id);
             const outcome = await check(fallback);
-            if (outcome === 'blocked') break;
+            if (outcome === 'blocked') { blocked = true; break; }
             if (outcome === 'valid') {
               verified = true;
               promoteTo = fallback.id;
@@ -101,8 +112,12 @@ export async function runMicStartReadiness(
       }
     }
   } finally {
+    // A blocked fallback says nothing about the incumbent beyond its own
+    // already observed result. Preserve false if that result was conclusive.
+    if (verified !== true) retryAfterMs = retryAfterMs ?? modelRetryAfterMs;
     accepted = await store.finish(lease, { promoteTo, verified, retryAfterMs });
   }
   if (!accepted) return 'stale';
-  return promoteTo ? 'promoted' : verified ? 'healthy' : 'unavailable';
+  return promoteTo ? 'promoted' : verified ? 'healthy' : blocked
+    ? (retryAfterMs !== undefined ? 'backoff' : 'inconclusive') : 'unavailable';
 }

@@ -1,5 +1,5 @@
 const MODEL = /^gemini-[a-z0-9][a-z0-9.-]{0,58}$/;
-const READINESS = new Set(['not_checked', 'checking', 'verified', 'unavailable']);
+const READINESS = new Set(['not_checked', 'checking', 'verified', 'backoff', 'unavailable']);
 
 export async function readDeployedCoachingModel({ url, projectRef, serviceKey, fetchImpl = globalThis.fetch }) {
   if (typeof projectRef !== 'string' || !/^[a-z0-9]{20}$/.test(projectRef)

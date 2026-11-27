@@ -712,7 +712,7 @@ export const EVENT_SCHEMAS = Object.freeze({
         phase: enumOf(['request', 'auth', 'session', 'focus', 'cache', 'entitlement', 'quota', 'provider', 'persist', 'complete', 'client']),
         reason: enumOf([
             'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
-            'focus_context_unavailable', 'focus_results_pending', 'coaching_model_pending', 'transcript_unavailable', 'product_unknown',
+            'focus_context_unavailable', 'focus_results_pending', 'coaching_model_pending', 'coaching_model_backoff', 'transcript_unavailable', 'product_unknown',
             'service_configuration', 'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded',
             'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
             'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed',

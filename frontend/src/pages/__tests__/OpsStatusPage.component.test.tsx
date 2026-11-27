@@ -165,6 +165,20 @@ describe('OpsStatusPage', () => {
     expect(within(panel(row)).getByText('Configured model probe reported: gemini-4-hydrogen.')).toBeVisible();
   });
 
+  it('does not mark production coaching working during backoff even if a diagnostic generated text', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ ...payload, checks: [
+      ...payload.checks,
+      { name: 'Gemini generation', status: 'pass', coachingReadiness: 'backoff',
+        configuredModelVersion: 'gemini-4-hydrogen', providerModelVersion: 'gemini-4-hydrogen' },
+    ] }) as Response);
+    view();
+    await screen.findByText('AI Service -- LLM');
+    const row = service('AI Service -- LLM');
+    expect(status(row)).toHaveTextContent('Review or not checked');
+    fireEvent.click(toggle(row));
+    expect(within(panel(row)).getByText('Deployed coaching is waiting before sending new provider requests.')).toBeVisible();
+  });
+
   it('uses the winning ID and not a mismatched old typed model version', async () => {
     vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ ...payload, checks: [
       ...payload.checks,
