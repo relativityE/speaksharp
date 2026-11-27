@@ -3,15 +3,17 @@
  * result, missing speech or detection, a legacy build or the wrong privacy choice never passes. Partial counts as detected.
  */
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     J3B_REPEAT_ROW, J3_ACCEPTANCE_CONSENT_MODE, J3_PRIVACY_ROW, J3_SAVED_TIMING_ROW, focusAcceptancePrivacyVerdict,
-    focusSavedTimingVerdict, j3bRepeatReopenVerdict, repeatReviewCard, type RepeatReopenObservation, type SavedTimingObservation,
+    armJ3bFailureObserver, focusSavedTimingVerdict, j3bFallbackStatus, j3bRepeatReopenVerdict, j3bUpstreamStatus,
+    readJ3bFailureObserver, readJ3bSavedPanel, repeatReviewCard, type RepeatReopenObservation, type SavedTimingObservation,
 } from '../live/helpers/rwtJ3Evidence';
 import { savedFocusIdentityVerdict, type SavedFocusIdentityObservation } from '../live/helpers/rwtSavedFocusIdentity';
 import { persistedVerdictMismatches } from '../live/helpers/rwtOracles';
 import { loadedReviewSessionId } from '../live/helpers/rwtJ1dJourney';
-import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
+import { UNAVAILABLE_HEADLINES, takeExchangeEvidence } from '../live/helpers/coachingExternal';
+import { receiptAcceptance, requiredAutomatedRows, type ReceiptRow } from '../live/helpers/rwtAcceptance';
 
 describe('focusAcceptancePrivacyVerdict — bound before Start', () => {
     it('passes only the post-#1835 build with Save Yes / Coaching Yes recorded', () => {
@@ -118,11 +120,145 @@ describe('j3bRepeatReopenVerdict — one repeat on the same set, its own save, r
         expect(j3bRepeatReopenVerdict(repeat({ repeatIdentity: identity(over as Partial<SavedFocusIdentityObservation>) })))
             .toEqual({ status: 'FAIL', reason: 'repeat_differs_from_fixture' });
     });
+    const outage = (over: Partial<RepeatReopenObservation> = {}): RepeatReopenObservation => ({
+        ...repeat({ repeatCoachingSaved: false }),
+        repeatFailure: { takeId: 's2', providerStatus: 429, fallback: 'PASS' },
+        ...over,
+    });
+    it.each([429, 503] as const)('passes the app-owned repeat on confirmed Gemini %s without saved coaching', (providerStatus) => {
+        expect(j3bRepeatReopenVerdict(outage({ repeatFailure: { takeId: 's2', providerStatus, fallback: 'PASS' } })))
+            .toEqual({ status: 'PASS', reason: 'repeat_saved_and_reopened_provider_limited' });
+    });
+    it.each([
+        ['first take error', { repeatFailure: { takeId: 's1', providerStatus: 429, fallback: 'PASS' } }, 'HOLD', 'no_saved_review'],
+        ['Retry missing', { repeatFailure: { takeId: 's2', providerStatus: 429, fallback: 'FAIL' } }, 'FAIL', 'repeat_fallback_missing'],
+        ['delayed response after view changed', { repeatFailure: { takeId: 's2', providerStatus: 503, fallback: 'HOLD' } }, 'HOLD', 'repeat_fallback_unobserved'],
+        ['another take reopened', { repeatCardId: 's1' }, 'FAIL', 'repeat_card_wrong_id'],
+        ['wrong points', { repeatIdentity: identity({ visibleEvidence: [] }) }, 'FAIL', 'repeat_differs_from_fixture'],
+        ['first take changed', { firstMismatchesAfter: [0] }, 'FAIL', 'first_take_changed'],
+    ] as const)('rejects %s despite the provider exception', (_name, change, status, reason) => {
+        expect(j3bRepeatReopenVerdict(outage(change as Partial<RepeatReopenObservation>))).toEqual({ status, reason });
+    });
+
     it('the first-take re-read catches a swapped pair that keeps both counts', () => {
         const pts = labels.map((_, i) => ({ id: `fp${i}`, sort_order: i }));
         const swapped = [{ brief_point_id: 'fp0', verdict: 'detected' }, { brief_point_id: 'fp1', verdict: 'detected' },
             { brief_point_id: 'fp2', verdict: 'not_detected' }, { brief_point_id: 'fp3', verdict: 'detected' }];
         expect(persistedVerdictMismatches([...fixtureStatuses], pts, swapped)).toEqual([2, 3]);
+    });
+});
+
+describe('J3.b provider-limited evidence in the app-owned views', () => {
+    it.each([
+        [502, 'provider_http_4xx', 429, 429], [502, 'provider_http_5xx', 503, 503],
+        [502, 'provider_timeout', 429, 429], [502, 'provider_timeout', 503, 503],
+        [502, 'provider_timeout', null, null], [502, 'provider_http_5xx', 500, null],
+        [503, 'service_configuration', 503, null], [429, 'quota_exceeded', null, null],
+    ] as const)('classifies HTTP %s / %s / upstream %s as %s', (httpStatus, reason, providerStatus, expected) => {
+        expect(j3bUpstreamStatus({ httpStatus, reason, providerStatus })).toBe(expected);
+    });
+    const onScreen = () => vi.spyOn(HTMLElement.prototype, 'getClientRects')
+        .mockReturnValue({ length: 1 } as DOMRectList);
+    const panel = (viewId: string) => `
+        <section data-testid="saved-review" data-session-id="${viewId}" data-product="focus_points">No coaching was saved for this session.</section>
+        <section data-testid="saved-focus-points"><ol>${labels.map((label, i) =>
+            `<li data-testid="focus-point-${i}" data-status="${i === 3 ? 'missing' : 'covered'}"><p>${label}</p></li>`).join('')}
+        </ol></section>`;
+    it('reads the actual sibling panel, including label order, and refuses another loaded review', () => {
+        const rects = onScreen();
+        const previousUrl = document.location.pathname;
+        try {
+            document.defaultView!.history.replaceState(null, '', '/analytics/s2');
+            document.body.innerHTML = panel('s1');
+            expect(readJ3bSavedPanel('s2')).toBeNull();
+            document.body.innerHTML = panel('s2');
+
+            const rows = readJ3bSavedPanel('s2');
+            expect(rows).toEqual(labels.map((label, i) => ({ ordinal: i + 1, label, status: i === 3 ? 'missing' : 'covered' })));
+            expect(identity({ visibleEvidence: [], visiblePanel: rows! }).verdict).toBe('PASS');
+            const badLabel = rows!.map((row, i) => i === 0 ? { ...row, label: 'substituted' } : row);
+            expect(identity({ visibleEvidence: [], visiblePanel: badLabel }).verdict).toBe('FAIL');
+            expect(identity({ visibleEvidence: [], visiblePanel: [...rows!].reverse() }).verdict).toBe('FAIL');
+            document.defaultView!.history.replaceState(null, '', '/analytics/s1');
+            expect(readJ3bSavedPanel('s2')).toBeNull();
+        } finally {
+            document.defaultView!.history.replaceState(null, '', previousUrl);
+            document.body.replaceChildren();
+            rects.mockRestore();
+        }
+    });
+    it.each([429, 503] as const)('keeps the actual raw receipt incomplete on a delayed Gemini %s even when the app-owned repeat passes', async (providerStatus) => {
+        const rects = onScreen();
+        const root = document.documentElement;
+        const previousUrl = document.location.pathname;
+        const setTake = (id: string) => {
+            root.setAttribute('data-session-persisted', 'true');
+            root.setAttribute('data-session-persisted-id', id);
+        };
+        const fallback = `<span data-testid="ai-suggestions-headline">${[...UNAVAILABLE_HEADLINES][0]}</span>
+            <button data-testid="ai-suggestions-retry">Try again</button>`;
+        try {
+            setTake('s2');
+            document.body.innerHTML = '<div data-testid="session-shell" data-session-state="after"><div data-testid="ai-suggestions-card" data-review-state="loading"></div></div>';
+            armJ3bFailureObserver([...UNAVAILABLE_HEADLINES]);
+            // The request settles after the observer is attached; the caller does not wait before its rapid Repeat.
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            const card = document.querySelector('[data-testid="ai-suggestions-card"]')!;
+            card.setAttribute('data-review-state', 'error');
+            card.innerHTML = fallback;
+            await Promise.resolve();
+            const ui = j3bFallbackStatus(readJ3bFailureObserver('s2'));
+            const exchange = takeExchangeEvidence([{
+                sent: { sessionId: 's2', product: 'focus_points', requestId: 'r1', attemptId: 'a1', clientAttempt: 1, clientReleaseId: null },
+                status: 502, diagnostics: { provider_status: providerStatus, reason: providerStatus === 429 ? 'provider_http_4xx' : 'provider_http_5xx' },
+                suggestions: null, clientMs: 50, at: 100, outcome: 'answered',
+            }]);
+            expect(exchange.unique).toBe(true);
+            document.defaultView!.history.replaceState(null, '', '/analytics/s2');
+            document.body.innerHTML = panel('s2');
+            const observed = j3bRepeatReopenVerdict(repeat({
+                repeatCoachingSaved: false,
+                repeatIdentity: identity({ visibleEvidence: [], visiblePanel: readJ3bSavedPanel('s2')! }),
+                repeatFailure: { takeId: 's2', providerStatus: j3bUpstreamStatus(exchange.evidence)!, fallback: ui },
+            }));
+            expect(observed).toEqual({ status: 'PASS', reason: 'repeat_saved_and_reopened_provider_limited' });
+            const requirements = requiredAutomatedRows('focus-points-partial')!;
+            const proof: ReceiptRow[] = [...new Set([...requirements.required, ...requirements.product])].map((step) => ({
+                step, detail: 'synthetic receipt control', verdict: step === J3B_REPEAT_ROW ? observed.status
+                    : step === 'Focus coaching differs between takes' || step === 'coaching prompt binding' ? 'HOLD' : 'PASS',
+            }));
+            expect(receiptAcceptance(proof).acceptance).toBe('INCOMPLETE');
+            proof.push({ step: 'unexpected residue control', detail: 'synthetic failure', verdict: 'FAIL' });
+            expect(receiptAcceptance(proof).acceptance).toBe('FAIL');
+        } finally {
+            readJ3bFailureObserver('s2');
+            document.defaultView!.history.replaceState(null, '', previousUrl);
+            root.removeAttribute('data-session-persisted');
+            root.removeAttribute('data-session-persisted-id');
+            document.body.replaceChildren();
+            rects.mockRestore();
+        }
+    });
+    it('does not attribute a delayed error on the next take to the repeat', async () => {
+        const rects = onScreen();
+        const root = document.documentElement;
+        try {
+            root.setAttribute('data-session-persisted', 'true');
+            root.setAttribute('data-session-persisted-id', 's2');
+            document.body.innerHTML = '<div data-testid="session-shell" data-session-state="after"></div>';
+            armJ3bFailureObserver([...UNAVAILABLE_HEADLINES]);
+            root.setAttribute('data-session-persisted-id', 's3');
+            document.querySelector('[data-testid="session-shell"]')!.innerHTML =
+                `<div data-testid="ai-suggestions-card" data-review-state="error"><span data-testid="ai-suggestions-headline">${[...UNAVAILABLE_HEADLINES][0]}</span><button data-testid="ai-suggestions-retry">Try again</button></div>`;
+            await Promise.resolve();
+            expect(j3bFallbackStatus(readJ3bFailureObserver('s2'))).toBe('HOLD');
+        } finally {
+            readJ3bFailureObserver('s2');
+            root.removeAttribute('data-session-persisted');
+            root.removeAttribute('data-session-persisted-id');
+            document.body.replaceChildren();
+            rects.mockRestore();
+        }
     });
 });
 
@@ -204,6 +340,6 @@ describe('J3.b reads only the repeat\'s own review card (Sam, Nov 19 on 947d357)
         expect(step.indexOf('if (repeatCardId === repeatSessionId) {')).toBeGreaterThan(load);
         expect(step.indexOf("repeatReviewCard(tab, repeatSessionId).getByTestId('review-evidence').first()")).toBeGreaterThan(load);
         expect(step).not.toMatch(/tab\.getByTestId\('review-evidence'\)/);
-        expect(step).toMatch(/firstMismatchesAfter, repeatCardId \}\);/);
+        expect(step).toMatch(/firstMismatchesAfter, repeatCardId, repeatFailure \}\);/);
     });
 });

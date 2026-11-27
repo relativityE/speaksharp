@@ -15,6 +15,7 @@
  * Fail closed: an unreadable or missing input is HOLD, a contradiction is FAIL, PASS only when every part is proved.
  */
 import type { ConsentMode, ConsentRowRecorder, PrivacyBuild, SettledConsent } from './rwtPracticeConsent';
+import { isCoachingUnavailableHeadline, type CoachingFailureEvidence } from './coachingExternal';
 import type { SavedFocusIdentityResult } from './rwtSavedFocusIdentity';
 
 export type J3Verdict = { status: 'PASS' | 'FAIL' | 'HOLD'; reason: string };
@@ -120,6 +121,81 @@ export interface RepeatReopenObservation {
      * Nov 19 on 947d357), so a still-displayed first-take card with identical statuses can never stand in for the repeat.
      */
     repeatCardId: string | null;
+    repeatFailure?: { takeId: string; providerStatus: 429 | 503; fallback: J3Verdict['status'] } | null;
+}
+
+export function j3bUpstreamStatus(e: CoachingFailureEvidence): 429 | 503 | null {
+    if (e.httpStatus !== 502) return null;
+    if (e.providerStatus === 429 && (e.reason === 'provider_http_4xx' || e.reason === 'provider_timeout')) return 429;
+    if (e.providerStatus === 503 && (e.reason === 'provider_http_5xx' || e.reason === 'provider_timeout')) return 503;
+    return null;
+}
+
+interface LiveFailureView { headline: string; retryEnabled: boolean }
+interface LiveFailureObserver { samples: Map<string, LiveFailureView>; disconnect: () => void }
+type ObserverWindow = Window & { __j3bFailureObserver?: LiveFailureObserver };
+
+/** Observe only a terminal card on a still-active saved take. Never wait on or press the existing rapid Repeat. */
+export function armJ3bFailureObserver(unavailableHeadlines: readonly string[]): void {
+    const w = window as ObserverWindow;
+    w.__j3bFailureObserver?.disconnect();
+    const samples = new Map<string, LiveFailureView>();
+    const visible = (el: HTMLElement | null) => Boolean(el && el.getClientRects().length > 0
+        && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
+    const read = () => {
+        const root = document.documentElement;
+        if (root.getAttribute('data-session-persisted') !== 'true') return;
+        const id = root.getAttribute('data-session-persisted-id');
+        const shell = document.querySelector('[data-testid="session-shell"][data-session-state="after"]');
+        const card = shell?.querySelector('[data-testid="ai-suggestions-card"][data-review-state="error"]');
+        if (!id || !card || samples.size >= 8 && !samples.has(id)) return;
+        const headline = card.querySelector<HTMLElement>('[data-testid="ai-suggestions-headline"]');
+        const retry = card.querySelector<HTMLButtonElement>('button[data-testid="ai-suggestions-retry"]');
+        const copy = visible(headline) ? (headline?.textContent ?? '').trim() : '';
+        const prior = samples.get(id);
+        if (prior && unavailableHeadlines.includes(prior.headline) && prior.retryEnabled) return;
+        samples.set(id, {
+            headline: unavailableHeadlines.includes(copy) ? copy : '',
+            retryEnabled: Boolean(visible(retry) && !retry?.matches(':disabled,[aria-disabled="true"]')
+                && retry?.textContent?.trim() === 'Try again'),
+        });
+    };
+    const observer = new MutationObserver(read);
+    observer.observe(document.documentElement, { attributes: true, childList: true, characterData: true, subtree: true });
+    w.__j3bFailureObserver = { samples, disconnect: () => observer.disconnect() };
+    read();
+}
+
+export function readJ3bFailureObserver(id: string): LiveFailureView | null {
+    const w = window as ObserverWindow;
+    const existing = w.__j3bFailureObserver;
+    existing?.disconnect();
+    delete w.__j3bFailureObserver;
+    return existing?.samples.get(id) ?? null;
+}
+
+export function j3bFallbackStatus(o: LiveFailureView | null): J3Verdict['status'] {
+    return o === null ? 'HOLD' : isCoachingUnavailableHeadline(o.headline) && o.retryEnabled ? 'PASS' : 'FAIL';
+}
+
+export function readJ3bSavedPanel(sessionId: string): { ordinal: number; label: string; status: string | null }[] | null {
+    if (document.location.pathname !== `/analytics/${sessionId}`) return null;
+    const visible = (el: HTMLElement | null) => Boolean(el && el.getClientRects().length > 0
+        && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
+    const savedReview = document.querySelector<HTMLElement>('[data-testid="saved-review"]');
+    if (!visible(savedReview) || savedReview?.getAttribute('data-session-id') !== sessionId
+        || savedReview.getAttribute('data-product') !== 'focus_points') return null;
+    const panels = document.querySelectorAll<HTMLElement>('[data-testid="saved-focus-points"]');
+    const panel = panels.length === 1 ? panels[0] : null;
+    if (!panel || !visible(panel)) return null;
+    return Array.from(panel.querySelectorAll<HTMLElement>('ol > li')).map((row) => {
+        const label = row.querySelector<HTMLElement>('p');
+        return {
+            ordinal: Number(/^focus-point-(\d+)$/.exec(row.dataset.testid ?? '')?.[1] ?? NaN) + 1,
+            label: visible(row) && visible(label) ? (label?.textContent ?? '').trim() : '',
+            status: row.getAttribute('data-status'),
+        };
+    });
 }
 
 export function j3bRepeatReopenVerdict(o: RepeatReopenObservation): J3Verdict {
@@ -134,11 +210,17 @@ export function j3bRepeatReopenVerdict(o: RepeatReopenObservation): J3Verdict {
     if (!o.firstBriefId || o.repeatObjective.brief_id !== o.firstBriefId) return { status: 'FAIL', reason: 'not_the_same_set' };
     if (o.firstMismatchesAfter === null || o.repeatCoachingSaved === null) return { status: 'HOLD', reason: 'saved_unread' };
     if (o.firstMismatchesAfter.length > 0) return { status: 'FAIL', reason: 'first_take_changed' };
-    if (!o.repeatCoachingSaved) return { status: 'HOLD', reason: 'no_saved_review' };
+    const failure = o.repeatFailure?.takeId === o.repeatSessionId ? o.repeatFailure : null;
+    if (!o.repeatCoachingSaved && !failure) return { status: 'HOLD', reason: 'no_saved_review' };
     if (o.repeatCardId === null) return { status: 'HOLD', reason: 'repeat_card_not_loaded' };
     if (o.repeatCardId !== o.repeatSessionId) return { status: 'FAIL', reason: 'repeat_card_wrong_id' };
     if (o.repeatIdentity === null) return { status: 'HOLD', reason: 'saved_unread' };
     if (o.repeatIdentity.verdict !== 'PASS') return { status: 'FAIL', reason: 'repeat_differs_from_fixture' };
+    if (!o.repeatCoachingSaved && failure) {
+        if (failure.fallback === 'HOLD') return { status: 'HOLD', reason: 'repeat_fallback_unobserved' };
+        if (failure.fallback === 'FAIL') return { status: 'FAIL', reason: 'repeat_fallback_missing' };
+        return { status: 'PASS', reason: 'repeat_saved_and_reopened_provider_limited' };
+    }
     return { status: 'PASS', reason: 'repeat_saved_and_reopened' };
 }
 

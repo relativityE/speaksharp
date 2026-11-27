@@ -108,7 +108,7 @@ const UNAVAILABLE_PREFIXES = [
     'UNKNOWN (local normalization): Unknown error.',
     'provider_timeout: The local coaching deadline was exceeded.',
 ] as const;
-const UNAVAILABLE_HEADLINES = new Set(UNAVAILABLE_PREFIXES.map((prefix) => `${prefix} Your session is saved.`));
+export const UNAVAILABLE_HEADLINES = new Set(UNAVAILABLE_PREFIXES.map((prefix) => `${prefix} Your session is saved.`));
 export function isCoachingUnavailableHeadline(text: unknown): boolean {
     return typeof text === 'string' && UNAVAILABLE_HEADLINES.has(text.trim());
 }

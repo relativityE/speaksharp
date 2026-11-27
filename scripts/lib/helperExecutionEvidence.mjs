@@ -293,7 +293,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"],
 }, {
   helperFile:'tests/live/helpers/rwtJ3Evidence.ts',testFile:'tests/unit/rwtJ3Evidence.test.ts',
-  callables:["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard"],
+  callables:["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard","j3bUpstreamStatus","armJ3bFailureObserver","readJ3bFailureObserver","j3bFallbackStatus","readJ3bSavedPanel"],
+}, {
+  helperFile:'tests/live/helpers/rwtSavedFocusIdentity.ts',testFile:'tests/unit/rwtJ3Evidence.test.ts',
+  callables:["savedFocusIdentityVerdict"],
 }, {
   helperFile:'tests/live/helpers/rwtJ4aEvidence.ts',testFile:'tests/unit/rwtJ4aEvidence.test.ts',
   callables:["j4aRequestNeverReachedVerdict","j4aOneSaveForAccountVerdict","saveRetryPrivacyVerdict","j4aNoSecondTakeVerdict","j4aPrivacyCleanupVerdict","j4aCoachingGuard","j4aCoachingBlockedVerdict","j4aCoachingBlockedRow"],
