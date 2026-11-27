@@ -188,3 +188,83 @@ Deno.test('ladder: a shared 429 with a provider-wide wait stops and records only
   assert.deepEqual(h.calls, ['gemini-3.6-flash']);
   assert.deepEqual(h.results[0], { promoteTo: undefined, verified: undefined, retryAfterMs: 7_000 });
 });
+
+Deno.test('per-model timeout tries the next compatible model without retrying the incumbent', async () => {
+  const h = harness(valid);
+  const deadlines: number[] = [];
+  let at = 0;
+  let timer = new AbortController();
+  const candidateTimeout = (ms: number) => {
+    deadlines.push(ms);
+    timer = new AbortController();
+    return timer.signal;
+  };
+  const probe = (m: { id: string }, p: string) => {
+    if (m.id === 'incumbent') {
+      h.calls.push(m.id + ':' + p);
+      at = 6000;
+      timer.abort(new DOMException('candidate timed out', 'TimeoutError'));
+      return Promise.reject(timer.signal.reason);
+    }
+    return h.options.probe(m, p);
+  };
+  const options = { ...h.options, now: () => at, probe, candidateTimeout };
+  assert.equal(await runMicStartReadiness(live, options), 'promoted');
+  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic']);
+  assert.deepEqual(deadlines, [6000, 6000]);
+  assert.deepEqual(h.results[0], { promoteTo: 'alt', verified: true, retryAfterMs: undefined });
+});
+
+Deno.test('an expired fallback probe can advance without accepting its late valid result', async () => {
+  const third = { id: 'third', observedVersions: ['third-003'] };
+  const h = harness(valid, true, [...models, third]);
+  let timer = new AbortController();
+  const candidateTimeout = () => { timer = new AbortController(); return timer.signal; };
+  const probe = (m: { id: string }, p: string): Promise<ProbeResult> => {
+    h.calls.push(m.id + ':' + p);
+    if (m.id === 'incumbent') return Promise.resolve(provider(503, 'unknown'));
+    if (m.id === 'alt') {
+      timer.abort(new DOMException('candidate timed out', 'TimeoutError'));
+      return Promise.resolve(valid('alt'));
+    }
+    return Promise.resolve({ status: 200, coachingValid: true, observedVersion: 'third-003' });
+  };
+  const options = { ...h.options, probe, candidateTimeout };
+  assert.equal(await runMicStartReadiness(live, options), 'promoted');
+  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic', 'third:open_mic']);
+  assert.equal(h.results[0].promoteTo, 'third');
+});
+
+Deno.test('a timeout alone neither demotes the selected model nor records a shared wait', async () => {
+  const h = harness(valid);
+  const timer = new AbortController();
+  const candidateTimeout = () => timer.signal;
+  const probe = (m: { id: string }, p: string) => {
+    h.calls.push(m.id + ':' + p);
+    timer.abort(new DOMException('candidate timed out', 'TimeoutError'));
+    return Promise.reject(timer.signal.reason);
+  };
+  const options = { ...h.options, probe, candidateTimeout };
+  assert.equal(await runMicStartReadiness(live, options), 'inconclusive');
+  assert.equal(h.discoveries(), 1);
+  assert.deepEqual(h.results[0], { promoteTo: undefined, verified: undefined, retryAfterMs: undefined });
+});
+
+Deno.test('caller cancellation or lease expiry wins over a simultaneous candidate timeout', async () => {
+  for (const stop of ['caller', 'lease'] as const) {
+    const h = harness(valid);
+    const caller = new AbortController(), timer = new AbortController();
+    let at = 0;
+    const candidateTimeout = () => timer.signal;
+    const probe = () => {
+      if (stop === 'caller') caller.abort();
+      else at = 30_000;
+      timer.abort(new DOMException('candidate timed out', 'TimeoutError'));
+      return Promise.reject(timer.signal.reason);
+    };
+    const options = { ...h.options, now: () => at, probe, candidateTimeout, callerSignal: caller.signal };
+    assert.equal(await runMicStartReadiness(live, options), 'inconclusive');
+    assert.equal(h.discoveries(), 0);
+    assert.deepEqual(h.results[0], { promoteTo: undefined, verified: undefined, retryAfterMs: undefined });
+  }
+});

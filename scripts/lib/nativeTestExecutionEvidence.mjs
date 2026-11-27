@@ -537,6 +537,13 @@ const coachingNeverBlocksProfiles=coachingBackoffProfiles.map(item=>({
     'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'7f7b168ffb3c4763d557374171a782bd480482ee7170f667f137d3cbb084d60b',
   },
 }));
+// Pins the exact timeout fallback and request-cancellation wiring with the same synthetic-key permissions.
+const coachingTimeoutFallbackProfiles=coachingNeverBlocksProfiles.map(item=>({
+  id:'coaching-readiness-timeout-fallback',files:{...item.files,
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'bc66dafa576fb488d5629de643625467029a540ff599caee4a71e3dcdb5ab64d',
+    'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'bd6376ce87b970b159f12e9cf481b5a5f3f87a82c1398218bebe1a5ff508ae74',
+  },
+}));
 export function nativeDenoPolicy(file) {
   const billing=isBillingDenoTest(file);
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
@@ -547,7 +554,7 @@ export function nativeDenoPolicy(file) {
 }
 export function validateSyntheticSource(root,file) {
   if(file!==coachingTest)return null;
-  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles,...coachingNeverBlocksProfiles].find(candidate=>{
+  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles,...coachingNeverBlocksProfiles,...coachingTimeoutFallbackProfiles].find(candidate=>{
     try{return Object.entries(candidate.files).every(([entry,digest])=>hash(fs.readFileSync(regular(root,entry)))===digest);}
     catch{return false;}
   });
