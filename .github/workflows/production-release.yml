@@ -14,7 +14,7 @@ on:
       operation:
         description: 'One separately authorized release operation'
         type: choice
-        options: [frontend, edge-functions, account-closure-only]
+        options: [frontend, edge-functions, account-closure-only, enable-coaching-readiness]
         required: true
       confirm:
         description: 'Type RELEASE <operation> AT <exact SHA>'
@@ -62,7 +62,7 @@ jobs:
           CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
-          case "$OPERATION" in frontend|edge-functions|account-closure-only) ;; *) exit 1 ;; esac
+          case "$OPERATION" in frontend|edge-functions|account-closure-only|enable-coaching-readiness) ;; *) exit 1 ;; esac
           [ "$CONFIRM" = "RELEASE $OPERATION AT $EXPECTED_HEAD_SHA" ]
 
   release-edge:
@@ -88,6 +88,95 @@ jobs:
       deploy_edge_functions: false
       operation: account-closure-only
     secrets: inherit
+
+  # This changes one runtime setting, not a function bundle or the generic secret sync.
+  verify-coaching-readiness-release-gate:
+    needs: [production-policy, validate-release]
+    if: ${{ inputs.deploy_production == true && needs.production-policy.outputs.allowed == 'true' && inputs.operation == 'enable-coaching-readiness' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require an existing main-only gate with reviewers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPOSITORY/environments/production-db" |
+            jq -e '.deployment_branch_policy.custom_branch_policies == true
+              and any(.protection_rules[]; .type == "required_reviewers" and (.reviewers | length) > 0)' >/dev/null
+          gh api --paginate --slurp "repos/$REPOSITORY/environments/production-db/deployment-branch-policies" |
+            jq -e '[.[].branch_policies[].name] == ["main"]' >/dev/null
+
+  enable-coaching-readiness:
+    needs: [verify-coaching-readiness-release-gate]
+    if: ${{ inputs.deploy_production == true && inputs.operation == 'enable-coaching-readiness' && needs.verify-coaching-readiness-release-gate.result == 'success' }}
+    environment: production-db
+    concurrency:
+      group: production-database-migrations
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+      - name: Verify the installed readiness schema and T2 prerequisites
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client
+          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/t2-pooler.env"
+          set -a; . "$RUNNER_TEMP/t2-pooler.env"; set +a
+          export PGPASSWORD="$SUPABASE_DB_PASSWORD"
+          unset DB_URL
+          bash scripts/assert-db-connectivity-tls.sh
+          [ "$(PGOPTIONS='-c default_transaction_read_only=on' psql -XqAt -v ON_ERROR_STOP=1 \
+            -c "SELECT EXISTS (SELECT FROM supabase_migrations.schema_migrations WHERE version = '20261126005433')")" = t ]
+          node scripts/t2-migration-postflight.mjs verify edge-release
+      - name: Recheck exact green main before invalidating drain authority
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
+      - name: Invalidate account-deletion drain authority before configuration changes
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/account-closure-invalidate.mjs
+      - name: Set only the coaching readiness flag
+        timeout-minutes: 1
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          case "$SUPABASE_PROJECT_ID" in
+            *[!a-z0-9]*) exit 1 ;;
+          esac
+          [ "${#SUPABASE_PROJECT_ID}" -eq 20 ]
+          [ -n "$SUPABASE_ACCESS_TOKEN" ]
+          node scripts/production-release-policy.mjs authorize |
+            jq -e --arg sha "$EXPECTED_HEAD_SHA" '.allowed == true and .state == "QUALIFIED" and .releaseSha == $sha' >/dev/null
+          supabase secrets set COACHING_MODEL_READINESS_ENABLED=true --project-ref "$SUPABASE_PROJECT_ID"
+          echo 'Supabase acknowledged the readiness flag write; app behavior remains unverified.' >> "$GITHUB_STEP_SUMMARY"
 
   release-frontend:
     needs: [production-policy, validate-release]

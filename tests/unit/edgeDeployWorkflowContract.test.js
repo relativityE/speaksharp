@@ -99,7 +99,7 @@ describe('account-closure-only: main-gated, exactly one function, post-129 ledge
   const jqFile = (file, args, input) => execFileSync('jq', [...args, '-f', resolve(process.cwd(), file)], { encoding: 'utf8', input });
 
   it('is a separate, exactly confirmed production-release operation that never enables the ten-function path', () => {
-    expect(release.on.workflow_dispatch.inputs.operation.options).toEqual(['frontend', 'edge-functions', 'account-closure-only']);
+    expect(release.on.workflow_dispatch.inputs.operation.options).toEqual(['frontend', 'edge-functions', 'account-closure-only', 'enable-coaching-readiness']);
     const caller = release.jobs['release-account-closure'];
     expect(caller.uses).toBe('./.github/workflows/deploy-supabase-migrations.yml');
     expect(caller.with).toMatchObject({ operation: 'account-closure-only', deploy_edge_functions: false, deploy_production: true });
@@ -239,5 +239,75 @@ console.log(fs.readFileSync(process.env.LEDGER_ROW,'utf8'));});\n`);
     const cli = readFileSync(resolve(process.cwd(), 'scripts/t2-migration-postflight.mjs'), 'utf8');
     expect(cli).toContain("['release', 'edge-release', 'account-closure-release'].includes(version)");
     expect(cli).toContain("if (version === 'account-closure-release' && contract.profile !== 'post-129-completion-settlement') {");
+  });
+});
+
+describe('coaching readiness flag release', () => {
+  const release = yaml.load(readFileSync(resolve(process.cwd(), '.github/workflows/production-release.yml'), 'utf8'));
+  const name = 'enable-coaching-readiness';
+  const gate = release.jobs['verify-coaching-readiness-release-gate'];
+  const job = release.jobs[name];
+  const step = (text) => job.steps.find((entry) => entry.name === text);
+
+  it('only admits the explicitly confirmed operation through the existing reviewed main gate', () => {
+    const sha = 'a'.repeat(40);
+    const confirmation = release.jobs['validate-release'].steps[0].run;
+    const confirm = (op, phrase) => spawnSync('bash', ['-c', confirmation], {
+      env: { ...process.env, OPERATION: op, EXPECTED_HEAD_SHA: sha, CONFIRM: phrase },
+    }).status;
+    expect(confirm(name, 'RELEASE ' + name + ' AT ' + sha)).toBe(0);
+    expect(confirm(name, 'RELEASE frontend AT ' + sha)).not.toBe(0);
+    expect(confirm('secrets', 'RELEASE secrets AT ' + sha)).not.toBe(0);
+    expect(confirm(name, 'RELEASE ' + name + ' AT ' + 'b'.repeat(40))).not.toBe(0);
+    expect(gate.needs).toEqual(['production-policy', 'validate-release']);
+    expect(gate.if).toContain("inputs.operation == '" + name + "'");
+    expect(gate.steps[0].run).toContain('required_reviewers');
+    expect(gate.steps[0].run).toContain('== ["main"]');
+    expect(job.if).toContain("needs.verify-coaching-readiness-release-gate.result == 'success'");
+    expect(job.environment).toBe('production-db');
+    expect(job.concurrency).toEqual({ group: 'production-database-migrations', 'cancel-in-progress': false });
+    expect(JSON.stringify(job)).not.toMatch(/functions deploy|vercel |db push|GEMINI_API_KEY|STRIPE_/);
+  });
+
+  it('verifies the installed schema and advances drain authority before the flag write', () => {
+    const schema = step('Verify the installed readiness schema and T2 prerequisites');
+    const exact = step('Recheck exact green main before invalidating drain authority');
+    const revoke = step('Invalidate account-deletion drain authority before configuration changes');
+    const set = step('Set only the coaching readiness flag');
+    expect(schema.run).toContain('default_transaction_read_only=on');
+    expect(schema.run).toContain('20261126005433');
+    expect(schema.run).toContain('verify edge-release');
+    expect(exact.run).toBe('node scripts/production-release-policy.mjs authorize');
+    expect(revoke.run).toBe('node scripts/account-closure-invalidate.mjs');
+    expect([schema, exact, revoke, set].map((entry) => job.steps.indexOf(entry))).toEqual([3, 4, 5, 6]);
+  });
+
+  it('writes one fixed flag once, and never writes after a bad target or policy refusal', () => {
+    const command = step('Set only the coaching readiness flag').run;
+    const stub = [
+      'node() { echo policy >&2; [ "$*" = "scripts/production-release-policy.mjs authorize" ] || return 2; echo "$POLICY_OUTPUT"; return "$POLICY_EXIT"; }',
+      'supabase() { echo "supabase:$*"; return "$SUPABASE_EXIT"; }',
+    ].join('\n');
+    const ref = 'a'.repeat(20);
+    const run = ({ project = ref, token = 'fake', policy = '0', allowed = true, mutation = '0' } = {}) => spawnSync('bash', ['-c', stub + '\n' + command], {
+      env: { ...process.env, SUPABASE_PROJECT_ID: project, SUPABASE_ACCESS_TOKEN: token,
+        EXPECTED_HEAD_SHA: 'a'.repeat(40), POLICY_EXIT: policy, SUPABASE_EXIT: mutation,
+        POLICY_OUTPUT: JSON.stringify({ allowed, state: allowed ? 'QUALIFIED' : 'OFF', releaseSha: 'a'.repeat(40) }),
+        GITHUB_STEP_SUMMARY: '/dev/null' },
+      encoding: 'utf8',
+    });
+    const result = run();
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'supabase:secrets set COACHING_MODEL_READINESS_ENABLED=true --project-ref ' + ref,
+    ]);
+    for (const args of [{ project: '../wrong' }, { token: '' }, { policy: '1' }, { allowed: false }]) {
+      const held = run(args);
+      expect(held.status).not.toBe(0);
+      expect(held.stdout).not.toContain('supabase:');
+    }
+    const refused = run({ mutation: '1' });
+    expect(refused.status).not.toBe(0);
+    expect(refused.stdout.match(/supabase:/g)).toHaveLength(1);
   });
 });
