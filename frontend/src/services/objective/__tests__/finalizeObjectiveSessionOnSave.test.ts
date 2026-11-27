@@ -44,7 +44,7 @@ describe('#1046 finalizeObjectiveSessionOnSave', () => {
         expect(res.evidenceCount).toBe(1);
         expect(res.coverage?.[0]).toMatchObject({ briefPointId: 'p1', status: 'covered' });
         // Finalize received the signal derived from the matched offset (rounded).
-        expect(finalizeObjectiveEvidence).toHaveBeenCalledWith('objsess-1', [{ brief_point_id: 'p1', detected_at_seconds: 8 }]);
+        expect(finalizeObjectiveEvidence).toHaveBeenCalledWith('objsess-1', [{ brief_point_id: 'p1', detected_at_seconds: 8, coverage: 'covered' }]);
     });
 
     it('stops at register on an ineligible recording (no start/finalize)', async () => {

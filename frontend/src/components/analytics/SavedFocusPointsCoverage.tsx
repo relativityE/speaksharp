@@ -51,20 +51,23 @@ export const SavedFocusPointsCoverage: React.FC<{ sessionId: string }> = ({ sess
             </div>
             <ol className="mt-3 space-y-2.5">
                 {coverage.points.map((point, i) => {
-                    const covered = point.status === 'detected';
+                    const partial = point.status === 'detected' && point.partial === true;
+                    const covered = point.status === 'detected' && !partial;
                     const missing = point.status === 'not_detected';
                     return (
                         <li
                             key={i}
                             data-testid={`focus-point-${i}`}
-                            data-status={covered ? 'covered' : missing ? 'missing' : 'pending'}
+                            data-status={covered ? 'covered' : partial ? 'partial' : missing ? 'missing' : 'pending'}
                             className="text-sm leading-snug"
                         >
                             <p className="text-neutral-body">{point.label}</p>
-                            <p className={`mt-0.5 text-[12px] font-semibold ${covered ? 'text-status' : missing ? 'text-state-error' : 'text-neutral-muted'}`} data-testid={`focus-point-${i}-verdict`}>
+                            <p className={`mt-0.5 text-[12px] font-semibold ${covered ? 'text-status' : partial ? 'text-signature-text' : missing ? 'text-state-error' : 'text-neutral-muted'}`} data-testid={`focus-point-${i}-verdict`}>
                                 {covered
                                     ? `Detected${point.detectedAtSeconds !== null ? ` at ${fmtDuration(point.detectedAtSeconds)}` : ''}`
-                                    : missing ? 'Not detected' : 'Not evaluated'}
+                                    : partial
+                                        ? `Partly detected${point.detectedAtSeconds !== null ? ` at ${fmtDuration(point.detectedAtSeconds)}` : ''}`
+                                        : missing ? 'Not detected' : 'Not evaluated'}
                             </p>
                             {missing && (
                                 <p className="mt-1 text-[13px] leading-snug text-state-error" data-testid={`focus-point-${i}-not-detected`}>
