@@ -497,6 +497,7 @@ export async function handler(
         return apiKey ? await discoverGeminiReadinessModels(apiKey, AbortSignal.any([signal, req.signal])) : null;
       },
       now: Date.now,
+      callerSignal: req.signal,
       store: {
         claim: async () => {
           const claim = await privilegedStore.claim();

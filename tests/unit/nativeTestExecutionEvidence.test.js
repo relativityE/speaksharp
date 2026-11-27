@@ -444,7 +444,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
 
-    assert.equal(admitted.id,'coaching-readiness-never-blocks');
+    assert.equal(admitted.id,'coaching-readiness-timeout-fallback');
     assert.equal(Object.keys(admitted.files).length,22);
     assert.deepEqual(nativeDenoPolicy(entry).environment.names,['GEMINI_API_KEY']);
     assert.equal(nativeDenoPolicy(entry).network,'denied');
@@ -460,7 +460,7 @@ test('reviewed coaching source admits exactly its pinned inputs (handler, provid
       f.write(file,original);
     }
 
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-readiness-never-blocks');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-readiness-timeout-fallback');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
