@@ -3,6 +3,7 @@
  * result, missing speech or detection, a legacy build or the wrong privacy choice never passes. Partial counts as detected.
  */
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import {
     J3B_REPEAT_ROW, J3_ACCEPTANCE_CONSENT_MODE, J3_PRIVACY_ROW, J3_SAVED_TIMING_ROW, focusAcceptancePrivacyVerdict,
@@ -156,6 +157,16 @@ describe('J3.b provider-limited evidence in the app-owned views', () => {
         [503, 'service_configuration', 503, null], [429, 'quota_exceeded', null, null],
     ] as const)('classifies HTTP %s / %s / upstream %s as %s', (httpStatus, reason, providerStatus, expected) => {
         expect(j3bUpstreamStatus({ httpStatus, reason, providerStatus })).toBe(expected);
+    });
+    it('the browser closures do not depend on an outer keepNames helper after TypeScript serialization', () => {
+        const browserFunctions = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
+            import { armJ3bFailureObserver, readJ3bFailureObserver, readJ3bSavedPanel } from './tests/live/helpers/rwtJ3Evidence.ts';
+            console.log(JSON.stringify([armJ3bFailureObserver, readJ3bFailureObserver, readJ3bSavedPanel].map(fn => fn.toString())));
+        `], { encoding: 'utf8' });
+        expect(browserFunctions.status).toBe(0);
+        const serialized: string[] = JSON.parse(browserFunctions.stdout);
+        expect(serialized).toHaveLength(3);
+        for (const source of serialized) expect(source).not.toMatch(/\b__name\b/);
     });
     const onScreen = () => vi.spyOn(HTMLElement.prototype, 'getClientRects')
         .mockReturnValue({ length: 1 } as DOMRectList);

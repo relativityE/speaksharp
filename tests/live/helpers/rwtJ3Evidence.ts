@@ -140,30 +140,35 @@ export function armJ3bFailureObserver(unavailableHeadlines: readonly string[]): 
     const w = window as ObserverWindow;
     w.__j3bFailureObserver?.disconnect();
     const samples = new Map<string, LiveFailureView>();
-    const visible = (el: HTMLElement | null) => Boolean(el && el.getClientRects().length > 0
-        && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
-    const read = () => {
-        const root = document.documentElement;
-        if (root.getAttribute('data-session-persisted') !== 'true') return;
-        const id = root.getAttribute('data-session-persisted-id');
-        const shell = document.querySelector('[data-testid="session-shell"][data-session-state="after"]');
-        const card = shell?.querySelector('[data-testid="ai-suggestions-card"][data-review-state="error"]');
-        if (!id || !card || samples.size >= 8 && !samples.has(id)) return;
-        const headline = card.querySelector<HTMLElement>('[data-testid="ai-suggestions-headline"]');
-        const retry = card.querySelector<HTMLButtonElement>('button[data-testid="ai-suggestions-retry"]');
-        const copy = visible(headline) ? (headline?.textContent ?? '').trim() : '';
-        const prior = samples.get(id);
-        if (prior && unavailableHeadlines.includes(prior.headline) && prior.retryEnabled) return;
-        samples.set(id, {
-            headline: unavailableHeadlines.includes(copy) ? copy : '',
-            retryEnabled: Boolean(visible(retry) && !retry?.matches(':disabled,[aria-disabled="true"]')
-                && retry?.textContent?.trim() === 'Try again'),
-        });
+    // Object methods survive browser serialization even when the TS runner uses esbuild keepNames.
+    const scan = {
+        visible(el: HTMLElement | null) {
+            return Boolean(el && el.getClientRects().length > 0
+                && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
+        },
+        read() {
+            const root = document.documentElement;
+            if (root.getAttribute('data-session-persisted') !== 'true') return;
+            const id = root.getAttribute('data-session-persisted-id');
+            const shell = document.querySelector('[data-testid="session-shell"][data-session-state="after"]');
+            const card = shell?.querySelector('[data-testid="ai-suggestions-card"][data-review-state="error"]');
+            if (!id || !card || (samples.size >= 8 && !samples.has(id))) return;
+            const headline = card.querySelector<HTMLElement>('[data-testid="ai-suggestions-headline"]');
+            const retry = card.querySelector<HTMLButtonElement>('button[data-testid="ai-suggestions-retry"]');
+            const copy = scan.visible(headline) ? (headline?.textContent ?? '').trim() : '';
+            const prior = samples.get(id);
+            if (prior && unavailableHeadlines.includes(prior.headline) && prior.retryEnabled) return;
+            samples.set(id, {
+                headline: unavailableHeadlines.includes(copy) ? copy : '',
+                retryEnabled: Boolean(scan.visible(retry) && !retry?.matches(':disabled,[aria-disabled="true"]')
+                    && retry?.textContent?.trim() === 'Try again'),
+            });
+        },
     };
-    const observer = new MutationObserver(read);
+    const observer = new MutationObserver(scan.read);
     observer.observe(document.documentElement, { attributes: true, childList: true, characterData: true, subtree: true });
-    w.__j3bFailureObserver = { samples, disconnect: () => observer.disconnect() };
-    read();
+    w.__j3bFailureObserver = { samples, disconnect() { observer.disconnect(); } };
+    scan.read();
 }
 
 export function readJ3bFailureObserver(id: string): LiveFailureView | null {
@@ -180,19 +185,21 @@ export function j3bFallbackStatus(o: LiveFailureView | null): J3Verdict['status'
 
 export function readJ3bSavedPanel(sessionId: string): { ordinal: number; label: string; status: string | null }[] | null {
     if (document.location.pathname !== `/analytics/${sessionId}`) return null;
-    const visible = (el: HTMLElement | null) => Boolean(el && el.getClientRects().length > 0
-        && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
+    const view = { visible(el: HTMLElement | null) {
+        return Boolean(el && el.getClientRects().length > 0
+            && !['hidden', 'collapse'].includes(getComputedStyle(el).visibility));
+    } };
     const savedReview = document.querySelector<HTMLElement>('[data-testid="saved-review"]');
-    if (!visible(savedReview) || savedReview?.getAttribute('data-session-id') !== sessionId
+    if (!view.visible(savedReview) || savedReview?.getAttribute('data-session-id') !== sessionId
         || savedReview.getAttribute('data-product') !== 'focus_points') return null;
     const panels = document.querySelectorAll<HTMLElement>('[data-testid="saved-focus-points"]');
     const panel = panels.length === 1 ? panels[0] : null;
-    if (!panel || !visible(panel)) return null;
+    if (!panel || !view.visible(panel)) return null;
     return Array.from(panel.querySelectorAll<HTMLElement>('ol > li')).map((row) => {
         const label = row.querySelector<HTMLElement>('p');
         return {
             ordinal: Number(/^focus-point-(\d+)$/.exec(row.dataset.testid ?? '')?.[1] ?? NaN) + 1,
-            label: visible(row) && visible(label) ? (label?.textContent ?? '').trim() : '',
+            label: view.visible(row) && view.visible(label) ? (label?.textContent ?? '').trim() : '',
             status: row.getAttribute('data-status'),
         };
     });
