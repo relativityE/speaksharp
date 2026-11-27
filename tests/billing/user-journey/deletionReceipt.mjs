@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { destructionDefects } from './localStackReceipt.mjs';
 import { PROJECT_PATTERN } from './localStackResources.mjs';
 
-export const DELETION_RECEIPT_SCHEMA = 'account-deletion-local/v1';
+export const DELETION_RECEIPT_SCHEMA = 'account-deletion-local/v2';
 /** Each leg is its own account, reached from its own entry route. */
 export const DELETION_LEGS = Object.freeze({ 'J1.f': 'trial_wall', 'J7.d': 'account_page' });
 export const DELETION_RECEIPT_KEYS = Object.freeze(['accounts', 'schema', 'stackRun', 'stripeMode', 'testedRelease']);
@@ -28,9 +28,14 @@ export const DELETION_RECEIPT_KEYS = Object.freeze(['accounts', 'schema', 'stack
  * - entryReached: the leg's own entry (wall or Account page) opened /account/delete;
  * - verificationObserved: the one deletion link arrived in Mailpit for this address and was opened;
  * - terminalUi: the page's own final message; only 'deleted' passes.
+ * And both sides of the retention promise, read before any fallback (accountDeletionJourney.ts RETENTION_POLICY):
+ * - signInRefused: a real password sign-in with the account's own credentials was refused by Auth after deletion;
+ * - retainedData: 'PASS' only when every record type still tied to the user is one the policy allows ('GAP' names a type the
+ *   policy does not, 'FAIL' a broken promise, 'UNREAD' an unreadable count); retainedGaps lists the GAP types by name.
  */
 export const DELETION_ACCOUNT_KEYS = Object.freeze(['accountRef', 'authUserAbsent', 'closurePhase', 'entryReached', 'fallbackCleanup', 'leg',
-  'residueVerified', 'route', 'terminalUi', 'verificationObserved']);
+  'residueVerified', 'retainedData', 'retainedGaps', 'route', 'signInRefused', 'terminalUi', 'verificationObserved']);
+const RETAINED_DEFECT = Object.freeze({ GAP: 'retained_data_gap', FAIL: 'retained_data_violation' });
 const SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -49,6 +54,12 @@ function accountDefects(account, leg) {
   if (account.entryReached !== true) defects.push('entry_not_reached');
   if (account.verificationObserved !== true) defects.push('verification_not_observed');
   if (account.terminalUi !== 'deleted') defects.push('terminal_ui_not_deleted');
+  if (account.signInRefused !== true) defects.push('sign_in_not_refused');
+  if (account.retainedData !== 'PASS') defects.push(Object.hasOwn(RETAINED_DEFECT, `${account.retainedData}`) ? RETAINED_DEFECT[account.retainedData] : 'retained_data_unread');
+  // A GAP must name its types and a PASS names none (a FAIL may also carry gaps); each is a schema.table.column name only.
+  if (!Array.isArray(account.retainedGaps) || !account.retainedGaps.every((t) => /^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/.test(`${t}`))
+    || (account.retainedData === 'GAP' && account.retainedGaps.length === 0)
+    || (account.retainedData === 'PASS' && account.retainedGaps.length > 0)) defects.push('retained_gaps_shape');
   return defects;
 }
 

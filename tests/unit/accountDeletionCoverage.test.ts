@@ -8,7 +8,8 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { completionBootstrap } from '../db/account-completion-fixture.mjs';
-import { COVERAGE_EVIDENCE, closurePhaseSql, coverageSql, localDbUrl } from '../billing/user-journey/accountDeletionLocalStack.mjs';
+import { COVERAGE_EVIDENCE, closurePhaseSql, coverageSql, localDbUrl, retainedDataSql } from '../billing/user-journey/accountDeletionLocalStack.mjs';
+import { classifyRetainedData, retainedGaps } from '../billing/user-journey/accountDeletionJourney';
 
 const scope = 'd'.repeat(64);
 let db: PGlite; let serial = 0;
@@ -91,5 +92,64 @@ describe('disposable completion coverage for one pending request', () => {
         expect(seedAt).toBeLessThan(loop.indexOf('deletionLoopStep({'));
         expect(spec).toContain("execFileSync('psql', [localDbUrl(process.env.LOCAL_DB_URL ?? '')");
         expect(spec).toContain('confirmAndComplete(page, account.uid)');
+    });
+});
+
+/**
+ * psql, as the spec runs it (`psql -X -q -tA` with the script on stdin), for this script's three statement kinds: `\\set` (skipped:
+ * PGlite stops on error anyway), statements ending in `;`, and the one catalog statement ending in `\\gexec`, whose every result
+ * cell is run as its own statement. Output: each result's first column, one line per row.
+ */
+async function psqlScript(script: string): Promise<string> {
+    const out: string[] = []; let buf: string[] = [];
+    const firsts = async (q: string) => (await db.query<Record<string, unknown>>(q)).rows.map((r) => String(Object.values(r)[0]));
+    for (const line of script.split('\n').filter((l) => !l.startsWith('\\set'))) {
+        buf.push(line); const t = line.trimEnd();
+        if (t.endsWith('\\gexec')) {
+            const q = buf.join('\n').replace(/\\gexec\s*$/, ''); buf = [];
+            for (const generated of await firsts(q)) out.push(...await firsts(generated));
+        } else if (t.endsWith(';')) { const q = buf.join('\n'); buf = []; out.push(...await firsts(q)); }
+    }
+    expect(buf.join('').trim(), 'every statement terminated').toBe('');
+    return out.join('\n');
+}
+
+describe('retained data after deletion, counted from the live catalog (retainedDataSql) on the real closure chain', () => {
+    it('validates its inputs: a uuid user and the run\'s own address shape only', () => {
+        expect(() => retainedDataSql("x' OR true --", 'a@example.invalid')).toThrow('uuid');
+        expect(() => retainedDataSql('d0110000-0000-4000-8000-000000000001', "a'@example.invalid")).toThrow('address');
+        const sql = retainedDataSql('d0110000-0000-4000-8000-000000000001', 'A@Example.invalid');
+        expect(sql).toContain('BEGIN TRANSACTION READ ONLY;');
+        expect(sql.trimEnd().endsWith('ROLLBACK;')).toBe(true);
+        expect(sql).toContain("WHERE email = 'a@example.invalid'");
+        expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|GRANT)\b/);
+    });
+    it('after the Auth user is gone: every keyed type is counted, the trial email is kept unlinked, and a kept journal is named as a GAP', async () => {
+        const { user } = await pendingUser();
+        const email = (await one('SELECT email FROM auth.users WHERE id=$1', [user])) as string;
+        await one('INSERT INTO public.trial_entitlements(email,user_id) VALUES($1,$2) ON CONFLICT (email) DO UPDATE SET user_id=excluded.user_id', [email, user]);
+        await one('DELETE FROM auth.users WHERE id=$1', [user]);
+        const out = await psqlScript(retainedDataSql(user, email));
+        expect(out).not.toContain(user); expect(out).not.toContain(email);
+        const r = classifyRetainedData(out);
+        const types = r.records.map((x) => x.type);
+        // The catalog walk found the FK-keyed and the deliberately FK-less user-keyed tables alike.
+        for (const t of ['auth.users.id', 'storage.owned.objects', 'public.trial_entitlements.user_id', 'public.sessions.user_id',
+            'public.account_closure_attempts.user_id']) expect(types).toContain(t);
+        expect(r.records.find((x) => x.type === 'public.trial_entitlements.email')?.verdict).toBe('retained_allowed');
+        // The closure journal outlives Auth with the claimed address: the deletion page's notice does not name it.
+        expect(r.records.find((x) => x.type === 'public.account_closure_attempts.user_id')).toEqual(
+            { type: 'public.account_closure_attempts.user_id', count: 1, withEmail: 1, verdict: 'gap' });
+        expect(r.verdict).toBe('GAP');
+        expect(retainedGaps(r)).toContain('public.account_closure_attempts.user_id');
+    });
+    it('a user who still exists is FAIL (the Auth user is counted), and the read changes nothing', async () => {
+        const { user } = await pendingUser();
+        const email = (await one('SELECT email FROM auth.users WHERE id=$1', [user])) as string;
+        const before = await one('SELECT count(*)::int FROM account_closure_attempts');
+        const r = classifyRetainedData(await psqlScript(retainedDataSql(user, email)));
+        expect(r.records.find((x) => x.type === 'auth.users.id')).toMatchObject({ count: 1, verdict: 'violation' });
+        expect(r.verdict).toBe('FAIL');
+        expect(await one('SELECT count(*)::int FROM account_closure_attempts')).toBe(before);
     });
 });

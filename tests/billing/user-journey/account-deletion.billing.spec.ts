@@ -5,7 +5,9 @@
  *   J7.d: an account on an open trial opens "Delete account" from the Account page.
  * Each: request the emailed verification link → open it from the stack's own Mailpit → confirm → (readiness, then completion when
  * the request is pending) → the page's terminal message. Then, READ-ONLY and before anything else: the closure attempt's phase,
- * whether the Auth user still exists, and the shipped residue check (verify_account_closure_residue). Only after those reads may
+ * whether the Auth user still exists, the shipped residue check (verify_account_closure_residue), every record type still tied
+ * to the user judged against the product's retention notice (RETENTION_POLICY), and a real sign-in attempt with the account's
+ * own password, which must be refused. Only after those reads may
  * the fallback cleanup run, and a leg that needed it is recorded as such: it never earns a deletion pass (deletionReceipt.mjs).
  * Deletion is enabled only on this stack, by the run's own disposable grant (accountDeletionLocalStack.mjs); never production.
  */
@@ -19,8 +21,8 @@ import { cleanupRunOwnedAccount } from '../../live/helpers/runOwnedCleanup';
 import { loopbackTargets, receiptLeaks, smokeIdentity, type MailSummary } from '../../smoke/j1dSmokeChecks';
 import { openFromHomepage, sessionUid, signInThroughForm } from '../../smoke/smokePage';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
-import { ENTRY_ROUTE, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, legScorerFile, combineLegScorerFiles, scorerAccount, terminalMessage, type DeletionLeg, type DeletionLegFacts } from './accountDeletionJourney';
-import { closurePhaseSql, coverageSql, localDbUrl } from './accountDeletionLocalStack.mjs';
+import { ENTRY_ROUTE, classifyRetainedData, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, legScorerFile, combineLegScorerFiles, retainedGaps, scorerAccount, signInOutcome, terminalMessage, type DeletionLeg, type DeletionLegFacts, type RetainedData, type SignInOutcome } from './accountDeletionJourney';
+import { closurePhaseSql, coverageSql, localDbUrl, retainedDataSql } from './accountDeletionLocalStack.mjs';
 
 const APP = process.env.BILLING_SANDBOX_APP_URL ?? '';
 const API = process.env.BILLING_SANDBOX_SUPABASE_URL ?? '';
@@ -96,6 +98,28 @@ function readClosurePhase(uid: string): string | null {
     } catch { return 'unread'; }
 }
 
+/**
+ * READ-ONLY, in one rolled-back READ ONLY transaction on the stack's own loopback database: every record type still tied to
+ * this user, as `type|count|withEmail` lines, judged against the retention policy. A failed read is UNREAD, never a pass.
+ */
+function readRetainedData(uid: string, email: string): RetainedData {
+    try {
+        const out = execFileSync('psql', [localDbUrl(process.env.LOCAL_DB_URL ?? ''), '-X', '-q', '-tA'],
+            { input: retainedDataSql(uid, email), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 60_000 });
+        return classifyRetainedData(out);
+    } catch { return { verdict: 'UNREAD', records: [] }; }
+}
+
+/** A real password sign-in with the account's own credentials, through the stack's public (anon) Auth endpoint. */
+async function signInAfterDeletion(email: string, password: string): Promise<SignInOutcome> {
+    try {
+        const client = createClient(API, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
+        const { data, error } = await client.auth.signInWithPassword({ email, password });
+        return signInOutcome({ session: data?.session ?? null,
+            error: error ? { status: (error as { status?: number }).status ?? null, code: (error as { code?: string }).code ?? null, message: error.message } : null });
+    } catch { return 'unread'; }
+}
+
 /** Confirm on the verified page, then (if pending) complete through readiness, and return the page's terminal message. */
 async function confirmAndComplete(page: Page, uid: string) {
     await page.getByLabel('I understand this is permanent, ends my access now, and provides no refund.').check();
@@ -131,7 +155,7 @@ async function runLeg(leg: DeletionLeg, browser: import('@playwright/test').Brow
     const account = await freshAccount(admin, leg === 'J1.f' ? 'deletion-wall' : 'deletion-account');
     const facts: DeletionLegFacts = { leg, route: ENTRY_ROUTE[leg], accountSha: sha(account.email), entryReached: false,
         verificationRequested: false, verificationLinkFound: false, terminal: 'none', closurePhase: null, authUser: 'unread',
-        residueClear: null, fallbackCleanup: 'not_run' };
+        residueClear: null, retainedData: null, signInAfterDeletion: 'unread', fallbackCleanup: 'not_run' };
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
@@ -173,6 +197,10 @@ async function runLeg(leg: DeletionLeg, browser: import('@playwright/test').Brow
         facts.authUser = user.data?.user ? 'present' : (user.error && !/not.?found/i.test(user.error.message ?? '')) ? 'unread' : 'absent';
         const residue = await admin.rpc('verify_account_closure_residue', { p_user_id: account.uid, p_email: account.email });
         facts.residueClear = residue.error ? null : residue.data === true;
+        // Both sides of the retention promise: only what the policy allows remains, then (last, so an accepted sign-in's own
+        // session can never be counted as retained data) Auth refuses the account's real credentials.
+        facts.retainedData = readRetainedData(account.uid, account.email);
+        facts.signInAfterDeletion = await signInAfterDeletion(account.email, account.password);
         // Only now: the fallback, recorded, never a pass.
         if (facts.authUser !== 'absent') {
             try {
@@ -216,8 +244,11 @@ for (const leg of ['J1.f', 'J7.d'] as const) {
         test.setTimeout(420_000);
         const facts = await runLeg(leg, browser);
         // The spec's own floor; the authoritative scoring (with teardown and destruction proof) is deletionReceipt.mjs.
+        // A retained-data GAP is reported by type (a code/policy disagreement), never hidden: it fails this floor as itself.
         expect({ entry: facts.entryReached, requested: facts.verificationRequested, link: facts.verificationLinkFound, terminal: facts.terminal,
-            phase: facts.closurePhase, authUser: facts.authUser, residueClear: facts.residueClear, fallback: facts.fallbackCleanup })
-            .toEqual({ entry: true, requested: true, link: true, terminal: 'deleted', phase: 'completed', authUser: 'absent', residueClear: true, fallback: 'not_run' });
+            phase: facts.closurePhase, authUser: facts.authUser, residueClear: facts.residueClear, signIn: facts.signInAfterDeletion,
+            retained: facts.retainedData?.verdict ?? 'UNREAD', retainedGaps: retainedGaps(facts.retainedData), fallback: facts.fallbackCleanup })
+            .toEqual({ entry: true, requested: true, link: true, terminal: 'deleted', phase: 'completed', authUser: 'absent', residueClear: true,
+                signIn: 'refused', retained: 'PASS', retainedGaps: [], fallback: 'not_run' });
     });
 }
