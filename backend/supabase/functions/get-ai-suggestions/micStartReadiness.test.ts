@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { handler } from './index.ts';
-import { coachingServingDecision, discoverGeminiReadinessModels, geminiReadinessModel, readReadyCoachingModel } from './modelReadinessStore.ts';
+import { coachingServingModel, discoverGeminiReadinessModels, geminiReadinessModel, readReadyCoachingModel } from './modelReadinessStore.ts';
 import contract from './contract.json' with { type: 'json' };
 
 const user = '0da395d5-2ee3-4c84-9200-5ae232b20c00';
@@ -69,12 +69,12 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
   };
   const service = {
     rpc: async (name: string, data: Record<string, unknown>) => {
-      if (name === 'claim_coaching_model_probe_v1') {
-        assert.deepEqual(data, { p_incumbent: contract.model });
+      if (name === 'claim_coaching_model_probe_v2') {
+        assert.deepEqual(data, { p_incumbent: contract.model, p_admin: false });
         claims++;
         return { data: { kind: 'claimed', lease: { state: { model: contract.model, revision: 1 }, token: lease, deadlineMs: Date.now() + 30_000 } }, error: null };
       }
-      assert.equal(name, 'finish_coaching_model_probe_v1');
+      assert.equal(name, 'finish_coaching_model_probe_v2');
       completions.push(data);
       return { data: true, error: null };
     },
@@ -96,8 +96,9 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
     assert.equal(claims, 0); assert.equal(prompts.length, 0); assert.equal(catalogCalls, 0);
     fresh = true;
     assert.equal((await invoke()).status, 204);
-    assert.equal(prompts.length, 2);
-    assert.ok(prompts.some((text) => /Focus Points/i.test(text)));
+    // One representative coaching test per candidate (PO 11-27): the Open Mic shape only.
+    assert.equal(prompts.length, 1);
+    assert.ok(!prompts.some((text) => /Focus Points/i.test(text)));
     assert.equal(completions[0].p_verified, true);
     assert.equal(completions[0].p_promote_to, null);
     assert.equal(catalogCalls, 0);
@@ -112,19 +113,19 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
     assert.equal(completions.at(-1)?.p_verified, null);
     valid = true; answerStatus = 503;
     assert.equal((await invoke()).status, 204);
-    assert.equal(catalogCalls, 1); // A bare UNAVAILABLE is not proven model-local.
-    assert.equal(completions.at(-1)?.p_verified, null);
+    assert.equal(catalogCalls, 2); // A bounded search moves past a 503 without a shared hold.
+    assert.equal(completions.at(-1)?.p_promote_to, alternate);
     answerStatus = 429; knownQuota = true;
     const before = attempted.length;
     assert.equal((await invoke()).status, 204);
-    assert.equal(catalogCalls, 2);
-    assert.deepEqual(attempted.slice(before), [contract.model, next, alternate, alternate]);
+    assert.equal(catalogCalls, 3);
+    assert.deepEqual(attempted.slice(before), [contract.model, next, alternate]); // one coaching test per candidate
     assert.equal(completions.at(-1)?.p_verified, true);
     assert.equal(completions.at(-1)?.p_promote_to, alternate);
     newerAvailable = true;
     const beforeNewer = attempted.length;
     assert.equal((await invoke()).status, 204);
-    assert.deepEqual(attempted.slice(beforeNewer), [contract.model, next, next]);
+    assert.deepEqual(attempted.slice(beforeNewer), [contract.model, next]);
     assert.equal(completions.at(-1)?.p_promote_to, next);
     revokeAfterCatalog = true;
     const beforeOptOut = attempted.length;
@@ -154,22 +155,6 @@ Deno.test('quick Stop waits for the committed revision; freshness expiry does no
   assert.equal(reads, 2);
 });
 
-Deno.test('the serving decision distinguishes ordinary refresh, backoff, and already-unverified production state', () => {
-  const at = Date.parse('2030-01-01T00:00:00Z');
-  const when = (seconds: number) => new Date(at + seconds * 1000).toISOString();
-  const healthy = { model: contract.model, checked: true, verified: true, verified_until: when(60),
-    next_probe_at: when(60), probe_deadline: null };
-  const backoff = { ...healthy, next_probe_at: when(90) };
-  assert.deepEqual(coachingServingDecision(healthy, at), { kind: 'ready', model: contract.model });
-  assert.deepEqual(coachingServingDecision(healthy, at + 65_000), { kind: 'ready', model: contract.model });
-  assert.deepEqual(coachingServingDecision(backoff, at + 75_000), { kind: 'backoff', retryAfterSeconds: 15 });
-  assert.deepEqual(coachingServingDecision(backoff, at + 90_000), { kind: 'ready', model: contract.model });
-  const unverified = { ...backoff, verified: false, verified_until: null };
-  assert.deepEqual(coachingServingDecision(unverified, at + 75_000), { kind: 'backoff', retryAfterSeconds: 15 });
-  assert.deepEqual(coachingServingDecision(unverified, at + 90_000), { kind: 'unavailable' });
-  assert.deepEqual(coachingServingDecision({ ...healthy, next_probe_at: 'unknown' }, at), { kind: 'unavailable' });
-});
-
 Deno.test('Ops readback: browser and ordinary bearer denied, service role reads deployed state without a provider request', async () => {
   let reads = 0, backoff = false;
   const old = new Date(Date.now() - 60_000).toISOString();
@@ -196,10 +181,17 @@ Deno.test('Ops readback: browser and ordinary bearer denied, service role reads 
   assert.equal((await invoke('mock-service-role','http://localhost:5173')).status, 403);
   assert.equal(reads, 0);
   const accepted = await invoke('mock-service-role');
-  assert.deepEqual(await accepted.json(), { model: 'gemini-4-hydrogen', revision: 2, readiness: 'verified' });
+  const selection = await accepted.json();
+  assert.equal(selection.model, 'gemini-4-hydrogen');
+  assert.equal(selection.revision, 2);
+  assert.equal(selection.readiness, 'verified');
+  assert.equal(selection.serving, 'configured');
+  assert.equal(selection.providerVersion, selection.model);
   assert.equal(reads, 1);
   backoff = true;
-  assert.deepEqual(await (await invoke('mock-service-role')).json(), { model: 'gemini-4-hydrogen', revision: 2, readiness: 'backoff' });
+  const withWait = await (await invoke('mock-service-role')).json();
+  assert.equal(withWait.model, selection.model);
+  assert.equal(withWait.serving, selection.serving); // A scheduled check does not change the serving model.
 });
 
 Deno.test('runtime catalog is bounded and selects only stable Gemini text generation variants newest first', async () => {
@@ -236,4 +228,69 @@ Deno.test('runtime catalog is bounded and selects only stable Gemini text genera
   assert.equal(repeated, 2);
   assert.deepEqual(await discoverGeminiReadinessModels('fake', signal, () => Promise.resolve(Response.json({ models: [] }))), []);
   assert.equal(await discoverGeminiReadinessModels('fake', signal, () => Promise.resolve(new Response(null, { status: 503 }))), null);
+});
+
+Deno.test('serving uses the live selection: an unverified, waiting, or abandoned check never refuses coaching', () => {
+  const at = Date.now();
+  const when = (seconds: number) => new Date(at + seconds * 1000).toISOString();
+  const row = { model: 'gemini-3.6-flash', checked: true, verified: false, verified_until: null, next_probe_at: when(19 * 3600), probe_deadline: null };
+  // Today's production shape (3.6 Flash selected, unverified, a ~19 h wait): the old decision refused; serving now serves it.
+  assert.deepEqual(coachingServingModel(row), { kind: 'ready', model: 'gemini-3.6-flash' });
+  assert.deepEqual(coachingServingModel({ ...row, next_probe_at: when(-1) }), { kind: 'ready', model: 'gemini-3.6-flash' });
+  assert.deepEqual(coachingServingModel({ ...row, probe_deadline: when(-1) }), { kind: 'ready', model: 'gemini-3.6-flash' });
+  assert.deepEqual(coachingServingModel({ ...row, verified: true, verified_until: when(-600) }), { kind: 'ready', model: 'gemini-3.6-flash' });
+  // Never-checked reviewed default keeps the established pre-rollout route; no row is the same.
+  assert.deepEqual(coachingServingModel({ ...row, model: contract.model, checked: false }), { kind: 'unprobed' });
+  assert.deepEqual(coachingServingModel(null), { kind: 'unprobed' });
+  // Only an unreadable or invalid selection (an infrastructure fault, not a check result) is unavailable.
+  assert.deepEqual(coachingServingModel({ ...row, model: 'gpt-4o' }), { kind: 'unavailable' });
+  assert.deepEqual(coachingServingModel({ ...row, verified: 'yes' }), { kind: 'unavailable' });
+});
+
+Deno.test('admin Reload authenticates before read or claim and joins the same check even after a successor claims', async () => {
+  let claims = 0, reads = 0;
+  const acceptedKey = 'x'.repeat(43);
+  const joins = ['first', 'successor'];
+  const adminService = {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      assert.equal(name, 'claim_coaching_model_probe_v2');
+      assert.deepEqual(args, { p_incumbent: contract.model, p_admin: true });
+      claims++;
+      return { data: { kind: 'busy', checkId: joins[0], state: { model: contract.model, revision: 1 } } };
+    },
+    from: (table: string) => {
+      assert.equal(table, 'coaching_model_selection');
+      let selected = '';
+      const q = { select: (fields: string) => { selected = fields; return q; }, eq: () => q, abortSignal: () => q,
+        maybeSingle: async () => {
+          reads++;
+          return { data: selected === 'probe_token,last_check_id,last_check_outcome'
+            ? { probe_token: joins[1], last_check_id: joins[0], last_check_outcome: 'healthy' }
+            : { model: contract.model, revision: 1, checked: true, verified: true,
+              probe_deadline: new Date(Date.now() + 12_000).toISOString() }, error: null };
+        } };
+      return q;
+    },
+  };
+  const request = (adminKey?: string, origin?: string, operation = 'admin_model_check') => handler(
+    new Request('http://localhost/functions/v1/get-ai-suggestions', {
+      method: 'POST',
+      headers: { ...(adminKey ? { 'x-ops-coaching-check-token': adminKey } : {}), ...(origin ? { Origin: origin } : {}) },
+      body: JSON.stringify({ operation }),
+    }), (() => { throw Error('ordinary path reached'); }) as Parameters<typeof handler>[1],
+    (() => adminService) as unknown as NonNullable<Parameters<typeof handler>[2]>, () => true,
+    { readbackKey: () => undefined, adminKey: () => acceptedKey, providerKey: () => { throw Error('provider path reached'); } });
+  assert.equal((await request()).status, 403);
+  assert.equal((await request('y'.repeat(43))).status, 403);
+  assert.equal((await request(acceptedKey, 'http://localhost:5173')).status, 403);
+  assert.deepEqual([claims, reads], [0, 0]);
+  const passive = await (await request(acceptedKey, undefined, 'admin_model_readback')).json();
+  assert.equal(passive.outcome, 'not_requested');
+  assert.deepEqual([claims, reads], [0, 1]);
+  const joined = await (await request(acceptedKey)).json();
+  assert.equal(joined.outcome, 'shared');
+  assert.equal(joined.joinedOutcome, 'healthy');
+  assert.equal(joined.state.readiness, 'checking'); // A successor is still in progress and is not mistaken for the joined result.
+  assert.ok(!JSON.stringify(joined).includes(joins[0]));
+  assert.deepEqual([claims, reads], [1, 3]);
 });

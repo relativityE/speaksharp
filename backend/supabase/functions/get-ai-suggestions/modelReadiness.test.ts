@@ -26,23 +26,23 @@ Deno.test('off, unknown-equivalent, or not recording: no backend claim or provid
   assert.equal(await runMicStartReadiness({ ...live, recordingConfirmed: false }, h.options), 'not_requested');
   assert.equal(h.claims(), 0); assert.equal(h.discoveries(), 0); assert.deepEqual(h.calls, []);
 });
-Deno.test('healthy incumbent: both product shapes tested, never switch', async () => {
+Deno.test('healthy incumbent: one representative coaching test, never switch, never discover', async () => {
   const h = harness(valid);
   assert.equal(await runMicStartReadiness(live, h.options), 'healthy');
-  assert.deepEqual(h.calls, ['incumbent:open_mic', 'incumbent:focus_points']);
+  assert.deepEqual(h.calls, ['incumbent:open_mic']);
   assert.equal(h.results[0].promoteTo, undefined);
   assert.equal(h.discoveries(), 0);
 });
 for (const status of [429, 503] as const) {
-  Deno.test(`model-scoped ${status}: only a discovered fallback validated on both product shapes may be promoted`, async () => {
+  Deno.test(`model-scoped ${status}: only a discovered fallback validated on its one coaching test may be promoted`, async () => {
     const h = harness((id) => id === 'incumbent' ? provider(status, 'model') : valid(id));
     assert.equal(await runMicStartReadiness(live, h.options), 'promoted');
-    assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic', 'alt:focus_points']);
+    assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic']);
     assert.equal(h.results[0].promoteTo, 'alt');
   });
 }
 Deno.test('shared or unknown quota preserves prior verification without probing another model', async () => {
-  for (const blocked of [provider(429, 'project'), provider(429, 'unknown'), provider(503, 'unknown', 7_000)]) {
+  for (const blocked of [provider(429, 'project'), provider(429, 'unknown'), provider(429, 'project', 7_000)]) {
     const h = harness(() => blocked);
     assert.equal(await runMicStartReadiness(live, h.options), blocked.retryAfterMs ? 'backoff' : 'inconclusive');
     assert.equal(h.results[0].verified, undefined);
@@ -52,13 +52,13 @@ Deno.test('shared or unknown quota preserves prior verification without probing 
     if ('retryAfterMs' in blocked) assert.equal(h.results[0].retryAfterMs, blocked.retryAfterMs);
   }
 });
-Deno.test('HTTP 200 with malformed Focus coaching or mismatched model identity does not promote', async () => {
+Deno.test('HTTP 200 with malformed coaching or mismatched model identity does not promote', async () => {
   for (const outcome of [
     { status: 200, coachingValid: false, observedVersion: 'alt-002' },
     { status: 200, coachingValid: true, observedVersion: 'unexpected' },
     { status: 200, coachingValid: true, observedVersion: null },
   ] as const) {
-    const h = harness((id, product) => id === 'incumbent' ? provider(503, 'model') : product === 'open_mic' ? valid(id) : outcome);
+    const h = harness((id) => id === 'incumbent' ? provider(503, 'model') : outcome);
     assert.equal(await runMicStartReadiness(live, h.options), 'unavailable');
     assert.equal(h.results[0].promoteTo, undefined);
   }
@@ -66,17 +66,17 @@ Deno.test('HTTP 200 with malformed Focus coaching or mismatched model identity d
 Deno.test('parallel Starts share the lease and stale compare-and-swap never reports activation', async () => {
   const h = harness((id) => id === 'incumbent' ? provider(503, 'model') : valid(id), false);
   assert.deepEqual(await Promise.all([runMicStartReadiness(live, h.options), runMicStartReadiness(live, h.options)]), ['stale', 'shared']);
-  assert.equal(h.calls.length, 3);
+  assert.equal(h.calls.length, 2);
   assert.equal(h.results.length, 1);
 });
 
-Deno.test('tries distinct variants in catalog order and stops at the first valid coaching response pair', async () => {
+Deno.test('tries distinct variants in catalog order and stops at the first valid coaching response', async () => {
   const candidates = [...models, models[1], ...['third', 'unneeded'].map((id) => ({ id, observedVersions: [id] }))];
-  const h = harness((id, product) => id === 'incumbent' ? { status: 'model_unavailable' }
-    : id === 'alt' ? { status: 200, observedVersion: 'alt-002', coachingValid: product === 'open_mic' }
+  const h = harness((id) => id === 'incumbent' ? { status: 'model_unavailable' }
+    : id === 'alt' ? { status: 200, observedVersion: 'alt-002', coachingValid: false }
       : { status: 200, coachingValid: true, observedVersion: id }, true, candidates);
   assert.equal(await runMicStartReadiness(live, h.options), 'promoted');
-  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic', 'alt:focus_points', 'third:open_mic', 'third:focus_points']);
+  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic', 'third:open_mic']);
   assert.equal(h.results[0].promoteTo, 'third');
   assert.equal(h.discoveries(), 1);
 });
@@ -108,7 +108,7 @@ Deno.test('an expired lease cannot discover or promote', async () => {
 Deno.test('confirmed model-scoped RetryInfo can switch without retrying the limited incumbent', async () => {
   const h = harness((id) => id === 'incumbent' ? provider(429, 'model', 86_400_000) : valid(id));
   assert.equal(await runMicStartReadiness(live, h.options), 'promoted');
-  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic', 'alt:focus_points']);
+  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic']);
   assert.deepEqual(h.results[0], { promoteTo: 'alt', verified: true, retryAfterMs: undefined });
 });
 Deno.test('client abort or unknown transport failure cannot demote a verified model', async () => {
@@ -133,4 +133,58 @@ Deno.test('a failed catalog is inconclusive for fallback, not a failed or restor
   assert.equal(await runMicStartReadiness(live, down), 'inconclusive');
   assert.deepEqual(h.results[0], { promoteTo: undefined, verified: false, retryAfterMs: undefined });
   assert.deepEqual(h.calls, ['incumbent:open_mic']);
+});
+
+// PO 11-27 (J1.b cooldown): a model-scoped limit belongs to that model. Even when no fallback passes inside the lease, its
+// hint (up to 24 h) must never become the shared wait that held every check (and, before this fix, every coaching request).
+Deno.test('a model-scoped hint never becomes the shared hold, even when no fallback passes', async () => {
+  const h = harness((id) => id === 'incumbent' ? provider(429, 'model', 86_400_000) : { status: 'model_unavailable' });
+  assert.equal(await runMicStartReadiness(live, h.options), 'unavailable');
+  assert.deepEqual(h.results[0], { promoteTo: undefined, verified: false, retryAfterMs: undefined });
+  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic']);
+});
+
+// This morning's provider pattern (from an admin one-word check, NOT production coaching evidence): 3.8 and 3.7 answered 503,
+// 3.6 answered 429, 3.5 Flash-Lite answered. The deployed selector must still require valid coaching before promotion.
+const ladder = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']
+  .map((id) => ({ id, observedVersions: [id] }));
+function ladderHarness(read: (id: string) => ProbeResult) {
+  const calls: string[] = []; const results: Parameters<ReadinessStore['finish']>[1][] = [];
+  const store: ReadinessStore = {
+    claim: () => Promise.resolve({ kind: 'claimed', lease: { state: { model: 'gemini-3.6-flash', revision: 3 }, token: 't', deadlineMs: 30_000 } }),
+    finish: (_lease, result) => { results.push(result); return Promise.resolve(true); },
+  };
+  return { calls, results, options: { store, now: () => 0, modelFor: (id: string) => ladder.find((m) => m.id === id) ?? null,
+    discover: () => Promise.resolve(ladder),
+    probe: (m: { id: string }) => { calls.push(m.id); return Promise.resolve(read(m.id)); } } };
+}
+Deno.test('ladder: proven candidate-specific failures reach the working 3.5 Flash-Lite', async () => {
+  // Incumbent 3.6 hits ITS OWN quota (model-scoped 429); 3.8 is not offered to this key (404); 3.7 returns invalid coaching.
+  const h = ladderHarness((id) => id === 'gemini-3.6-flash' ? provider(429, 'model', 3_600_000)
+    : id === 'gemini-3.8-flash' ? { status: 'model_unavailable' }
+      : id === 'gemini-3.7-flash' ? { status: 200, coachingValid: false, observedVersion: id }
+        : { status: 200, coachingValid: true, observedVersion: id });
+  assert.equal(await runMicStartReadiness(live, h.options), 'promoted');
+  assert.deepEqual(h.calls, ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite']);
+  assert.deepEqual(h.results[0], { promoteTo: 'gemini-3.5-flash-lite', verified: true, retryAfterMs: undefined });
+});
+Deno.test('ladder: two opaque 503s do not hide a working 3.5 Flash-Lite', async () => {
+  const h = ladderHarness((id) => id === 'gemini-3.6-flash' ? provider(429, 'model', 3_600_000)
+    : id === 'gemini-3.8-flash' || id === 'gemini-3.7-flash' ? provider(503, 'unknown', 7_000)
+      : { status: 200, coachingValid: true, observedVersion: id });
+  assert.equal(await runMicStartReadiness(live, h.options), 'promoted');
+  assert.deepEqual(h.calls, ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite']);
+  assert.deepEqual(h.results[0], { promoteTo: 'gemini-3.5-flash-lite', verified: true, retryAfterMs: undefined });
+});
+Deno.test('a 503 without a successful fallback preserves the incumbent verification', async () => {
+  const h = harness(() => provider(503, 'unknown', 7_000));
+  assert.equal(await runMicStartReadiness(live, h.options), 'inconclusive');
+  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic']);
+  assert.deepEqual(h.results[0], { promoteTo: undefined, verified: undefined, retryAfterMs: undefined });
+});
+Deno.test('ladder: a shared 429 with a provider-wide wait stops and records only that wait', async () => {
+  const h = ladderHarness((id) => id === 'gemini-3.6-flash' ? provider(429, 'project', 7_000) : { status: 200, coachingValid: true, observedVersion: id });
+  assert.equal(await runMicStartReadiness(live, h.options), 'backoff');
+  assert.deepEqual(h.calls, ['gemini-3.6-flash']);
+  assert.deepEqual(h.results[0], { promoteTo: undefined, verified: undefined, retryAfterMs: 7_000 });
 });

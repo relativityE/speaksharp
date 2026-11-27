@@ -18,6 +18,8 @@ const generatedAt = new Date().toISOString();
 const runContext = process.env.GITHUB_ACTIONS === 'true' ? 'GitHub Actions' : 'local shell';
 
 const rows = [];
+const geminiDiagnostics = process.env.OPS_HEALTH_GEMINI_DIAGNOSTICS === 'true'
+  && (process.env.GITHUB_ACTIONS !== 'true' || process.env.GITHUB_EVENT_NAME === 'workflow_dispatch');
 
 await row('App', 'Can users reach SpeakSharp?', async () => {
   const app = await http(baseUrl);
@@ -45,8 +47,11 @@ await row('Supabase API', 'Can clients reach Auth and SpeakSharp Edge Functions?
 });
 
 await row('Gemini API', 'Can AI suggestions provider credentials reach Gemini?', async () => {
+  if (!geminiDiagnostics) return { status: 'skip', detail: 'manual_diagnostic_only' };
   const key = env('GEMINI_API_KEY', ['GOOGLE_API_KEY']);
-  const response = await http(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+  const response = await http('https://generativelanguage.googleapis.com/v1beta/models', {
+    headers: { 'x-goog-api-key': key },
+  });
   return simple(response.ok, `models=${response.status}`, 'https://aistudio.google.com/', response.ms);
 });
 
@@ -56,13 +61,16 @@ const deployedCoaching = await readDeployedCoachingModel({
 });
 await row('Gemini generation', 'Can the deployed coaching model generate a response to a synthetic prompt?', async () => {
   if (!deployedCoaching) return { status: 'skip', detail: 'active_model_readback_unavailable' };
+  if (!geminiDiagnostics) return { status: 'skip', detail: 'manual_diagnostic_only',
+    configuredModelVersion: deployedCoaching.model, coachingReadiness: deployedCoaching.readiness };
   const result = await evaluateGeminiGeneration(optionalEnv('GEMINI_API_KEY', ['GOOGLE_API_KEY']),
     { modelId: deployedCoaching.model });
   return { ...result, configuredModelVersion: deployedCoaching.model, coachingReadiness: deployedCoaching.readiness };
 });
 
 await row('Gemini highest working model', 'Which listed eligible model passes a synthetic generation probe?', async () =>
-  evaluateHighestWorkingGemini(env('GEMINI_API_KEY', ['GOOGLE_API_KEY']), { modelId: deployedCoaching?.model ?? null }));
+  geminiDiagnostics ? evaluateHighestWorkingGemini(env('GEMINI_API_KEY', ['GOOGLE_API_KEY']), { modelId: deployedCoaching?.model ?? null })
+    : { status: 'skip', detail: 'manual_diagnostic_only' });
 
 await row('Stripe API', 'Can billing credentials reach Stripe and read product prices?', async () => {
   const secret = env('STRIPE_SECRET_KEY');

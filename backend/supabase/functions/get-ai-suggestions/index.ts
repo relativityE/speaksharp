@@ -466,8 +466,9 @@ export async function handler(
   createSupabase: SupabaseClientFactory,
   createServiceRoleSupabase: ServiceRoleClientFactory = () => createSupabase(null),
   readinessEnabled: () => boolean = micStartReadinessEnabled,
-  readinessSecrets: { readbackKey: () => string | undefined; providerKey: (name: string) => string | undefined } = {
+  readinessSecrets: { readbackKey: () => string | undefined; adminKey?: () => string | undefined; providerKey: (name: string) => string | undefined } = {
     readbackKey: () => Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+    adminKey: () => Deno.env.get('OPS_COACHING_CHECK_TOKEN'),
     providerKey: (name) => Deno.env.get(name),
   },
 ) {
@@ -484,6 +485,108 @@ export async function handler(
     if (value && typeof value === 'object' && !Array.isArray(value)) requestInput = value as Record<string, unknown>;
   } catch {
     // The request is still handled below as invalid; diagnostics never include parse error text/body.
+  }
+  async function runReadiness(allowed: () => Promise<boolean>, admin = false,
+    onJoin?: (id: string) => void) {
+    const privilegedStore = createReadinessStore(createServiceRoleSupabase(), admin);
+    return await runMicStartReadiness({ recordingConfirmed: true, coachingSelected: true }, {
+      modelFor: geminiReadinessModel,
+      discover: async (signal) => {
+        if (req.signal.aborted || signal.aborted || !await allowed()) return null;
+        const apiKey = readinessSecrets.providerKey('GEMINI_API_KEY');
+        return apiKey ? await discoverGeminiReadinessModels(apiKey, AbortSignal.any([signal, req.signal])) : null;
+      },
+      now: Date.now,
+      store: {
+        claim: async () => {
+          const claim = await privilegedStore.claim();
+          if (claim.kind === 'busy' && claim.checkId) onJoin?.(claim.checkId);
+          return claim;
+        },
+        finish: async (lease, result, outcome) => {
+          const canFinish = !req.signal.aborted && await allowed();
+          const committed = await privilegedStore.finish(lease, canFinish ? result : {}, canFinish ? outcome : 'cancelled');
+          return canFinish && committed;
+        },
+      },
+      probe: async (model, product, signal): Promise<ProbeResult> => {
+        if (req.signal.aborted || signal.aborted || !await allowed()) return { status: 'failed' };
+        const adapter = readinessProvider(model.id);
+        const apiKey = adapter && readinessSecrets.providerKey(adapter.keyVariable);
+        const fixture = readinessFixtures.items.find((item) => item.product === product);
+        if (!adapter || !apiKey || !fixture) return { status: 'failed' };
+        let retryAfter: string | null = null;
+        const result = await adapter.attempt({
+          prompt: evaluationPrompt(fixture as EvaluationItem),
+          apiKey, signal: AbortSignal.any([signal, req.signal]), readinessProbe: true,
+          onResponse: (_status, hint) => { retryAfter = hint ?? null; },
+        });
+        if (result.status === 200) {
+          const parsed = classifyGeneratedSuggestions(result.answer?.text);
+          const grounding = 'suggestions' in parsed
+            ? measureGrounding([parsed.suggestions.what_worked, parsed.suggestions.what_to_try_next], fixture as EvaluationItem)
+            : null;
+          return {
+            status: 200,
+            observedVersion: result.answer?.modelVersion ?? null,
+            coachingValid: 'suggestions' in parsed && parsed.suggestions.version === coachingContract.version
+              && result.answer?.codes.finish_reason === 'STOP' && !result.answer.codes.block_reason
+              && grounding?.anchored === true && grounding.ungroundedQuotes === 0 && !grounding.unsupportedClaim,
+          };
+        }
+        if (result.status === 429 || result.status === 503) {
+          const hint = parseRetryAfter(retryAfter, Date.now());
+          // A bare 503 or its Retry-After does not identify a model quota.
+          const scope = result.status === 429 && hint.kind !== 'malformed'
+            ? result.readinessQuota?.scope ?? 'unknown' : 'unknown';
+          const delay = Math.max(hint.kind === 'valid' ? hint.ms : 0, result.readinessQuota?.retryAfterMs ?? 0);
+          console.info('AI_COACHING_READINESS_LIMIT', JSON.stringify({
+            status: result.status, scope, retry_after_ms: Math.min(delay, 86_400_000),
+          }));
+          return { status: result.status, scope, retryAfterMs: delay || undefined };
+        }
+        return { status: result.status === 404 ? 'model_unavailable' : 'failed' };
+      },
+    });
+  }
+  if (requestInput.operation === 'admin_model_check' || requestInput.operation === 'admin_model_readback') {
+    const headers = { ...responseHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+    const key = readinessSecrets.adminKey?.();
+    if (!key || key.length < 32 || !authorizeModelReadback(req, key, 'x-ops-coaching-check-token')) {
+      return new Response(null, { status: 403, headers });
+    }
+    try {
+      const enabled = readinessEnabled();
+      let joinId: string | undefined;
+      let outcome: string = requestInput.operation === 'admin_model_check' && enabled
+        ? await runReadiness(() => Promise.resolve(!req.signal.aborted), true, (id) => { joinId = id; }) : 'not_requested';
+      // Retain the joined claim identity: a successor check must never supply the joined outcome.
+      let joinedOutcome: string | null = null;
+      if (outcome === 'shared') {
+        outcome = 'joined_unavailable';
+        const until = Date.now() + 30_000;
+        if (joinId) {
+          const client = createServiceRoleSupabase();
+          while (!req.signal.aborted && Date.now() < until) {
+            const { data, error } = await client.from('coaching_model_selection')
+              .select('probe_token,last_check_id,last_check_outcome').eq('single', true)
+              .abortSignal(AbortSignal.any([req.signal, AbortSignal.timeout(700)])).maybeSingle();
+            if (error || !data) break;
+            if (data.last_check_id === joinId) {
+              outcome = 'shared';
+              joinedOutcome = data.last_check_outcome;
+              break;
+            }
+            if (data.probe_token !== joinId) break;
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+      }
+      const state = await activeCoachingModelReadback(createServiceRoleSupabase, enabled, req.signal);
+      return new Response(JSON.stringify({ outcome, joinedOutcome, state }), { status: state ? 200 : 503, headers });
+    } catch {
+      return new Response(JSON.stringify({ outcome: 'check_error', state: null }), { status: 503, headers });
+    }
   }
   if (requestInput.operation === 'active_model_readback') {
     const headers = { ...responseHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
@@ -666,63 +769,8 @@ export async function handler(
       if (entitlementError || entitlement?.is_pro !== true) return done('access_unverified');
       if (!await consentStillHolds()) return done('consent_not_current');
 
-      const privilegedStore = createReadinessStore(createServiceRoleSupabase());
       try {
-        const outcome = await runMicStartReadiness({ recordingConfirmed: true, coachingSelected: true }, {
-          modelFor: geminiReadinessModel,
-          discover: async (signal) => {
-            if (req.signal.aborted || signal.aborted || !await consentStillHolds()) return null;
-            const apiKey = readinessSecrets.providerKey('GEMINI_API_KEY');
-            return apiKey ? await discoverGeminiReadinessModels(apiKey, AbortSignal.any([signal, req.signal])) : null;
-          },
-          now: Date.now,
-          store: {
-            claim: privilegedStore.claim,
-            finish: async (lease, result) => {
-              const allowed = !req.signal.aborted && await consentStillHolds();
-              const committed = await privilegedStore.finish(lease, allowed ? result : { retryAfterMs: result.retryAfterMs });
-              return allowed && committed;
-            },
-          },
-          probe: async (model, product, signal): Promise<ProbeResult> => {
-            if (req.signal.aborted || signal.aborted || !await consentStillHolds()) return { status: 'failed' };
-            const adapter = readinessProvider(model.id);
-            const apiKey = adapter && readinessSecrets.providerKey(adapter.keyVariable);
-            const fixture = readinessFixtures.items.find((item) => item.product === product);
-            if (!adapter || !apiKey || !fixture) return { status: 'failed' };
-            let retryAfter: string | null = null;
-            const result = await adapter.attempt({
-              prompt: evaluationPrompt(fixture as EvaluationItem),
-              apiKey, signal: AbortSignal.any([signal, req.signal]), readinessProbe: true,
-              onResponse: (_status, hint) => { retryAfter = hint ?? null; },
-            });
-            if (result.status === 200) {
-              const parsed = classifyGeneratedSuggestions(result.answer?.text);
-              const grounding = 'suggestions' in parsed
-                ? measureGrounding([parsed.suggestions.what_worked, parsed.suggestions.what_to_try_next], fixture as EvaluationItem)
-                : null;
-              return {
-                status: 200,
-                observedVersion: result.answer?.modelVersion ?? null,
-                coachingValid: 'suggestions' in parsed && parsed.suggestions.version === coachingContract.version
-                  && result.answer?.codes.finish_reason === 'STOP' && !result.answer.codes.block_reason
-                  && grounding?.anchored === true && grounding.ungroundedQuotes === 0 && !grounding.unsupportedClaim,
-              };
-            }
-            if (result.status === 429 || result.status === 503) {
-              const hint = parseRetryAfter(retryAfter, Date.now());
-              // A bare 503 or its Retry-After does not identify a model quota.
-              const scope = result.status === 429 && hint.kind !== 'malformed'
-                ? result.readinessQuota?.scope ?? 'unknown' : 'unknown';
-              const delay = Math.max(hint.kind === 'valid' ? hint.ms : 0, result.readinessQuota?.retryAfterMs ?? 0);
-              console.info('AI_COACHING_READINESS_LIMIT', JSON.stringify({
-                status: result.status, scope, retry_after_ms: Math.min(delay, 86_400_000),
-              }));
-              return { status: result.status, scope, retryAfterMs: delay || undefined };
-            }
-            return { status: result.status === 404 ? 'model_unavailable' : 'failed' };
-          },
-        });
+        const outcome = await runReadiness(consentStillHolds);
         return done(outcome);
       } catch {
         // Never expose provider or database errors in a synthetic readiness response.
@@ -936,17 +984,10 @@ export async function handler(
     const readiness = liveReadiness
       ? await readReadyCoachingModel(createServiceRoleSupabase(), req.signal)
       : { kind: 'ready', model: coachingContract.model } as const;
-    if (readiness.kind === 'backoff') {
-      const response = finish({ error: 'AI coaching is busy. Please try again later.', code: 'coaching_model_backoff' }, 503);
-      response.headers.set('Retry-After', String(readiness.retryAfterSeconds));
-      return response;
-    }
-    if (readiness.kind === 'pending') {
-      // Same pre-admission 425 wait path as saved Focus results: no quota, provider call, or write.
-      return finish({ error: 'AI coaching is getting ready. Please try again.', code: 'coaching_model_pending' }, 425);
-    }
+    // A readiness check never refuses coaching (PO 11-27): its wait, an unverified result or an in-flight check only
+    // choose the model below. The request keeps its own bounded provider-error handling.
     // A pre-rollout take can request its first review before any opted-in Start has probed.
-    // Keep the established route only for that unprobed state, never after a failed check.
+    // Keep the established route only when no live selection has been established.
     const useReadinessModel = liveReadiness && readiness.kind !== 'unprobed';
     const activeModel = readiness.kind === 'ready' ? readiness.model : readiness.kind === 'unprobed' ? coachingContract.model : null;
     configuredProviderModel = activeModel;

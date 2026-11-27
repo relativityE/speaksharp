@@ -20,7 +20,7 @@ const DIR = 'backend/supabase/migrations';
 const TARGET = '20261119200000';
 const LAST_IN_PRODUCTION = '20261117105700';
 const WITHHELD = new Set(['20261027192550', '20261112130000']);
-const LATER_COACHING_READINESS = '20261126005433';
+const LATER_COACHING_READINESS = ['20261126005433', '20261127144500'];
 const UNRELEASED_BEFORE_TARGET = ['20261119120000']; // #1827 repeat tip: merged, not yet in production
 const BOOT = readFileSync('tests/db/trial-read-access-current-chain.integration.test.ts', 'utf8').split('const BOOTSTRAP = `')[1].split('`;')[0];
 const TARGET_FILE = readdirSync(DIR).find(f => f.startsWith(`${TARGET}_`))!;
@@ -110,8 +110,8 @@ describe('#1906 save-journal cleanup: exact bytes in installed order on the prod
   it('applies directly after the last migration production holds, with nothing between and the withheld migrations still absent', () => {
     assert.equal(ledgerBefore.at(-1), LAST_IN_PRODUCTION, 'the predecessor ledger ends where production does');
     const later = readdirSync(DIR).map(f => f.split('_')[0]).filter(v => /^\d{14}$/.test(v) && v > LAST_IN_PRODUCTION);
-    assert.deepEqual(later, [...UNRELEASED_BEFORE_TARGET, TARGET, LATER_COACHING_READINESS], 'only the reviewed successors may follow the predecessor');
-    assert.ok(!ledgerAfter.includes(LATER_COACHING_READINESS), 'the later coaching migration is not part of this apply');
+    assert.deepEqual(later, [...UNRELEASED_BEFORE_TARGET, TARGET, ...LATER_COACHING_READINESS], 'only the reviewed successors may follow the predecessor');
+    assert.ok(LATER_COACHING_READINESS.every((v) => !ledgerAfter.includes(v)), 'the later coaching migration is not part of this apply');
     assert.deepEqual(ledgerAfter, [...ledgerBefore, TARGET]);
     for (const v of WITHHELD) assert.ok(!ledgerAfter.includes(v), `withheld ${v} stays unapplied`);
   });

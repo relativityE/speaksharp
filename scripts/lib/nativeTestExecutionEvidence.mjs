@@ -46,6 +46,8 @@ export const SQL_CONTRACTS=Object.freeze([
   // #1977: execute the exact migration in PGlite; no live database is involved.
   Object.freeze({consumer:'tests/db/coaching-model-readiness.test.ts',
     files:Object.freeze(['backend/supabase/migrations/20261126005433_coaching_model_readiness.sql'])}),
+  Object.freeze({consumer:'tests/db/coaching-model-selection-checks.test.ts',
+    files:Object.freeze(['backend/supabase/migrations/20261127144500_coaching_model_selection_checks.sql'])}),
   // #1827 D2 repeat tip: the catalog gate test executes the exact migration over the shipped PGlite chain and writes its witness;
   // the native database runs in the account-closure full-chain proof workflow (profile main-repeat-tip-134).
   Object.freeze({consumer:'tests/db/repeatTipPostflight.integration.test.ts',
@@ -296,6 +298,7 @@ export const COACHING_EDGE_CONSENT_CASE='#1905 saved Open Mic and Focus coaching
 const COACHING_EFFICACY_PROFILE='coaching-consent-efficacy-1905';
 const COACHING_READINESS_EFFICACY_PROFILE='coaching-readiness-efficacy-1977';
 const COACHING_BACKOFF_EFFICACY_PROFILE='coaching-readiness-backoff-1986';
+const COACHING_NEVER_BLOCKS_PROFILE='coaching-readiness-never-blocks';
 export const COACHING_QUALITY_TEST='backend/supabase/functions/get-ai-suggestions/evaluation/coachingBotChecks.test.ts';
 const COACHING_WRONG_TAKE_CASE='#1905 wrong-take coaching fails when only one advice section is cross-wired';
 const coachingTest=COACHING_EDGE_TEST;
@@ -523,6 +526,17 @@ const coachingBackoffProfiles=coachingProfiles.filter(item=>item.id===COACHING_R
     'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'3379ffcb9116fe3c10cd1b16509561ee1048404f1961043cb85b9df0c67f139b',
   },
 }));
+// PO 11-27: a readiness check never refuses coaching; one coaching test per candidate; a model-scoped hint is never shared.
+// Pins the current handler, readiness and readback beside the existing consent proof and unchanged native permissions.
+const coachingNeverBlocksProfiles=coachingBackoffProfiles.map(item=>({
+  id:COACHING_NEVER_BLOCKS_PROFILE,files:{...item.files,
+    'backend/supabase/functions/get-ai-suggestions/index.test.ts':'59873abd8fb3a5b840cd0dcb6a6626f7becce3d87a6ef406c04ccc41d274949b',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'bf267e708a0311a60e9d06779134e5ac604087ae6d76c29d2fb03ea4ab8be932',
+    'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'fe71c8541439876c067cd710d8de1bd1af8daba80a6ed4675ca8df46accba08b',
+    'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'1751ea1a5e7211a5108e73603df4884df0b4f9d9cbfd92721dbc2cf8433aef6b',
+    'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'7f7b168ffb3c4763d557374171a782bd480482ee7170f667f137d3cbb084d60b',
+  },
+}));
 export function nativeDenoPolicy(file) {
   const billing=isBillingDenoTest(file);
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
@@ -533,7 +547,7 @@ export function nativeDenoPolicy(file) {
 }
 export function validateSyntheticSource(root,file) {
   if(file!==coachingTest)return null;
-  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles].find(candidate=>{
+  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles,...coachingNeverBlocksProfiles].find(candidate=>{
     try{return Object.entries(candidate.files).every(([entry,digest])=>hash(fs.readFileSync(regular(root,entry)))===digest);}
     catch{return false;}
   });
@@ -910,7 +924,7 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
   }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
   const requiredCases=contract.testFile===COACHING_QUALITY_TEST?[COACHING_WRONG_TAKE_CASE]
-    :[COACHING_EFFICACY_PROFILE,COACHING_READINESS_EFFICACY_PROFILE,COACHING_BACKOFF_EFFICACY_PROFILE].includes(b.syntheticSource?.id)?[COACHING_EDGE_CONSENT_CASE]:[];
+    :[COACHING_EFFICACY_PROFILE,COACHING_READINESS_EFFICACY_PROFILE,COACHING_BACKOFF_EFFICACY_PROFILE,COACHING_NEVER_BLOCKS_PROFILE].includes(b.syntheticSource?.id)?[COACHING_EDGE_CONSENT_CASE]:[];
   const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root,requiredCases):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
   return {counts,helpers:validateNativeCallables(phase.coverage,b,root,contract.helpers)};

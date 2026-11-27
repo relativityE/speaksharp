@@ -140,6 +140,21 @@ variable/settings write permission or production authority.
 
 The real production values for the §2.1 `VITE_*` live here (Production scope) plus platform vars, all encrypted at rest in Vercel: the public `VITE_*` set (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, live `VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_SENTRY_DSN`/`VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`), `OPS_STATUS_PASSWORD` (a real secret — gates the Ops status page), and the auto-provided `VERCEL_GIT_COMMIT_SHA`. The Production candidate comparison uses no key: its authorization is one owner-dispatched `rc-gates.yml` GitHub run attempt that mints a one-use nonce (#1432).
 
+Ops Health admin Gemini Reload uses the existing Basic-auth gate and a same-origin POST.
+`OPS_COACHING_CHECK_TOKEN` is a dedicated, random server-only value (at least 32 characters),
+set identically in Vercel Production and the Supabase Edge function secrets. It is not a
+`VITE_*` value, not the Ops password, and not a database service-role key. If unset or
+mismatched, the operation fails closed. Page load reads the selection without a provider
+request. The scheduled Ops report also reads that selection without testing Gemini; only
+a manual Ops workflow dispatch with `gemini_diagnostics` selected runs non-promoting diagnostics.
+
+The service-owned `public.coaching_model_selection` row owns the live model and
+`user_check_interval_seconds` (default 3,600, bounded 60–86,400). That interval and any
+provider-wide retry hint apply only to new user-initiated checks, never to coaching.
+Admin Reload bypasses those two check limits but joins an existing check. The application
+contract supplies a bootstrap default only; it is not a second writer of the live model.
+
+
 ### 2.5 Feature-flag & runtime vars (code-verified)
 
 | Variable | Home | Where read (code) | Default / effect |
