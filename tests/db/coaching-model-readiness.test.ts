@@ -17,7 +17,7 @@ try {
   await pg.exec('SET ROLE service_role;');
   const claim = async (defaultModel = 'gemini-3.6-flash') => (await one<{ result: { kind: string; lease: { token: string; state: { model: string } } } }>(
     'SELECT public.claim_coaching_model_probe_v1($1) AS result', [defaultModel])).result;
-  const finish = async (rev: number, token: string, valid: boolean, model: string | null, hint: number | null = null) => (await one(
+  const finish = async (rev: number, token: string, valid: boolean | null, model: string | null, hint: number | null = null) => (await one(
    'SELECT public.finish_coaching_model_probe_v1($1,$2,$3,$4,$5) AS result',[rev,token,valid,model,hint])).result;
   const first = await claim();
   assert.equal(first.kind,'claimed');
@@ -29,6 +29,7 @@ try {
   assert.equal(await finish(1,first.lease.token,true,null),true);
   assert.deepEqual(await one('SELECT model, revision FROM public.coaching_model_selection'), {model:'gemini-3.6-flash',revision:1});
   assert.equal((await claim()).kind,'cooldown');
+  assert.deepEqual(await one('SELECT verified, next_probe_at = verified_until AS ordinary FROM public.coaching_model_selection'), { verified: true, ordinary: true });
   await pg.exec("UPDATE public.coaching_model_selection SET next_probe_at = '-infinity';");
   const second = await claim();
   assert.equal(await finish(1,first.lease.token,true,'gemini-3.5-flash-lite'),false);
@@ -38,7 +39,12 @@ try {
   const third = await claim('gemini-3.8-flash');
   assert.equal(third.lease.state.model,'gemini-3.5-flash-lite');
   assert.equal((await one('SELECT checked FROM public.coaching_model_selection')).checked,true);
-  assert.equal(await finish(2,third.lease.token,false,null,99000),true);
+  assert.equal(await finish(2,third.lease.token,null,null,99000),true);
+  assert.deepEqual(await one('SELECT verified, next_probe_at > verified_until AS backoff FROM public.coaching_model_selection'), { verified: true, backoff: true });
+  assert.equal((await claim()).kind, 'cooldown');
+  await pg.exec("UPDATE public.coaching_model_selection SET next_probe_at = '-infinity';");
+  const fourth = await claim();
+  assert.equal(await finish(2,fourth.lease.token,false,null,99000),true);
   assert.equal((await one("SELECT next_probe_at > clock_timestamp() + interval '95 seconds' AS result FROM public.coaching_model_selection")).result,true);
 
 } finally { await pg.close(); }

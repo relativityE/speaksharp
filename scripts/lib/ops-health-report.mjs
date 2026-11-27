@@ -194,7 +194,7 @@ export function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, su
         && /^gemini-[a-z0-9][a-z0-9.-]{0,58}$/.test(check.configuredModelVersion)
         ? { configuredModelVersion: check.configuredModelVersion } : {}),
       ...(check.name === 'Gemini generation'
-        && ['not_checked', 'checking', 'verified', 'unavailable'].includes(check.coachingReadiness)
+        && ['not_checked', 'checking', 'verified', 'backoff', 'unavailable'].includes(check.coachingReadiness)
         ? { coachingReadiness: check.coachingReadiness } : {}),
     })),
   };

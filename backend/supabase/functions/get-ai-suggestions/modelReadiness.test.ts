@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { runMicStartReadiness, type ProbeResult, type ReadinessStore } from './modelReadiness.ts';
 const models = [{ id: 'incumbent', observedVersions: ['incumbent-001'] }, { id: 'alt', observedVersions: ['alt-002'] }];
 const valid = (id: string): ProbeResult => ({ status: 200, coachingValid: true, observedVersion: id === 'incumbent' ? 'incumbent-001' : 'alt-002' });
-const provider = (status: 429 | 503, scope: 'model' | 'project' | 'unknown', retryAfterMs?: number): ProbeResult => ({ status, scope, retryAfterMs });
+const provider = (status: 429 | 503, scope: 'model' | 'project' | 'unknown', retryAfterMs?: number) => ({ status, scope, retryAfterMs } as const);
 const live = { recordingConfirmed: true, coachingSelected: true };
 function harness(read: (id: string, product: string) => ProbeResult, finishAccepted = true, available = models) {
   const calls: string[] = []; const results: Parameters<ReadinessStore['finish']>[1][] = [];
@@ -41,10 +41,11 @@ for (const status of [429, 503] as const) {
     assert.equal(h.results[0].promoteTo, 'alt');
   });
 }
-Deno.test('shared or unknown 429 and retry-after stop without probing another model', async () => {
-  for (const blocked of [provider(429, 'project'), provider(429, 'unknown'), provider(503, 'model', 7_000)]) {
+Deno.test('shared or unknown quota preserves prior verification without probing another model', async () => {
+  for (const blocked of [provider(429, 'project'), provider(429, 'unknown'), provider(503, 'unknown', 7_000)]) {
     const h = harness(() => blocked);
-    assert.equal(await runMicStartReadiness(live, h.options), 'unavailable');
+    assert.equal(await runMicStartReadiness(live, h.options), blocked.retryAfterMs ? 'backoff' : 'inconclusive');
+    assert.equal(h.results[0].verified, undefined);
     assert.equal(h.calls.length, 1);
     assert.equal(h.discoveries(), 0);
     assert.equal(h.results[0].promoteTo, undefined);
@@ -89,7 +90,8 @@ Deno.test('falling back respects the variant cap and stops on shared throttling'
   assert.equal(await runMicStartReadiness(live, capped.options), 'unavailable');
   assert.deepEqual(capped.calls, candidates.slice(0, 9).map(({ id }) => id + ':open_mic'));
   const shared = harness((id) => id === 'incumbent' ? { status: 'model_unavailable' } : provider(429, 'project'), true, candidates);
-  assert.equal(await runMicStartReadiness(live, shared.options), 'unavailable');
+  assert.equal(await runMicStartReadiness(live, shared.options), 'inconclusive');
+  assert.equal(shared.results[0].verified, undefined);
   assert.deepEqual(shared.calls, ['incumbent:open_mic', 'alt:open_mic']);
   assert.equal(shared.results[0].promoteTo, undefined);
 });
@@ -97,7 +99,21 @@ Deno.test('falling back respects the variant cap and stops on shared throttling'
 Deno.test('an expired lease cannot discover or promote', async () => {
   let at = 0;
   const h = harness(() => { at = 30_000; return { status: 'model_unavailable' }; });
-  assert.equal(await runMicStartReadiness(live, { ...h.options, now: () => at }), 'unavailable');
+  assert.equal(await runMicStartReadiness(live, { ...h.options, now: () => at }), 'inconclusive');
+  assert.equal(h.results[0].verified, undefined);
   assert.equal(h.discoveries(), 0);
   assert.equal(h.results[0].promoteTo, undefined);
+});
+
+Deno.test('confirmed model-scoped RetryInfo can switch without retrying the limited incumbent', async () => {
+  const h = harness((id) => id === 'incumbent' ? provider(429, 'model', 86_400_000) : valid(id));
+  assert.equal(await runMicStartReadiness(live, h.options), 'promoted');
+  assert.deepEqual(h.calls, ['incumbent:open_mic', 'alt:open_mic', 'alt:focus_points']);
+  assert.deepEqual(h.results[0], { promoteTo: 'alt', verified: true, retryAfterMs: undefined });
+});
+Deno.test('client abort or unknown transport failure cannot demote a verified model', async () => {
+  const h = harness(() => { throw new DOMException('abort', 'AbortError'); });
+  assert.equal(await runMicStartReadiness(live, h.options), 'inconclusive');
+  assert.equal(h.results[0].verified, undefined);
+  assert.equal(h.discoveries(), 0);
 });

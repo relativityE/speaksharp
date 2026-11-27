@@ -315,6 +315,18 @@ describe('AISuggestions Integration', () => {
             expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('service_configuration');
         });
 
+        it('shows pre-provider coaching backoff honestly without automatic retries', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(
+                httpErrorWithBody(503, async () => ({ code: 'coaching_model_backoff' })),
+            );
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-backoff" retryBackoffMs={10} />);
+            await waitFor(() => expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(/Coaching is busy.*saved/i));
+            await sleep(60);
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(card()).toHaveAttribute('data-retry-scheduled', 'false');
+            expect(screen.getByRole('button', { name: /try again/i })).toBeVisible();
+        });
+
         it.each([
             ['malformed JSON', async () => { throw new SyntaxError('Unexpected token'); }],
             ['an unknown code', async () => ({ code: 'database_role_missing' })],

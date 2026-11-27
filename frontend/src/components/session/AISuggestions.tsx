@@ -152,7 +152,7 @@ const diagnosticEvent = (
     Number.isInteger(value) && Number(value) >= 0 ? Math.min(max, Number(value)) : null;
   const knownReason = new Set([
     'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
-    'focus_context_unavailable', 'focus_results_pending', 'coaching_model_pending', 'transcript_unavailable', 'product_unknown',
+    'focus_context_unavailable', 'focus_results_pending', 'coaching_model_pending', 'coaching_model_backoff', 'transcript_unavailable', 'product_unknown',
     'service_configuration', 'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded',
     'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
     'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed',
@@ -205,6 +205,7 @@ const diagnosticEvent = (
  * The status is what the server decided. The mapping below is taken from the function's own responses.
  */
 /** #1473 — the ONLY closed code the edge function may send, and the only one this client acts on. */
+const COACHING_MODEL_BACKOFF_CODE = 'coaching_model_backoff';
 const SERVICE_CONFIGURATION_CODE = 'service_configuration';
 /**
  * #1835 — the coaching function's consent refusals: `consent_required` (403) when the owner's own choice does not allow
@@ -212,9 +213,9 @@ const SERVICE_CONFIGURATION_CODE = 'service_configuration';
  */
 const CONSENT_REQUIRED_CODE = 'consent_required';
 const CONSENT_UNAVAILABLE_CODE = 'consent_unavailable';
-type ClosedFailureCode = typeof SERVICE_CONFIGURATION_CODE | typeof CONSENT_REQUIRED_CODE | typeof CONSENT_UNAVAILABLE_CODE;
+type ClosedFailureCode = typeof COACHING_MODEL_BACKOFF_CODE | typeof SERVICE_CONFIGURATION_CODE | typeof CONSENT_REQUIRED_CODE | typeof CONSENT_UNAVAILABLE_CODE;
 const CLOSED_FAILURE_CODES: ReadonlySet<string> = new Set<ClosedFailureCode>([
-  SERVICE_CONFIGURATION_CODE, CONSENT_REQUIRED_CODE, CONSENT_UNAVAILABLE_CODE,
+  COACHING_MODEL_BACKOFF_CODE, SERVICE_CONFIGURATION_CODE, CONSENT_REQUIRED_CODE, CONSENT_UNAVAILABLE_CODE,
 ]);
 
 /** #1835 — the S4/S5 band copy, and the band shown when a review is dropped because coaching was turned off. */
@@ -307,6 +308,9 @@ const getSafeAiSuggestionError = (
   }
 
   // #1473 — the server's closed code, honoured only on the status the edge function sends it with.
+  if (closedCode === COACHING_MODEL_BACKOFF_CODE && errorStatus(err) === 503) {
+    return { reason: 'unavailable', message: 'Coaching is busy. Your session is saved; please try again later.' };
+  }
   if (closedCode === SERVICE_CONFIGURATION_CODE && errorStatus(err) === 503) {
     return {
       reason: 'service_configuration',

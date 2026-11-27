@@ -118,11 +118,42 @@ export function createReadinessStore(client: SupabaseClient): ReadinessStore {
   };
 }
 
-/** Report exactly the active row for a fresh request. Do not use a stale or configured candidate while a check is pending. */
+// Shared by serving and read-only Ops Health. Do not turn the probe refresh
+// cadence into a duration limit on an already-recorded take.
+export const COACHING_MODEL_SELECTION_FIELDS = 'model,revision,checked,verified,verified_until,probe_deadline,next_probe_at';
 export type CoachingModelReadiness =
   | { kind: 'ready'; model: string }
+  | { kind: 'backoff'; retryAfterSeconds: number }
   | { kind: 'pending' | 'unprobed' }
   | { kind: 'unavailable' };
+
+type Selection = { model?: unknown; checked?: unknown; verified?: unknown;
+  verified_until?: unknown; probe_deadline?: unknown; next_probe_at?: unknown };
+export function coachingServingDecision(data: Selection | null, now: number): CoachingModelReadiness {
+  if (!data) return { kind: 'unprobed' };
+  if (typeof data.model !== 'string' || !geminiReadinessModel(data.model)
+    || typeof data.checked !== 'boolean' || typeof data.verified !== 'boolean') return { kind: 'unavailable' };
+  if (data.probe_deadline !== null) {
+    return typeof data.probe_deadline === 'string' && Date.parse(data.probe_deadline) > now
+      ? { kind: 'pending' } : { kind: 'unavailable' };
+  }
+  // Installed finish_v1 invariant: verified success writes BOTH clocks to
+  // the same now+60s. A failed/inconclusive check can only claim after that
+  // time and advances next_probe_at without refreshing verified_until.
+  // Bootstrap uses -infinity; don't interpret ordinary healthy refresh
+  // scheduling as a request hold. Keep this coupling pinned in DB tests.
+  const next = data.next_probe_at === '-infinity' ? -Infinity
+    : typeof data.next_probe_at === 'string' ? Date.parse(data.next_probe_at) : NaN;
+  const verifiedAt = typeof data.verified_until === 'string' ? Date.parse(data.verified_until) : NaN;
+  if (Number.isNaN(next) || (data.verified && (!data.checked || !Number.isFinite(verifiedAt) || next < verifiedAt))) {
+    return { kind: 'unavailable' };
+  }
+  if (next > now && (!data.verified || next > verifiedAt)) {
+    return { kind: 'backoff', retryAfterSeconds: Math.min(86_400, Math.ceil((next - now) / 1000)) };
+  }
+  if (data.verified) return { kind: 'ready', model: data.model };
+  return !data.checked && data.model === contract.model ? { kind: 'unprobed' } : { kind: 'unavailable' };
+}
 
 export async function readReadyCoachingModel(client: SupabaseClient, signal: AbortSignal): Promise<CoachingModelReadiness> {
   const deadline = Date.now() + 1500;
@@ -131,17 +162,12 @@ export async function readReadyCoachingModel(client: SupabaseClient, signal: Abo
     const remaining = deadline - Date.now();
     if (signal.aborted) return { kind: 'unavailable' };
     if (remaining <= 0) return { kind: probeUntil > Date.now() ? 'pending' : 'unavailable' };
-    const { data, error } = await client.from('coaching_model_selection').select('model,checked,verified,probe_deadline')
+    const { data, error } = await client.from('coaching_model_selection').select(COACHING_MODEL_SELECTION_FIELDS)
       .eq('single', true).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(Math.min(700, remaining))])).maybeSingle();
     if (error || signal.aborted) return { kind: 'unavailable' };
-    if (!data) return { kind: 'unprobed' };
-    // Probe-sharing freshness is not a recording duration cap.
-    if (data.probe_deadline === null) {
-      if (data.checked === false && data.model === contract.model) return { kind: 'unprobed' };
-      return data.verified === true && typeof data.model === 'string'
-        ? { kind: 'ready', model: data.model } : { kind: 'unavailable' };
-    }
-    probeUntil = typeof data.probe_deadline === 'string' ? Date.parse(data.probe_deadline) : NaN;
+    const decision = coachingServingDecision(data, Date.now());
+    if (decision.kind !== 'pending') return decision;
+    probeUntil = Date.parse(data?.probe_deadline ?? '');
     if (!(probeUntil > Date.now())) return { kind: 'unavailable' };
     await new Promise((resolve) => setTimeout(resolve, Math.min(150, Math.max(0, deadline - Date.now()))));
   }

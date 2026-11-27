@@ -247,7 +247,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/i;
 const CLIENT_RELEASE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const DIAGNOSTIC_REASONS = new Set([
   'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
-  'focus_context_unavailable', 'focus_results_pending', 'coaching_model_pending', 'transcript_unavailable', 'product_unknown', 'service_configuration',
+  'focus_context_unavailable', 'focus_results_pending', 'coaching_model_pending', 'coaching_model_backoff', 'transcript_unavailable', 'product_unknown', 'service_configuration',
   'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded', 'provider_http_4xx',
   'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
   'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed', 'internal_error',
@@ -641,27 +641,34 @@ export async function handler(
 
     // A synthetic readiness probe has separate admission: it never enters the session/usage/write path.
     if (requestInput.operation === 'mic_start_readiness') {
-      const done = () => new Response(null, { status: 204, headers: responseHeaders });
-      if (!readinessEnabled() || typeof requestInput.leaseId !== 'string'
-        || !DIAGNOSTIC_UUID.test(requestInput.leaseId) || !Number.isSafeInteger(requestInput.consentRevision)) return done();
+      const done = (outcome: string) => {
+        // Closed readiness result only. No transcripts, identities, token, or
+        // vendor body, and no distinction exposed to the caller.
+        console.info('AI_COACHING_READINESS', JSON.stringify({ outcome }));
+        return new Response(null, { status: 204, headers: responseHeaders });
+      };
+      if (!readinessEnabled()) return done('disabled');
+      if (typeof requestInput.leaseId !== 'string'
+        || !DIAGNOSTIC_UUID.test(requestInput.leaseId) || !Number.isSafeInteger(requestInput.consentRevision)) return done('invalid_input');
       const { data: auth, error: authError } = await supabaseClient.auth.getUser();
       const owner = auth?.user?.id;
-      if (authError || !owner) return done();
+      if (authError || !owner) return done('no_authenticated_owner');
       const consentStillHolds = async () => {
         const choice = await readCoachingConsent(supabaseClient, owner);
         return choice.kind === 'granted' && choice.revision === requestInput.consentRevision;
       };
-      if (!await consentStillHolds()) return done();
+      if (!await consentStillHolds()) return done('consent_not_current');
       const { data: lease, error: leaseError } = await supabaseClient.from('active_recording_lease')
         .select('heartbeat_at').eq('user_id', owner).eq('lease_id', requestInput.leaseId).eq('state', 'recording').maybeSingle();
       const age = Date.now() - Date.parse(lease?.heartbeat_at ?? '');
-      if (leaseError || !Number.isFinite(age) || age < 0 || age >= 15_000) return done();
+      if (leaseError || !Number.isFinite(age) || age < 0 || age >= 15_000) return done('recording_lease_unverified');
       const { data: entitlement, error: entitlementError } = await supabaseClient.rpc('check_usage_limit');
-      if (entitlementError || entitlement?.is_pro !== true || !await consentStillHolds()) return done();
+      if (entitlementError || entitlement?.is_pro !== true) return done('access_unverified');
+      if (!await consentStillHolds()) return done('consent_not_current');
 
       const privilegedStore = createReadinessStore(createServiceRoleSupabase());
       try {
-        await runMicStartReadiness({ recordingConfirmed: true, coachingSelected: true }, {
+        const outcome = await runMicStartReadiness({ recordingConfirmed: true, coachingSelected: true }, {
           modelFor: geminiReadinessModel,
           discover: async (signal) => {
             if (req.signal.aborted || signal.aborted || !await consentStillHolds()) return [];
@@ -671,9 +678,11 @@ export async function handler(
           now: Date.now,
           store: {
             claim: privilegedStore.claim,
-            finish: async (lease, result) => await privilegedStore.finish(
-              lease, await consentStillHolds() ? result : { retryAfterMs: result.retryAfterMs },
-            ),
+            finish: async (lease, result) => {
+              const allowed = !req.signal.aborted && await consentStillHolds();
+              const committed = await privilegedStore.finish(lease, allowed ? result : { retryAfterMs: result.retryAfterMs });
+              return allowed && committed;
+            },
           },
           probe: async (model, product, signal): Promise<ProbeResult> => {
             if (req.signal.aborted || signal.aborted || !await consentStillHolds()) return { status: 'failed' };
@@ -702,22 +711,23 @@ export async function handler(
             }
             if (result.status === 429 || result.status === 503) {
               const hint = parseRetryAfter(retryAfter, Date.now());
-              return {
-                status: result.status,
-                scope: hint.kind === 'malformed' ? 'unknown'
-                  : result.status === 429 ? result.readinessQuota?.scope ?? 'unknown'
-                    : !result.errorCodes?.error_reason && (!result.errorCodes || ['UNAVAILABLE', 'unparseable'].includes(result.errorCodes.error_status))
-                      ? 'model' : 'unknown',
-                retryAfterMs: Math.max(hint.kind === 'valid' ? hint.ms : 0, result.readinessQuota?.retryAfterMs ?? 0) || undefined,
-              };
+              // A bare 503 or its Retry-After does not identify a model quota.
+              const scope = result.status === 429 && hint.kind !== 'malformed'
+                ? result.readinessQuota?.scope ?? 'unknown' : 'unknown';
+              const delay = Math.max(hint.kind === 'valid' ? hint.ms : 0, result.readinessQuota?.retryAfterMs ?? 0);
+              console.info('AI_COACHING_READINESS_LIMIT', JSON.stringify({
+                status: result.status, scope, retry_after_ms: Math.min(delay, 86_400_000),
+              }));
+              return { status: result.status, scope, retryAfterMs: delay || undefined };
             }
             return { status: result.status === 404 ? 'model_unavailable' : 'failed' };
           },
         });
+        return done(outcome);
       } catch {
         // Never expose provider or database errors in a synthetic readiness response.
+        return done('check_error');
       }
-      return done();
     }
 
     const body = requestInput as { sessionId?: unknown; product?: unknown; accepted_coaching_versions?: unknown };
@@ -926,6 +936,11 @@ export async function handler(
     const readiness = liveReadiness
       ? await readReadyCoachingModel(createServiceRoleSupabase(), req.signal)
       : { kind: 'ready', model: coachingContract.model } as const;
+    if (readiness.kind === 'backoff') {
+      const response = finish({ error: 'AI coaching is busy. Please try again later.', code: 'coaching_model_backoff' }, 503);
+      response.headers.set('Retry-After', String(readiness.retryAfterSeconds));
+      return response;
+    }
     if (readiness.kind === 'pending') {
       // Same pre-admission 425 wait path as saved Focus results: no quota, provider call, or write.
       return finish({ error: 'AI coaching is getting ready. Please try again.', code: 'coaching_model_pending' }, 425);

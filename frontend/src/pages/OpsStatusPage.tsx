@@ -187,12 +187,13 @@ function checksForDisplay(checks: Check[]): Service[] {
       });
     const readiness = generation?.coachingReadiness;
     const status = generation?.status === 'fail' || gemini?.status === 'fail' || readiness === 'unavailable' ? 'fail'
-      : readiness === 'checking' || readiness === 'not_checked' ? 'warn'
+      : readiness === 'checking' || readiness === 'not_checked' || readiness === 'backoff' ? 'warn'
         : generation?.status === 'pass' && gemini?.status === 'pass' ? 'pass'
         : generation?.status === 'pass' || sweepWinner || gemini?.status === 'pass' ? 'warn' : 'skip';
     cards.push({ name: 'AI Service -- LLM', status,
       reason: readiness === 'unavailable' ? 'Valid coaching not verified'
-        : readiness === 'checking' ? 'Coaching readiness check pending'
+        : readiness === 'backoff' ? 'Coaching is in provider backoff'
+          : readiness === 'checking' ? 'Coaching readiness check pending'
           : readiness === 'not_checked' && generation?.status === 'pass' ? 'Coaching readiness not checked'
             : generation?.status === 'fail' ? 'Configured model generation failed'
         : gemini?.status === 'fail' ? 'Model list check failed'
@@ -205,6 +206,7 @@ function checksForDisplay(checks: Check[]): Service[] {
         'Gemini generation: ' + outcomeText(generation?.status ?? 'skip') + '.',
         'The API check reads the model list. The generation check sends test text to the configured model.',
         ...(readiness === 'verified' ? ['Deployed coaching passed the recording-start readiness check.']
+          : readiness === 'backoff' ? ['Deployed coaching is waiting before sending new provider requests.']
           : readiness === 'checking' || readiness === 'not_checked' || readiness === 'unavailable'
             ? ['Deployed coaching readiness is not verified in this report.'] : []),
         generationVersion ? 'Configured model probe reported: ' + generationVersion + '.'

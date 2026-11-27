@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { handler } from './index.ts';
-import { discoverGeminiReadinessModels, geminiReadinessModel, readReadyCoachingModel } from './modelReadinessStore.ts';
+import { coachingServingDecision, discoverGeminiReadinessModels, geminiReadinessModel, readReadyCoachingModel } from './modelReadinessStore.ts';
 import contract from './contract.json' with { type: 'json' };
 
 const user = '0da395d5-2ee3-4c84-9200-5ae232b20c00';
@@ -10,6 +10,7 @@ const body = { operation: 'mic_start_readiness', consentRevision: 3, leaseId: le
 Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned lease can start the synthetic probe', async () => {
   const savedFetch = globalThis.fetch;
   let aiCoaching = true, fresh = true, readRevision = 3, answerStatus = 200, valid = true, claims = 0;
+  let knownQuota = false;
   let catalogCalls = 0, revokeAfterCatalog = false, newerAvailable = false;
   const attempted: string[] = [];
   const next = 'gemini-4-hydrogen';
@@ -35,6 +36,15 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
     prompts.push(posted.contents[0].parts[0].text);
     assert.deepEqual(posted.generationConfig, contract.generationConfig);
     const status = id === contract.model ? answerStatus : id === next && !newerAvailable ? 404 : 200;
+    if (id === contract.model && status === 429 && knownQuota) {
+      return Response.json({ error: { status: 'RESOURCE_EXHAUSTED', details: [
+        { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{
+          quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', quotaDimensions: { model: id },
+          quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests',
+        }] },
+        { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '86000s' },
+      ] } }, { status });
+    }
     return status === 200
       ? Response.json({ modelVersion: id, candidates: [{ finishReason: 'STOP', content: { parts: [{
         text: valid ? JSON.stringify({ version: contract.version, what_worked: /Focus Points/i.test(prompts.at(-1) ?? '') ? 'You named the phone line problem first.' : 'You opened with the onboarding checklist.',
@@ -99,7 +109,12 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
     assert.equal((await invoke()).status, 204);
     assert.equal(catalogCalls, 1); // Unclassified quota failure must not fan out.
     assert.equal(completions.at(-1)?.p_promote_to, null);
+    assert.equal(completions.at(-1)?.p_verified, null);
     valid = true; answerStatus = 503;
+    assert.equal((await invoke()).status, 204);
+    assert.equal(catalogCalls, 1); // A bare UNAVAILABLE is not proven model-local.
+    assert.equal(completions.at(-1)?.p_verified, null);
+    answerStatus = 429; knownQuota = true;
     const before = attempted.length;
     assert.equal((await invoke()).status, 204);
     assert.equal(catalogCalls, 2);
@@ -124,11 +139,12 @@ Deno.test('real Edge handler: only authenticated matching opt-in and fresh owned
 
 Deno.test('quick Stop waits for the committed revision; freshness expiry does not strand a long take', async () => {
   let reads = 0;
+  const old = new Date(Date.now() - 60_000).toISOString();
   const client = { from: () => {
     const q = { select: () => q, eq: () => q, abortSignal: () => q, maybeSingle: async () => ({
       data: ++reads === 1
-        ? { model: contract.model, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(), probe_deadline: new Date(Date.now() + 5000).toISOString() }
-        : { model: 'gemini-3.5-flash-lite', verified: true, verified_until: new Date(Date.now() - 60_000).toISOString(), probe_deadline: null },
+        ? { model: contract.model, checked: true, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(), probe_deadline: new Date(Date.now() + 5000).toISOString() }
+        : { model: 'gemini-3.5-flash-lite', checked: true, verified: true, verified_until: old, next_probe_at: old, probe_deadline: null },
       error: null,
     }) };
     return q;
@@ -138,14 +154,33 @@ Deno.test('quick Stop waits for the committed revision; freshness expiry does no
   assert.equal(reads, 2);
 });
 
+Deno.test('the serving decision distinguishes ordinary refresh, backoff, and already-unverified production state', () => {
+  const at = Date.parse('2030-01-01T00:00:00Z');
+  const when = (seconds: number) => new Date(at + seconds * 1000).toISOString();
+  const healthy = { model: contract.model, checked: true, verified: true, verified_until: when(60),
+    next_probe_at: when(60), probe_deadline: null };
+  const backoff = { ...healthy, next_probe_at: when(90) };
+  assert.deepEqual(coachingServingDecision(healthy, at), { kind: 'ready', model: contract.model });
+  assert.deepEqual(coachingServingDecision(healthy, at + 65_000), { kind: 'ready', model: contract.model });
+  assert.deepEqual(coachingServingDecision(backoff, at + 75_000), { kind: 'backoff', retryAfterSeconds: 15 });
+  assert.deepEqual(coachingServingDecision(backoff, at + 90_000), { kind: 'ready', model: contract.model });
+  const unverified = { ...backoff, verified: false, verified_until: null };
+  assert.deepEqual(coachingServingDecision(unverified, at + 75_000), { kind: 'backoff', retryAfterSeconds: 15 });
+  assert.deepEqual(coachingServingDecision(unverified, at + 90_000), { kind: 'unavailable' });
+  assert.deepEqual(coachingServingDecision({ ...healthy, next_probe_at: 'unknown' }, at), { kind: 'unavailable' });
+});
+
 Deno.test('Ops readback: browser and ordinary bearer denied, service role reads deployed state without a provider request', async () => {
-  let reads = 0;
+  let reads = 0, backoff = false;
+  const old = new Date(Date.now() - 60_000).toISOString();
+  const future = new Date(Date.now() + 60_000).toISOString();
   const client = { from: (table: string) => {
     assert.equal(table, 'coaching_model_selection');
     const q = { select: () => q, eq: () => q, abortSignal: () => q,
       maybeSingle: async () => {
         reads++;
-        return { data: { model: 'gemini-4-hydrogen', revision: 2, verified: true, verified_until: new Date(Date.now() + 60_000).toISOString(), probe_deadline: null }, error: null };
+        return { data: { model: 'gemini-4-hydrogen', revision: 2, checked: true, verified: true, verified_until: old,
+          next_probe_at: backoff ? future : old, probe_deadline: null }, error: null };
       } };
     return q;
   } };
@@ -163,6 +198,8 @@ Deno.test('Ops readback: browser and ordinary bearer denied, service role reads 
   const accepted = await invoke('mock-service-role');
   assert.deepEqual(await accepted.json(), { model: 'gemini-4-hydrogen', revision: 2, readiness: 'verified' });
   assert.equal(reads, 1);
+  backoff = true;
+  assert.deepEqual(await (await invoke('mock-service-role')).json(), { model: 'gemini-4-hydrogen', revision: 2, readiness: 'backoff' });
 });
 
 Deno.test('runtime catalog is bounded and selects only stable Gemini text generation variants newest first', async () => {
