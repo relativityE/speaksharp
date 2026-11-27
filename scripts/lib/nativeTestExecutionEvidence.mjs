@@ -295,6 +295,7 @@ export const COACHING_EDGE_TEST='backend/supabase/functions/get-ai-suggestions/i
 export const COACHING_EDGE_CONSENT_CASE='#1905 saved Open Mic and Focus coaching honor owner consent at send and persist';
 const COACHING_EFFICACY_PROFILE='coaching-consent-efficacy-1905';
 const COACHING_READINESS_EFFICACY_PROFILE='coaching-readiness-efficacy-1977';
+const COACHING_BACKOFF_EFFICACY_PROFILE='coaching-readiness-backoff-1986';
 export const COACHING_QUALITY_TEST='backend/supabase/functions/get-ai-suggestions/evaluation/coachingBotChecks.test.ts';
 const COACHING_WRONG_TAKE_CASE='#1905 wrong-take coaching fails when only one advice section is cross-wired';
 const coachingTest=COACHING_EDGE_TEST;
@@ -511,6 +512,17 @@ const coachingEfficacyProfiles=coachingProfiles.filter(item=>item.id==='coaching
     [coachingTest]:'765e7041f7abdbd80790f0ca34cf4f71d7ccffe078a62ae3befdc7c0e0a91449',
   },
 }));
+// #1986 updates only these five exact files in the reviewed readiness closure.
+// The required saved-coaching consent proof and all native permissions stay unchanged.
+const coachingBackoffProfiles=coachingProfiles.filter(item=>item.id===COACHING_READINESS_EFFICACY_PROFILE).map(item=>({
+  id:COACHING_BACKOFF_EFFICACY_PROFILE,files:{...item.files,
+    'backend/supabase/functions/get-ai-suggestions/index.test.ts':'9116c3a671ea720ae93b85af856cc1c96553de75cd83c0873f319a5d82c64720',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'5f29ab52312e42796f528b17ffc72d2daf73fbd4076aa34dc73ee76de5d9682a',
+    'backend/supabase/functions/get-ai-suggestions/modelReadback.ts':'95553bad7ef68502db10ff4d5a6333557069b133d9ba3b2fc3a8ded55c78a3e3',
+    'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'837664c6f1080fc3b89f02ddaaf109211d56bd941a08af9e18ac927197b004b0',
+    'backend/supabase/functions/get-ai-suggestions/modelReadinessStore.ts':'3379ffcb9116fe3c10cd1b16509561ee1048404f1961043cb85b9df0c67f139b',
+  },
+}));
 export function nativeDenoPolicy(file) {
   const billing=isBillingDenoTest(file);
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
@@ -521,7 +533,7 @@ export function nativeDenoPolicy(file) {
 }
 export function validateSyntheticSource(root,file) {
   if(file!==coachingTest)return null;
-  const profile=[...coachingProfiles,...coachingEfficacyProfiles].find(candidate=>{
+  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles].find(candidate=>{
     try{return Object.entries(candidate.files).every(([entry,digest])=>hash(fs.readFileSync(regular(root,entry)))===digest);}
     catch{return false;}
   });
@@ -898,7 +910,7 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
   }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
   const requiredCases=contract.testFile===COACHING_QUALITY_TEST?[COACHING_WRONG_TAKE_CASE]
-    :[COACHING_EFFICACY_PROFILE,COACHING_READINESS_EFFICACY_PROFILE].includes(b.syntheticSource?.id)?[COACHING_EDGE_CONSENT_CASE]:[];
+    :[COACHING_EFFICACY_PROFILE,COACHING_READINESS_EFFICACY_PROFILE,COACHING_BACKOFF_EFFICACY_PROFILE].includes(b.syntheticSource?.id)?[COACHING_EDGE_CONSENT_CASE]:[];
   const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root,requiredCases):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
   return {counts,helpers:validateNativeCallables(phase.coverage,b,root,contract.helpers)};
