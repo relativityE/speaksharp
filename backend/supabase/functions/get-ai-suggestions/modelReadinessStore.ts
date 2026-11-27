@@ -95,23 +95,24 @@ function state(value: unknown): value is { model: string; revision: number } {
   const x = value as Record<string, unknown>;
   return typeof x.model === 'string' && Number.isSafeInteger(x.revision) && Number(x.revision) > 0;
 }
-export function createReadinessStore(client: SupabaseClient): ReadinessStore {
+export function createReadinessStore(client: SupabaseClient, admin = false): ReadinessStore {
   return {
     async claim() {
-      const { data, error } = await client.rpc('claim_coaching_model_probe_v1', { p_incumbent: contract.model });
+      const { data, error } = await client.rpc('claim_coaching_model_probe_v2', { p_incumbent: contract.model, p_admin: admin });
       if (error || !data) throw Error('coaching_model_selection_unavailable');
       if (data.kind === 'claimed' && state(data.lease?.state)
         && typeof data.lease.token === 'string' && Number.isSafeInteger(data.lease.deadlineMs)) return data as ClaimResult;
       if ((data.kind === 'busy' || data.kind === 'cooldown') && state(data.state)) return data as ClaimResult;
       throw Error('coaching_model_selection_unavailable');
     },
-    async finish(lease, result) {
-      const { data, error } = await client.rpc('finish_coaching_model_probe_v1', {
+    async finish(lease, result, outcome) {
+      const { data, error } = await client.rpc('finish_coaching_model_probe_v2', {
         p_revision: lease.state.revision,
         p_token: lease.token,
         p_verified: result.verified ?? null,
         p_promote_to: result.promoteTo ?? null,
         p_retry_after_ms: result.retryAfterMs ?? null,
+        p_outcome: outcome,
       });
       if (error) throw Error('coaching_model_selection_unavailable');
       return data === true;
@@ -119,57 +120,50 @@ export function createReadinessStore(client: SupabaseClient): ReadinessStore {
   };
 }
 
-// Shared by serving and read-only Ops Health. Do not turn the probe refresh
-// cadence into a duration limit on an already-recorded take.
 export const COACHING_MODEL_SELECTION_FIELDS = 'model,revision,checked,verified,verified_until,probe_deadline,next_probe_at';
-export type CoachingModelReadiness =
-  | { kind: 'ready'; model: string }
-  | { kind: 'backoff'; retryAfterSeconds: number }
-  | { kind: 'pending' | 'unprobed' }
-  | { kind: 'unavailable' };
-
 type Selection = { model?: unknown; checked?: unknown; verified?: unknown;
   verified_until?: unknown; probe_deadline?: unknown; next_probe_at?: unknown };
-export function coachingServingDecision(data: Selection | null, now: number): CoachingModelReadiness {
+
+/**
+ * What serving uses: the live selection only. A readiness result (unverified, a check's wait, an in-flight or abandoned
+ * check) selects WHICH model serves; it never decides WHETHER serving calls Gemini (PO 11-27: coaching must not refuse users
+ * because of a check's result). Real requests keep their own bounded provider-error handling. Only an unreadable or invalid
+ * selection is unavailable: that is an infrastructure fault, not a check result. Ops Health uses the same selection resolver.
+ */
+export type CoachingServingModel = { kind: 'ready'; model: string } | { kind: 'unprobed' } | { kind: 'unavailable' };
+export function coachingServingModel(data: Selection | null): CoachingServingModel {
   if (!data) return { kind: 'unprobed' };
   if (typeof data.model !== 'string' || !geminiReadinessModel(data.model)
     || typeof data.checked !== 'boolean' || typeof data.verified !== 'boolean') return { kind: 'unavailable' };
-  if (data.probe_deadline !== null) {
-    return typeof data.probe_deadline === 'string' && Date.parse(data.probe_deadline) > now
-      ? { kind: 'pending' } : { kind: 'unavailable' };
-  }
-  // Installed finish_v1 invariant: verified success writes BOTH clocks to
-  // the same now+60s. A failed/inconclusive check can only claim after that
-  // time and advances next_probe_at without refreshing verified_until.
-  // Bootstrap uses -infinity; don't interpret ordinary healthy refresh
-  // scheduling as a request hold. Keep this coupling pinned in DB tests.
-  const next = data.next_probe_at === '-infinity' ? -Infinity
-    : typeof data.next_probe_at === 'string' ? Date.parse(data.next_probe_at) : NaN;
-  const verifiedAt = typeof data.verified_until === 'string' ? Date.parse(data.verified_until) : NaN;
-  if (Number.isNaN(next) || (data.verified && (!data.checked || !Number.isFinite(verifiedAt) || next < verifiedAt))) {
-    return { kind: 'unavailable' };
-  }
-  if (next > now && (!data.verified || next > verifiedAt)) {
-    return { kind: 'backoff', retryAfterSeconds: Math.min(86_400, Math.ceil((next - now) / 1000)) };
-  }
-  if (data.verified) return { kind: 'ready', model: data.model };
-  return !data.checked && data.model === contract.model ? { kind: 'unprobed' } : { kind: 'unavailable' };
+  // A pre-rollout take keeps the established route only while the reviewed default was never checked.
+  if (!data.checked && data.model === contract.model) return { kind: 'unprobed' };
+  return { kind: 'ready', model: data.model };
 }
 
-export async function readReadyCoachingModel(client: SupabaseClient, signal: AbortSignal): Promise<CoachingModelReadiness> {
+export async function readReadyCoachingModel(client: SupabaseClient, signal: AbortSignal): Promise<CoachingServingModel> {
+  // An in-flight check may promote a model, but optional polling must never discard a usable selection.
   const deadline = Date.now() + 1500;
-  let probeUntil = 0;
+  const unavailable = { kind: 'unavailable' } as const;
+  let lastUsable: CoachingServingModel | undefined;
   for (;;) {
+    if (signal.aborted) return unavailable;
     const remaining = deadline - Date.now();
-    if (signal.aborted) return { kind: 'unavailable' };
-    if (remaining <= 0) return { kind: probeUntil > Date.now() ? 'pending' : 'unavailable' };
-    const { data, error } = await client.from('coaching_model_selection').select(COACHING_MODEL_SELECTION_FIELDS)
-      .eq('single', true).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(Math.min(700, remaining))])).maybeSingle();
-    if (error || signal.aborted) return { kind: 'unavailable' };
-    const decision = coachingServingDecision(data, Date.now());
-    if (decision.kind !== 'pending') return decision;
-    probeUntil = Date.parse(data?.probe_deadline ?? '');
-    if (!(probeUntil > Date.now())) return { kind: 'unavailable' };
-    await new Promise((resolve) => setTimeout(resolve, Math.min(150, Math.max(0, deadline - Date.now()))));
+    if (lastUsable && remaining <= 0) return lastUsable;
+    try {
+      const { data, error } = await client.from('coaching_model_selection').select(COACHING_MODEL_SELECTION_FIELDS)
+        .eq('single', true).abortSignal(AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Math.min(700, remaining)))])).maybeSingle();
+      if (signal.aborted) return unavailable;
+      if (error) return lastUsable ?? unavailable;
+      const selection = coachingServingModel(data);
+      if (selection.kind === 'unavailable') return lastUsable ?? unavailable;
+      if (lastUsable && !data) return lastUsable;
+      lastUsable = selection;
+      const inFlight = typeof data?.probe_deadline === 'string' && Date.parse(data.probe_deadline) > Date.now();
+      if (!inFlight) return selection;
+    } catch {
+      return signal.aborted ? unavailable : lastUsable ?? unavailable;
+    }
+    const wait = Math.min(150, Math.max(0, deadline - Date.now()));
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
   }
 }

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,4 +107,35 @@ describe('constantTimeEqual', () => {
     expect(source).not.toMatch(/password\s*===/);
     expect(source).not.toMatch(/===\s*expectedPassword/);
   });
+});
+
+
+it('the admin model bridge denies cross-site writes and forwards only an authenticated same-origin Reload', async () => {
+  vi.stubEnv('OPS_STATUS_PASSWORD', 'unit-password');
+  vi.stubEnv('OPS_COACHING_CHECK_TOKEN', 'x'.repeat(43));
+  vi.stubEnv('VITE_SUPABASE_URL', 'https://abcdefghijklmnopqrst.supabase.co');
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-anon');
+  const sent = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ outcome: 'healthy' }));
+  const invoke = (method, authorization, origin, site) => middleware(new Request(OPS_PATH + '/coaching-model', {
+    method, headers: { ...(authorization ? { Authorization: authorization } : {}), ...(origin ? { Origin: origin } : {}),
+      ...(site ? { 'Sec-Fetch-Site': site } : {}) },
+  }));
+  const good = basicHeader('admin', 'unit-password');
+  const origin = new URL(OPS_PATH).origin;
+  try {
+    expect((await invoke('POST', null, origin, 'same-origin')).status).toBe(401);
+    expect((await invoke('POST', good, 'https://example.invalid', 'cross-site')).status).toBe(403);
+    expect((await invoke('POST', good)).status).toBe(403);
+    expect((await invoke('DELETE', good)).status).toBe(405);
+    expect(sent).not.toHaveBeenCalled();
+    expect((await invoke('GET', good)).status).toBe(200);
+    expect(await (await invoke('POST', good, origin, 'same-origin')).json()).toEqual({ outcome: 'healthy' });
+    expect(sent.mock.calls.map(([, init]) => JSON.parse(init.body).operation)).toEqual(['admin_model_readback', 'admin_model_check']);
+    for (const [url, init] of sent.mock.calls) {
+      expect(url).toBe('https://abcdefghijklmnopqrst.supabase.co/functions/v1/get-ai-suggestions');
+      expect(new Headers(init.headers).get('Authorization')).toBe('Bearer test-anon');
+      expect(new Headers(init.headers).get('Origin')).toBeNull();
+      expect(init.redirect).toBe('error');
+    }
+  } finally { sent.mockRestore(); vi.unstubAllEnvs(); }
 });

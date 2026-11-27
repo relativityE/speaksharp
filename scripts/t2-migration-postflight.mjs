@@ -17,12 +17,16 @@ try {
     encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'],
     env: { ...process.env, PGOPTIONS: `${process.env.PGOPTIONS || ''} -c default_transaction_read_only=on` },
   }).trim().split('\n');
-  if (mode === 'verify' && ['release', 'edge-release', 'account-closure-release'].includes(version)) {
+  if (mode === 'verify' && ['release', 'edge-release', 'account-closure-release', 'coaching-checks-release'].includes(version)) {
     const candidate = read(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`);
     if (candidate.length !== 1) throw new Error('incomplete T2 release ledger');
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     const contract = version === 'release' ? t2ReleaseContract(root, candidate[0], { catalogContext: 'retained-production' })
       : t2EdgeReleaseContract(root, candidate[0]);
+    if ((version === 'coaching-checks-release' || (version === 'edge-release' && process.env.REQUIRE_COACHING_CHECKS === '1'))
+      && !contract.coachingChecks) {
+      throw new Error('T2 coaching checks migration must be installed before this release');
+    }
     // The account-closure-only route (deletion rollout step 5) is admitted ONLY on the post-129 ledger, whose snapshot
     // also proves the settlement function exact and completion OFF and unbound. Any other ledger fails closed here.
     if (version === 'account-closure-release' && contract.profile !== 'post-129-completion-settlement') {

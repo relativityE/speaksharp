@@ -2995,12 +2995,12 @@ Deno.test('LLM evaluator parity: the handler sends exactly the evaluator prompt 
   });
 }
 
-Deno.test('live readiness: only the selected model is persisted; no send while the probe is unresolved', async () => {
+Deno.test('live readiness: only the selected model is persisted; a check state never refuses coaching', async () => {
   const selected = 'gemini-4-hydrogen';
   const enableReadiness = () => true; // Test dependency; native environment allowlist remains GEMINI_API_KEY only.
-  for (const outcome of ['exact', 'wrong', 'pending', 'expired', 'initial', 'cancelled', 'unavailable', 'backoff', 'healthy-cooldown'] as const) {
+  for (const outcome of ['exact', 'wrong', 'pending', 'followup-read-error', 'followup-invalid', 'expired', 'initial', 'cancelled', 'unavailable', 'backoff', 'healthy-cooldown'] as const) {
     resetProvider();
-    let probePending = outcome === 'pending';
+    const probePending = outcome === 'pending' || outcome.startsWith('followup-');
     const future = new Date(Date.now() + 60_000).toISOString();
     const previousVerification = new Date(Date.now() - 60_000).toISOString();
     const mock = mockSupabase();
@@ -3011,6 +3011,8 @@ Deno.test('live readiness: only the selected model is persisted; no send while t
       const selection = { select: () => selection, eq: () => selection, abortSignal: () => selection,
         maybeSingle: async () => {
           reads++;
+          if (outcome === 'followup-read-error' && reads > 1) return { data: null, error: { message: 'selection read timed out' } };
+          if (outcome === 'followup-invalid' && reads > 1) return { data: { model: 'not-gemini' }, error: null };
           if (outcome === 'initial') return { data: null, error: null };
           if (outcome === 'unavailable' || outcome === 'cancelled') return { data: {
             model: coachingContract.model, checked: outcome === 'unavailable', verified: false, probe_deadline: null,
@@ -3025,27 +3027,17 @@ Deno.test('live readiness: only the selected model is persisted; no send while t
     geminiModelVersion = ['wrong', 'initial', 'cancelled', 'unavailable'].includes(outcome) ? coachingContract.model : selected;
     const response = await handler(request(), mock.create, () => ({ ...base, from }), enableReadiness);
     assertEquals(reads > 0, true);
-    assertEquals(response.status, ['exact', 'initial', 'cancelled', 'healthy-cooldown'].includes(outcome) ? 200 : outcome === 'wrong' ? 502 : outcome === 'pending' ? 425 : 503);
-    assertEquals(fetchCount, ['pending', 'expired', 'unavailable', 'backoff'].includes(outcome) ? 0 : 1);
-    if (outcome === 'exact') assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + selected + ':generateContent');
-    if (outcome === 'initial' || outcome === 'cancelled') assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + coachingContract.model + ':generateContent');
-    if (outcome === 'backoff') {
-      assertEquals((await response.json()).code, 'coaching_model_backoff');
-      assertEquals(Number(response.headers.get('Retry-After')) > 0, true);
-      assertEquals([mock.state.quotaCount, mock.state.updated], [0, null]);
-    }
-    if (outcome === 'expired' || outcome === 'unavailable') {
-      assertEquals((await response.json()).code, 'service_configuration');
-      assertEquals(mock.state.quotaCount, 0);
-    }
-    if (outcome === 'pending') {
-      assertEquals((await response.json()).code, 'coaching_model_pending');
-      assertEquals([mock.state.quotaCount, mock.state.updated], [0, null]);
-      probePending = false;
-      assertEquals((await handler(request(), mock.create, () => ({ ...base, from }), enableReadiness)).status, 200);
-      assertEquals([fetchCount, mock.state.quotaCount], [1, 1]);
-      assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + selected + ':generateContent');
-    }
+    // PO 11-27: a check's wait, an unverified result, or an in-flight/abandoned check selects WHICH model serves, never
+    // WHETHER serving calls Gemini. Before this change 'pending' was 425 and 'expired'/'unavailable'/'backoff' were 503 with
+    // no provider call. Only the exact saved-model evidence check ('wrong') still refuses to persist.
+    assertEquals(response.status, outcome === 'wrong' ? 502 : 200);
+    assertEquals(fetchCount, 1);
+    assertEquals(mock.state.quotaCount, 1);
+    const servedModel = ['initial', 'cancelled'].includes(outcome) ? coachingContract.model
+      : outcome === 'unavailable' ? coachingContract.model : selected;
+    assertEquals(new URL(lastRequestUrl).pathname, '/v1beta/models/' + servedModel + ':generateContent');
+    if (outcome === 'backoff') assertEquals(response.headers.get('Retry-After'), null);
+    if (probePending) assertEquals(reads > 1, true); // waited (bounded) for the in-flight check, then served
     if (outcome === 'wrong') {
       const value = await response.json();
       assertEquals(value.suggestions, undefined);

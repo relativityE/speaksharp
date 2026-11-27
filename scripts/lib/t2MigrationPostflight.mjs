@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { COACHING_READINESS_MIGRATION, EXACT_MIGRATION_ALLOWLIST, resolveExactMigrationConfig } from './exactMigrationGate.mjs';
+import { COACHING_CHECKS_MIGRATION, COACHING_READINESS_MIGRATION, EXACT_MIGRATION_ALLOWLIST, resolveExactMigrationConfig } from './exactMigrationGate.mjs';
 import { completionSettlementContract, completionSettlementSnapshotQuery } from './completionSettlementMigrationPostflight.mjs';
 import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './c1MigrationPostflight.mjs';
 import { RETIREMENT_CATALOG_DELTA } from './retirementCatalogPins.mjs';
@@ -474,8 +474,17 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release catalog context unknown');
   }
   const observed = typeof installed === 'string' ? JSON.parse(installed) : installed;
-  const readiness = Array.isArray(observed) && observed.at(-1) === COACHING_READINESS_MIGRATION.version;
-  const prior = readiness ? observed.slice(0, -1) : observed;
+  const coachingChecks = Array.isArray(observed) && observed.at(-1) === COACHING_CHECKS_MIGRATION.version;
+  const beforeChecks = coachingChecks ? observed.slice(0, -1) : observed;
+  const readiness = Array.isArray(beforeChecks) && beforeChecks.at(-1) === COACHING_READINESS_MIGRATION.version;
+  if (coachingChecks) {
+    const file = join(root, 'backend/supabase/migrations', COACHING_CHECKS_MIGRATION.file);
+    if (!readiness || !lstatSync(file).isFile() || realpathSync(file) !== file
+      || createHash('sha256').update(readFileSync(file)).digest('hex') !== COACHING_CHECKS_MIGRATION.sha256) {
+      throw new Error('T2 coaching checks migration source or predecessor mismatch');
+    }
+  }
+  const prior = readiness ? beforeChecks.slice(0, -1) : beforeChecks;
   if (readiness) {
     const file = join(root, 'backend/supabase/migrations', COACHING_READINESS_MIGRATION.file);
     if (!prior.includes(SAVE_JOURNAL_CLEANUP_VERSION) || !lstatSync(file).isFile() || realpathSync(file) !== file
@@ -563,7 +572,7 @@ export function t2ReleaseContract(root, installed, options = {}) {
     : stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`;
   // Post-129 the settle family is no longer known-absent: it must be present and exact, with completion OFF/unbound.
   const settlement = settled ? completionSettlementContract(root, 'after', NEXT_RELEASE_SOURCE.version).expectedFunction : null;
-  return { profile, catalogContext, stage, ledger: [...observed], pins, inventory, expected, c1, settlement, ...readiness && { readiness },
+  return { profile, catalogContext, stage, ledger: [...observed], pins, inventory, expected, c1, settlement, ...readiness && { readiness }, ...coachingChecks && { coachingChecks },
     knownAbsent: { ...NEXT_RELEASE_SOURCE, families: [...absentFamilies, ...(stage < 3 ? RETIREMENT_FUNCTIONS : []),
       ...(stage < 4 ? ABANDONMENT_FUNCTIONS : []), ...(stage < 5 ? FEEDBACK_FENCE_FUNCTIONS : [])],
       tables: [...(stage < 3 ? RETIREMENT_TABLES : []), ...(stage < 4 ? ABANDONMENT_TABLES : []),
@@ -597,8 +606,9 @@ export function assertT2ReleaseSnapshot(contract, rows) {
   // The ledger row is judged first, so another stage's rows (post-129 adds a settlement row) read as a ledger change.
   const ledger = JSON.parse(rows[0]);
   if (JSON.stringify(ledger) !== JSON.stringify(contract.ledger)) throw new Error('T2 release ledger changed');
-  if (rows.length !== 6 + Number(Boolean(contract.settlement)) + Number(Boolean(contract.readiness))) throw new Error('incomplete T2 release evidence');
-  if (contract.readiness && rows.at(-1) !== 'true') throw new Error('T2 coaching readiness catalog or ACL mismatch');
+  if (rows.length !== 6 + Number(Boolean(contract.settlement)) + Number(Boolean(contract.readiness)) + Number(Boolean(contract.coachingChecks))) throw new Error('incomplete T2 release evidence');
+  if (contract.coachingChecks && rows.at(-1) !== 'true') throw new Error('T2 coaching checks catalog or ACL mismatch');
+  if (contract.readiness && rows.at(contract.coachingChecks ? -2 : -1) !== 'true') throw new Error('T2 coaching readiness catalog or ACL mismatch');
   if (rows[5] !== 'true') throw new Error('T2 release known129 function family must be absent');
   if (contract.settlement) {
     const settlement = JSON.parse(rows[6]);
@@ -653,6 +663,21 @@ export function coachingReadinessCatalogQuery() {
   ) IS TRUE)::text AS ok;`;
 }
 
+export function coachingChecksCatalogQuery() {
+  return `SELECT ((
+    9 = (SELECT count(*) FROM pg_attribute WHERE attrelid = to_regclass('public.coaching_model_selection')
+      AND attnum > 0 AND NOT attisdropped AND attname IN ('user_check_interval_seconds','user_next_check_at',
+        'provider_check_after','user_retry_pending','probe_admin','probe_is_extra_attempt','last_check_id','last_check_at','last_check_outcome'))
+    AND 2 = (SELECT count(*) FROM pg_proc p WHERE p.oid IN (
+      to_regprocedure('public.claim_coaching_model_probe_v2(text,boolean)'),
+      to_regprocedure('public.finish_coaching_model_probe_v2(integer,uuid,boolean,text,integer,text)'))
+      AND NOT p.prosecdef
+      AND has_function_privilege('service_role', p.oid, 'EXECUTE')
+      AND NOT has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      AND NOT has_function_privilege('anon', p.oid, 'EXECUTE'))
+  ) IS TRUE)::text AS ok;`;
+}
+
 export function t2ReleaseSnapshotQuery(contract) {
   return `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL search_path=public,pg_temp;
 ${t2ReleaseLedgerQuery()}
@@ -663,5 +688,6 @@ ${c1CatalogQuery(contract.c1).sql}
 ${t2KnownAbsentQuery(contract)}
 ${contract.settlement ? completionSettlementSnapshotQuery() : ''}
 ${contract.readiness ? coachingReadinessCatalogQuery() : ''}
+${contract.coachingChecks ? coachingChecksCatalogQuery() : ''}
 COMMIT;`;
 }

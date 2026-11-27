@@ -1062,6 +1062,7 @@ export const REVIEWED_UNRELATED_MIGRATIONS=Object.freeze([
   // #1977 global service-owned readiness; no account rows or closure behavior. The migration has separate SQL/ACL proof.
   Object.freeze({name:'20261126005433_coaching_model_readiness.sql',version:'20261126005433',
     sha256:'fa07703cef9764d346621e6a2a2543606a1e3eb5b24fa1e1265bd0f24e243079'}),
+  Object.freeze({name:'20261127144500_coaching_model_selection_checks.sql',version:'20261127144500',sha256:'8698f1aee329f0c64b7342f8b72dd0cf5cb0514684ab90f96f634a0f3e43320d'}),
 ]);
 // #1835 changes session/coaching behavior; withheld from every profile before main-practice-privacy-133, which stages it
 // after the payment wall. Elsewhere this pin recognizes repository presence, not installed privacy behavior.
