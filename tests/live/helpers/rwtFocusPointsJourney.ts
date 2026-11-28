@@ -1779,18 +1779,22 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const live = new CoachingGenerationTap();
             live.attach(tab);
             try {
-                // Read the repeat's own independent saved panel before letting a successful coaching card replace it.
-                await tab.goto('/analytics/' + encodeURIComponent(target));
-                const loaded = await loadedReviewSessionId(tab);
-                const coverage = loaded === target ? await tab.evaluate(readJ3bSavedPanel, target) : null;
-                if (!coverage || coverage.length !== points.length || !coverage.every((row, i) =>
-                    row.ordinal === i + 1 && row.label === points[i])
-                    || !savedFocusMatches(coverage.map((row) => row.status), expectedFinal)) {
-                    receipt.row('J3.b single saved-repeat provider proof', 'HOLD', 'the exact repeat and all saved points must match the fixture before requesting coaching');
-                    return;
-                }
                 const result = await runSavedTakeCoaching({ page: tab, tap: live, client: admin as unknown as ChoiceClient, ownerId: owner.uid,
-                    takeId: target, product: 'focus_points', readSavedTake: async (id) => {
+                    takeId: target, product: 'focus_points',
+                    verifyBeforeOptIn: async () => {
+                        // The helper has already armed a deny-all route. Even an unexpected POST from this first
+                        // Analytics visit cannot reach Edge. Do not click anything while waiting for the saved panel.
+                        await tab.goto('/analytics/' + encodeURIComponent(target));
+                        const loaded = await loadedReviewSessionId(tab);
+                        if (loaded !== target) return false;
+                        return expect.poll(async () => {
+                            const rows = await tab.evaluate(readJ3bSavedPanel, target);
+                            return !!rows && rows.length === points.length
+                                && rows.every((row, i) => row.ordinal === i + 1 && row.label === points[i])
+                                && savedFocusMatches(rows.map((row) => row.status), expectedFinal);
+                        }, { timeout: 15_000 }).toBe(true).then(() => true, () => false);
+                    },
+                    readSavedTake: async (id) => {
                         const row = await readFocusSource(id);
                         if (row === 'error' || row === null || row.id !== id || row.user_id !== owner.uid
                             || row.product !== 'focus_points' || row.status !== 'completed') return null;
@@ -1801,7 +1805,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     const pair = result.proof.terminal?.suggestions;
                     if (!pair) throw new Error('HOLD J3.b: the one successful repeat did not yield a complete pair');
                     recordFocusCoachingContentRows(receipt, pair.what_worked, pair.what_to_try_next, {
-                        labels: coverage.map((row) => row.label),
+                        labels: points,
                         // Before #1991, saved yellow can reopen with the older binary covered marker.
                         // The panel above already matched the fixture, including its explicit partial when present.
                         statuses: expectedFinal,

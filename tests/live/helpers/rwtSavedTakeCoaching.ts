@@ -22,6 +22,8 @@ export async function runSavedTakeCoaching(input: {
     ownerId: string;
     takeId: string;
     product: 'open_mic' | 'focus_points';
+    /** Reads the exact repeat's saved coverage on this tab, while all coaching is still blocked. */
+    verifyBeforeOptIn?: () => Promise<boolean>;
     /** Owner-scoped exact completed row, including an explicit null pair if no coaching was saved. */
     readSavedTake: (takeId: string) => Promise<{
         takeId: string;
@@ -41,6 +43,12 @@ export async function runSavedTakeCoaching(input: {
     });
     zero();
     await expect.poll(() => choiceIs('save_on'), { timeout: TIMEOUT }).toBe(true);
+    if (input.verifyBeforeOptIn) {
+        const verified = await input.verifyBeforeOptIn();
+        zero();
+        if (!verified) return { outcome: 'HOLD', reason: 'saved_coverage_not_verified',
+            proof: { browserPosts: 0, pendingPosts: 0, providerAttempts: 0, terminal: null } } as const;
+    }
 
     // This is a restored review, never the old after-Stop view with an automatic request.
     await page.goto('/session?review=' + encodeURIComponent(takeId));
