@@ -30,11 +30,13 @@ import { loadedReviewSessionId } from './rwtJ1dJourney';
 import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
 import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, stopMonitoredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
 import { captureConsentGate, consentModeFrom, consentReadbackVerdict, settlePracticeConsent, type CaptureConsentGate, type ChoiceClient, type SavedSessionRead, type SettledConsent } from './rwtPracticeConsent';
-import { FOCUS_COACHING_OFF_ROW, FOCUS_OFF_NO_COACHING_ROW, FOCUS_OFF_REPEAT_ROW, offNoCoachingVerdict, offRepeatVerdict, analyticsOffThroughActions, coachingOffVerdict, offAnalyticsRows, offBackReloadVerdict, readCoachingOffAfterStop, readOffRestoredView, reviewModeOf } from './rwtCoachingOff';
+import { FOCUS_COACHING_OFF_ROW, FOCUS_OFF_NO_COACHING_ROW, FOCUS_OFF_REPEAT_ROW, offNoCoachingVerdict, offRepeatVerdict, analyticsOffThroughActions, coachingOffVerdict, offAnalyticsRows, offBackReloadVerdict, readCoachingOffAfterStop, readOffRestoredView, reviewModeOf, savedFocusMatches } from './rwtCoachingOff';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, readRepeatEligibility, type NumericResult, type RepeatEligibility, type StartPressBudget } from './rwtHarnessParity';
 import { focusCapturedTakes, focusDesignedSaves } from './rwtFocusSaveIsolation';
-import { CoachingGenerationTap } from './coachingGenerationTap';
+import { CoachingGenerationTap, readSuggestionPair } from './coachingGenerationTap';
+import { runSavedTakeCoaching } from './rwtSavedTakeCoaching';
+import { armOneCoachingProviderBoundary } from './rwtSingleCoachingProof';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
 import { coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair, reopenBoundFocusReviewPair } from './rwtCoachingCollector';
 import { coachingContract } from './rwtCoachingEvidence';
@@ -43,6 +45,7 @@ import {
     AnalyticsTap,
     RwtReceipt,
     focusCoachingRows,
+    recordFocusCoachingContentRows,
     railStateRows,
     type SavedCoaching,
     requireApprovedSurface,
@@ -199,9 +202,13 @@ const PARITY_CLOSE_STEP_MS = 60_000;
  * @param coachingMaximum #1593 (Sam 1792317800 §6): the selected whole-scenario browser coaching-request maximum for THIS
  *   suite — 7 for the full PO-corpus journey, 4 for the partial fixture. It bounds the `coaching request budget` row.
  */
-export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }, coachingMaximum: number, finalizer: JourneyFinalizer) {
+export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }, coachingMaximum: number, finalizer: JourneyFinalizer, diagnostic: { oneSavedCoachingRequest?: boolean } = {}) {
     const preconditions = rwtPreconditionFailures();
     if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
+    const oneSavedCoachingRequest = diagnostic.oneSavedCoachingRequest === true;
+    if (oneSavedCoachingRequest && (fixtureKey !== 'focus_points_partial_tts' || process.env.RWT_PRACTICE_CONSENT !== 'save_on')) {
+        throw new Error('HOLD one-request diagnostic requires the partial fixture and explicit save-on, coaching-off capture');
+    }
     const run: RunTarget = await resolveRunTarget(JOURNEY);
     const fixture = loadRwtFixture(fixtureKey);
     // Comparable repeat candidate, not eligibility proof: full fixture 129 words/61.21 s loop;
@@ -244,6 +251,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     receipt.meta.target = run.label;
     receipt.meta.webgpu = WEBGPU;
     receipt.meta.points = points.length;
+    if (oneSavedCoachingRequest) receipt.meta.coachingProofMode = 'one-saved-request-diagnostic';
     receipt.row('base_q4 primary', 'HOLD', 'the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence');
 
     const tap = new AnalyticsTap();
@@ -255,6 +263,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     // #1258 (PM 6114590729): every coaching exchange at the request boundary, in memory only (diagnostic chain + artifact).
     const generations = new CoachingGenerationTap();
     generations.attach(page);
+    if (oneSavedCoachingRequest) {
+        // Saving-only capture must spend no quota even if the app unexpectedly sends.
+        await armOneCoachingProviderBoundary(page, generations, { permit: () => false, blockReadiness: true });
+    }
     await installMicAcquisitionCounter(page);
     // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's one context
     // (the main page and the review tabs it opens), attached before the first navigation.
@@ -1750,6 +1762,65 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 receipt.row(FOCUS_EDIT_CANCEL_ROW, cancelRow.verdict, cancelRow.detail, cancelRow.evidence);
             });
         }
+
+        if (oneSavedCoachingRequest) await test.step('J3.b one saved-repeat coaching request (diagnostic)', async () => {
+            const target = repeatSessionId;
+            const prerequisites = [
+                'live marker changes', 'marker timing vs audio', 'no red before Stop', 'saved exactly once',
+                'persisted verdicts', FOCUS_OFF_REPEAT_ROW, FOCUS_OFF_NO_COACHING_ROW,
+            ];
+            if (!target || target === persistedId || !admin || reviewModeOf(consent) !== 'coaching_off_saved'
+                || prerequisites.some((step) => !receipt.rows.some((row) => row.step === step && row.verdict === 'PASS'))
+                || generations.sentCount !== 0 || generations.readinessSentCount !== 0) {
+                receipt.row('J3.b single saved-repeat provider proof', 'HOLD', 'the app-only proof or the no-provider capture boundary was incomplete');
+                return;
+            }
+            const tab = await page.context().newPage();
+            const live = new CoachingGenerationTap();
+            live.attach(tab);
+            try {
+                const result = await runSavedTakeCoaching({ page: tab, tap: live, client: admin as unknown as ChoiceClient, ownerId: owner.uid,
+                    takeId: target, product: 'focus_points',
+                    verifyBeforeOptIn: async () => {
+                        // The helper has already armed a deny-all route. Even an unexpected POST from this first
+                        // Analytics visit cannot reach Edge. Do not click anything while waiting for the saved panel.
+                        await tab.goto('/analytics/' + encodeURIComponent(target));
+                        const loaded = await loadedReviewSessionId(tab);
+                        if (loaded !== target) return false;
+                        return expect.poll(async () => {
+                            const rows = await tab.evaluate(readJ3bSavedPanel, target);
+                            return !!rows && rows.length === points.length
+                                && rows.every((row, i) => row.ordinal === i + 1 && row.label === points[i])
+                                && savedFocusMatches(rows.map((row) => row.status), expectedFinal);
+                        }, { timeout: 15_000 }).toBe(true).then(() => true, () => false);
+                    },
+                    readSavedTake: async (id) => {
+                        const row = await readFocusSource(id);
+                        if (row === 'error' || row === null || row.id !== id || row.user_id !== owner.uid
+                            || row.product !== 'focus_points' || row.status !== 'completed') return null;
+                        const pair = readSuggestionPair({ suggestions: row.ai_suggestions });
+                        return (row.ai_suggestions === null || pair) ? { takeId: id, product: 'focus_points', pair } : null;
+                    } });
+                if (result.outcome === 'PASS') {
+                    const pair = result.proof.terminal?.suggestions;
+                    if (!pair) throw new Error('HOLD J3.b: the one successful repeat did not yield a complete pair');
+                    recordFocusCoachingContentRows(receipt, pair.what_worked, pair.what_to_try_next, {
+                        labels: points,
+                        // Before #1991, saved yellow can reopen with the older binary covered marker.
+                        // The panel above already matched the fixture, including its explicit partial when present.
+                        statuses: expectedFinal,
+                    });
+                }
+                receipt.row('J3.b single saved-repeat provider proof', result.outcome,
+                    result.outcome === 'EXTERNAL' ? 'the repeat stayed saved and offered Retry; successful live coaching was not demonstrated'
+                        : result.outcome === 'PASS' ? 'one repeat-bound answer rendered, persisted and reopened without a second request'
+                            : 'the one-request evidence did not qualify',
+                    { reason: result.reason, browserPosts: result.proof.browserPosts, pendingPosts: result.proof.pendingPosts,
+                        providerAttempts: result.proof.providerAttempts, providerStatus: 'providerStatus' in result ? result.providerStatus ?? null : null });
+            } finally {
+                await tab.close();
+            }
+        });
     } finally {
         await finish();
     }

@@ -37,6 +37,6 @@ test.describe('RWT — Focus Points @live', () => {
 
     test('partial fixture — one paraphrased and one absent point', async ({ page }, testInfo) => {
         test.setTimeout(1_500_000); // cold model acquisition + a ~60 s take + review + Analytics
-        await focusPointsJourney(page, testInfo, 'focus_points_partial_tts', 'focus-points-partial', owner, 4, finalizer);
+        await focusPointsJourney(page, testInfo, 'focus_points_partial_tts', 'focus-points-partial', owner, 4, finalizer, { oneSavedCoachingRequest: process.env.RWT_ONE_SAVED_COACHING_DIAGNOSTIC === '1' });
     });
 });
