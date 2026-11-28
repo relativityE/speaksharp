@@ -397,6 +397,35 @@ describe('documentation contract — product_release/', () => {
  * CONTRADICTION: the same fact stated two ways in two places, or a task described as both merged and
  * unstarted. They read only committed files, so they run in CI without network access.
  */
+/**
+ * PO 2026-11-28: stale docs WARN, then BLOCK, and quickly: "warn after 4, fail on 5th commit". The board must
+ * be refreshed while the merged changes are still fresh enough to describe correctly, so every commit behind
+ * the mainline is a warning that counts down, and the 5th commit behind fails. A docs refresh PR always
+ * passes, because the guard reads the PR's own (updated) baseline.
+ */
+const STALE_WARN_AFTER = 0;
+const STALE_WARNINGS_BEFORE_BLOCK = 4;
+type Staleness = { verdict: 'current' | 'warn' | 'block'; warnings: number; remaining: number };
+function stalenessVerdict(distance: number): Staleness {
+  const warnings = Math.max(0, distance - STALE_WARN_AFTER);
+  const remaining = Math.max(0, STALE_WARNINGS_BEFORE_BLOCK - warnings);
+  const verdict = warnings === 0 ? 'current' : warnings <= STALE_WARNINGS_BEFORE_BLOCK ? 'warn' : 'block';
+  return { verdict, warnings, remaining };
+}
+
+describe('stale-docs policy: warn, then block after a fixed number of warnings', () => {
+  it('passes up to the warning line, warns past it, and blocks once the warnings are used up', () => {
+    // Literal commit counts, so a change to the policy constants must also change this test.
+    expect(stalenessVerdict(0)).toEqual({ verdict: 'current', warnings: 0, remaining: 4 });
+    expect(stalenessVerdict(1)).toEqual({ verdict: 'warn', warnings: 1, remaining: 3 });
+    // PO option A: 1-3 behind already warn (not quiet), so the warning is seen before the last chance.
+    expect(stalenessVerdict(3)).toEqual({ verdict: 'warn', warnings: 3, remaining: 1 });
+    expect(stalenessVerdict(4)).toEqual({ verdict: 'warn', warnings: 4, remaining: 0 });
+    expect(stalenessVerdict(5).verdict).toBe('block');
+    expect(stalenessVerdict(26).verdict).toBe('block');
+  });
+});
+
 /** Parse the fixed-field CURRENCY-BLOCK. Prose is deliberately not consulted. */
 function currencyBlock(markdown: string): Record<string, string> {
   const match = /<!-- CURRENCY-BLOCK\n([\s\S]*?)-->/.exec(markdown);
@@ -495,11 +524,15 @@ describe('#1258 currency guard — release status and roadmap must not contradic
       execFileSync('git', ['rev-list', '--count', `${status.baseline}..${mainline}`], { encoding: 'utf8' }).trim(),
     );
     expect(Number.isFinite(distance)).toBe(true);
-    // Generous, because a board legitimately lags a little — but a board thirty commits behind the
-    // mainline is describing a product state that no longer exists, which is the failure this exists
-    // to catch.
-    expect(distance, `baseline is ${distance} commits behind origin/main — currentize the SSOTs`)
-      .toBeLessThanOrEqual(25);
+    // Each commit behind WARNS (a CI annotation that counts down); the 5th commit behind BLOCKS (stale-docs
+    // policy above).
+    const stale = stalenessVerdict(distance);
+    if (stale.verdict === 'warn') {
+      process.stdout.write(`::warning title=Stale release docs::RELEASE_STATUS/ROADMAP baseline is ${distance} commit${distance === 1 ? "" : "s"} behind origin/main `
+        + `(warning ${stale.warnings} of ${STALE_WARNINGS_BEFORE_BLOCK}; ${stale.remaining} left before this blocks CI). Currentize the SSOTs.\n`);
+    }
+    expect(stale.verdict, `baseline is ${distance} commits behind origin/main, past ${STALE_WARNINGS_BEFORE_BLOCK} warnings — currentize the SSOTs`)
+      .not.toBe('block');
     // From `main`: the file must SAY that it cannot read the moving authorities, so a reader is
     // not misled into thinking this local guard verified GitHub or Production.
     expect(STATUS).toMatch(/cannot read a moving GitHub branch or Production deployment/i);
