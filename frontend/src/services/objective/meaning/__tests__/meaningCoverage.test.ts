@@ -337,3 +337,36 @@ describe('guards choose among candidate windows; named third parties (Codex P2s 
     });
 });
 
+describe('imperatives and one-segment transcripts (Codex P2s on #1995, round 3)', () => {
+    it('an imperative whose OBJECT is a third party ("Hire two engineers") is the speaker\'s own claim', async () => {
+        const segments = [seg(6, 'Hire two engineers in March.')];
+        const result = await one('Hire two engineers in March', segments, [{ premise: /^Hire two engineers in March/i, entail: 0.98 }]);
+        expect(result.status).toBe('covered');
+        expectAttributed(result, segments);
+    });
+
+    it('CONTROL: a third party as the SUBJECT still never credits the speaker\'s plan', async () => {
+        const result = await one('Hire two engineers in March', [seg(6, 'The competitors hire two engineers in March.')],
+            [{ premise: /hire two engineers in March/i, entail: 0.98 }]);
+        expect(result.status).toBe('missing');
+    });
+
+    it('sentences inside ONE segment are separate candidates: a leading report does not hide the later direct assertion', async () => {
+        const segments = [seg(3, 'Jordan says we need weekly reports. We need weekly reports.')];
+        const result = await one('We need weekly reports', segments, [
+            { premise: /^Jordan says we need weekly reports\.?$/i, entail: 0.97 },
+            { premise: /^We need weekly reports\.?$/i, entail: 0.993 },
+            { premise: /Jordan says we need weekly reports\. We need weekly reports/i, entail: 0.99 },
+        ]);
+        expect(result.status).toBe('covered');
+        expect(result.evidence?.quote).toBe('Jordan says we need weekly reports. We need weekly reports.');
+        expect(result.evidence?.timestampSec).toBe(3);
+    });
+
+    it('CONTROL: a decimal number is not a sentence boundary', async () => {
+        const result = await one('Churn fell to 3.5 percent', [seg(4, 'Churn fell to 3.5 percent this quarter.')],
+            [{ premise: /^Churn fell to 3\.5 percent this quarter/i, entail: 0.95 }]);
+        expect(result.status).toBe('covered');
+    });
+});
+

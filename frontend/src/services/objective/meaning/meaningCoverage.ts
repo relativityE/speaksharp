@@ -68,7 +68,9 @@ interface ClaimState {
     guardRejected?: boolean;
 }
 
-const CLAUSE_SPLIT = /\s*;\s*|,?\s+but\s+|,?\s+while\s+|,?\s+whereas\s+|,?\s+however,?\s+/i;
+// Sentence boundaries split too (Codex P2 on #1995): the Private post-Stop path hands over ONE whole-take segment, so
+// "Jordan says X. X." must be two candidates — a decimal ("3.5") has no space after the point and never splits.
+const CLAUSE_SPLIT = /(?<=[.!?])\s+(?=\S)|\s*;\s*|,?\s+but\s+|,?\s+while\s+|,?\s+whereas\s+|,?\s+however,?\s+/i;
 
 /** Split every segment into clauses; each clause keeps its segment's start time and index. */
 function toClauses(segments: TranscriptSegment[]): Window[] {
@@ -174,7 +176,9 @@ function windowVerdict(point: string, claim: string, text: string): 'missing' | 
     const lead = leadOf(quote);
     if (BARE_PRONOUN.test(quote)) return 'partial';
     if (REPORTED.test(quote) && !REPORTED.test(claim.trim())) return 'missing';
-    const ownTeam = /\b(our|we|us)\b/i.test(lead);
+    // An imperative clause ("Hire two engineers…") is the speaker's own plan, as `toHypothesis` reads it: a third party
+    // there is its OBJECT, not its subject (Codex P2 on #1995).
+    const ownTeam = /\b(our|we|us)\b/i.test(lead) || IMPERATIVE_START.test(quote);
     // a claim without an explicit group is about the speaker's own team/process (e.g. "Security review happens…")
     if ((subj.kind === 'first' || subj.kind === 'other') && OTHER_PARTIES.test(lead) && !ownTeam) return 'missing';
     if (subj.kind === 'group') {
