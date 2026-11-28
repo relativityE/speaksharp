@@ -61,6 +61,10 @@ const CORPUS: Array<[string, readonly string[] | null]> = [
     ["You didn't have time to mention the launch date.", ['Launch date', 'Pricing tiers']],
     ["You didn't get around to pausing between points.", ['Launch date', 'Pricing tiers']],
     ['You never got around to the guarantee.', ['Money-back guarantee']],
+    // Review of #1999 at 1f4f8b17: an attributive participle whose clause names a chosen point elsewhere is still a claim.
+    ['The omitted detail was the launch date.', ['Launch date', 'Pricing tiers']],
+    ['The skipped second point was the pricing tiers.', ['Launch date', 'Pricing tiers']],
+    ['The skipped second point needs a clearer opening.', ['Launch date', 'Pricing tiers']],
     // A label that itself contains an omission participle: quoting it is not an omission claim.
     ['Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent']],
     ['You missed the deadlines point.', ['Measure missed deadlines and time spent']],
@@ -163,6 +167,9 @@ describe('PM review of #1993: precision of the guard (both copies)', () => {
             ["You didn't have time to mention the launch date.", ['Launch date', 'Pricing tiers'], 'flag'],
             ["You didn't get around to pausing between points.", ['Launch date', 'Pricing tiers'], 'serve'],
             ['You never got around to the guarantee.', ['Money-back guarantee'], 'flag'],
+            ['The omitted detail was the launch date.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['The skipped second point was the pricing tiers.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['The skipped second point needs a clearer opening.', ['Launch date', 'Pricing tiers'], 'flag'],
         ];
         for (const [next, labels, expected] of cases) {
             const points: FocusGuardPoint[] = labels.map((label, i) => ({ label, verdict: i === 0 ? 'detected' : 'not_detected' }));
