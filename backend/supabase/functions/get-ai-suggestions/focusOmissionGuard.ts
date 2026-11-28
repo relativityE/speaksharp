@@ -24,12 +24,29 @@ export type OmissionForm = 'none' | 'past_claim' | 'implied_point' | 'present_po
 // ── Mirrored verbatim from tests/live/helpers/rwtCoachingConsistency.ts (parity-tested) ─────────────────────────────────
 const STOPWORDS = new Set(['your', 'with', 'that', 'this', 'from', 'have', 'what', 'when', 'will', 'about', 'they', 'them', 'into', 'than']);
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
-export const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b/i;
+export const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b|\bran\s+out\s+of\s+time\s+before\s+(?:getting\s+to|reaching|covering|mentioning)\b|\b(?:didn'?t|did\s+not)\s+(?:get|have)\s+(?:the\s+)?(?:time|a\s+chance)\s+to\b|\b(?:didn'?t|did\s+not|never)\s+got?\s+around\s+to\b/i;
 export const OMISSION_WORD = /\b(?:miss(?:es|ed|ing)?|skip(?:s|ped|ping)?|forg(?:et|ets|etting|ot|otten)|left\s+out|leav(?:e|es|ing)\s+out|omit(?:s|ted|ting)?|overlook(?:s|ed|ing)?|unmentioned)\b/i;
 export const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|miss(?:ing)?|forget(?:ting)?|leav(?:e|ing)\s+out|omit(?:ting)?)\b((?:\s+\S+){1,3})/i;
 export const PRESENT_MISSING = /(\S+(?:\s+\S+){0,2})\s+(?:is|are|was|were|still)\s+(?:still\s+)?missing\b|\bmissing\s+((?:\S+\s+){0,2}\S+)/i;
 export const NEGATOR = /\b(?:no|nothing|none|neither|nor|not\s+(?:a|one|any|a\s+single))\b/i;
 export const COLLECTIVE_POINTS = /\b(?:your|chosen|selected|focus|each|every|any|all)\s+(?:\w+\s+)?points?\b|\bone\s+of\s+(?:your|the)\s+(?:\w+\s+)?points?\b/i;
+
+/**
+ * An omission participle used ATTRIBUTIVELY ("the cost of missed deadlines", "flag skipped steps") describes the topic, not
+ * the speaker, unless its noun names a chosen point; the take's own label text is masked too (a label may itself contain
+ * "missed"). Only the omission test reads the masked text; every point lookup reads the original clause.
+ */
+export const ATTRIBUTIVE_PARTICIPLE = /(?<!\b(?:you|we|i|they|he|she|it|who|that|which|was|were|been|be|is|are|has|have|had|get|got)\s+)\b(missed|skipped|forgotten|omitted|overlooked)(\s+)([a-z0-9][\w'-]*)/gi;
+const NOT_A_TOPIC_NOUN = new Set(['it', 'them', 'that', 'this', 'those', 'these', 'the', 'a', 'an', 'your', 'my', 'our', 'his', 'her', 'their', 'one', 'any', 'every', 'each', 'all', 'point', 'points', 'to', 'out', 'on', 'over', 'in', 'at', 'by', 'with']);
+function omissionProbe(clause: string, labels: readonly string[] | null, names: (t: string) => boolean): string {
+    const normalizedLabels = (labels ?? []).map((label) => norm(label)).filter(Boolean);
+    let probe = clause;
+    for (const label of normalizedLabels) probe = probe.replace(new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' point ');
+    return probe.replace(ATTRIBUTIVE_PARTICIPLE, (whole: string, participle: string, space: string, noun: string) => {
+        const quotesLabel = normalizedLabels.some((label) => label.includes(`${participle.toLowerCase()} ${noun.toLowerCase()}`));
+        return NOT_A_TOPIC_NOUN.has(noun.toLowerCase()) || (names(noun) && !quotesLabel) ? whole : `${space}${noun}`;
+    });
+}
 
 /** The strongest omission form in `text` (clauses split on . ; ! ?), judged against the take's chosen point labels. */
 export function classifyOmission(text: string, labels: readonly string[] | null): OmissionForm {
@@ -40,10 +57,11 @@ export function classifyOmission(text: string, labels: readonly string[] | null)
   const rank: Record<OmissionForm, number> = { none: 0, unrelated: 1, unknown_point: 2, ambiguous: 2, present_point: 3, implied_point: 3, past_claim: 4 };
   const take = (f: OmissionForm) => { if (rank[f] > rank[form]) form = f; };
   for (const clause of clauses) {
-    const omission = PAST_CLAIM.test(clause) || OMISSION_WORD.test(clause) || PRESENT_MISSING.test(clause);
+    const probe = omissionProbe(clause, labels, names);
+    const omission = PAST_CLAIM.test(probe) || OMISSION_WORD.test(probe) || PRESENT_MISSING.test(probe);
     if (!omission) continue;
     const negated = NEGATOR.test(clause);
-    if (PAST_CLAIM.test(clause) && !negated) { take('past_claim'); continue; }
+    if (PAST_CLAIM.test(probe) && !negated) { take('past_claim'); continue; }
     if (negated) { take('ambiguous'); continue; }
     if (labels === null || labelWords.length === 0) { take('unknown_point'); continue; }
     const imperative = IMPERATIVE_OMIT.exec(clause);
@@ -82,6 +100,7 @@ export const FOCUS_SAFE_TEMPLATES = Object.freeze({
   what_to_try_next: 'Signpost each chosen point clearly as you reach it.',
 });
 
+
 /**
  * The replacement for one field: names a point when that is safe (a detected point for "what worked", a point not yet
  * clearly detected for "what to try next"), otherwise the label-free template. Every candidate is re-checked with the same
@@ -92,12 +111,14 @@ function replacementFor(field: GuardedField, points: readonly FocusGuardPoint[],
   for (const point of points) {
     if (point.verdict !== wanted) continue;
     const label = templateLabel(point.label);
-    if (!label) continue;
+    // Judged WITHOUT the label mask: a label that itself carries omission wording never enters a replacement.
+    if (!label || !isServableOmissionForm(classifyOmission(label, null))) continue;
     const candidate = field === 'what_worked'
       ? `Your point "${label}" came through clearly enough to be detected.`
       : `Signpost "${label}" clearly as you reach it.`;
     if (isServableOmissionForm(classifyOmission(candidate, labels))) return candidate;
   }
+  // Sam review of #1993: the honest fallback is the same for two takes with the same verified evidence; no forced variety.
   return FOCUS_SAFE_TEMPLATES[field];
 }
 

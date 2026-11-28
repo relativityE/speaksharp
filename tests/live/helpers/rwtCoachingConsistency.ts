@@ -106,7 +106,7 @@ export function openPointReferenceVerdict(o: { well: string; next: string; label
  * Only these closed tokens are recorded, never the phrase.
  */
 export type OmissionForm = 'none' | 'past_claim' | 'implied_point' | 'present_point' | 'ambiguous' | 'unrelated' | 'unknown_point';
-const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b/i;
+const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b|\bran\s+out\s+of\s+time\s+before\s+(?:getting\s+to|reaching|covering|mentioning)\b|\b(?:didn'?t|did\s+not)\s+(?:get|have)\s+(?:the\s+)?(?:time|a\s+chance)\s+to\b|\b(?:didn'?t|did\s+not|never)\s+got?\s+around\s+to\b/i;
 // The verbs' own inflections only, so `mission` or `skipper` never match (Codex P2 on 01363817).
 const OMISSION_WORD = /\b(?:miss(?:es|ed|ing)?|skip(?:s|ped|ping)?|forg(?:et|ets|etting|ot|otten)|left\s+out|leav(?:e|es|ing)\s+out|omit(?:s|ted|ting)?|overlook(?:s|ed|ing)?|unmentioned)\b/i;
 const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|miss(?:ing)?|forget(?:ting)?|leav(?:e|ing)\s+out|omit(?:ting)?)\b((?:\s+\S+){1,3})/i;
@@ -115,6 +115,23 @@ const PRESENT_MISSING = /(\S+(?:\s+\S+){0,2})\s+(?:is|are|was|were|still)\s+(?:s
 const NEGATOR = /\b(?:no|nothing|none|neither|nor|not\s+(?:a|one|any|a\s+single))\b/i;
 /** A collective reference to the take's chosen points, without naming one. */
 const COLLECTIVE_POINTS = /\b(?:your|chosen|selected|focus|each|every|any|all)\s+(?:\w+\s+)?points?\b|\bone\s+of\s+(?:your|the)\s+(?:\w+\s+)?points?\b/i;
+
+/**
+ * An omission participle used ATTRIBUTIVELY ("the cost of missed deadlines", "flag skipped steps") describes the topic, not
+ * the speaker, unless its noun names a chosen point; the take's own label text is masked too (a label may itself contain
+ * "missed"). Only the omission test reads the masked text; every point lookup reads the original clause.
+ */
+const ATTRIBUTIVE_PARTICIPLE = /(?<!\b(?:you|we|i|they|he|she|it|who|that|which|was|were|been|be|is|are|has|have|had|get|got)\s+)\b(missed|skipped|forgotten|omitted|overlooked)(\s+)([a-z0-9][\w'-]*)/gi;
+const NOT_A_TOPIC_NOUN = new Set(['it', 'them', 'that', 'this', 'those', 'these', 'the', 'a', 'an', 'your', 'my', 'our', 'his', 'her', 'their', 'one', 'any', 'every', 'each', 'all', 'point', 'points', 'to', 'out', 'on', 'over', 'in', 'at', 'by', 'with']);
+function omissionProbe(clause: string, labels: readonly string[] | null, names: (t: string) => boolean): string {
+    const normalizedLabels = (labels ?? []).map((label) => norm(label)).filter(Boolean);
+    let probe = clause;
+    for (const label of normalizedLabels) probe = probe.replace(new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' point ');
+    return probe.replace(ATTRIBUTIVE_PARTICIPLE, (whole: string, participle: string, space: string, noun: string) => {
+        const quotesLabel = normalizedLabels.some((label) => label.includes(`${participle.toLowerCase()} ${noun.toLowerCase()}`));
+        return NOT_A_TOPIC_NOUN.has(noun.toLowerCase()) || (names(noun) && !quotesLabel) ? whole : `${space}${noun}`;
+    });
+}
 export function omissionClaimVerdict(o: { well: string; next: string; labels: readonly string[] | null }): Verdict & { form: OmissionForm } {
     const labelWords = (o.labels ?? []).flatMap((label) => norm(label).split(/[^a-z0-9']+/).filter((w) => w.length >= 4 && !STOPWORDS.has(w)));
     const names = (text: string) => labelWords.some((w) => new RegExp(`\\b${w}`).test(norm(text)));
@@ -123,10 +140,11 @@ export function omissionClaimVerdict(o: { well: string; next: string; labels: re
     const rank: Record<OmissionForm, number> = { none: 0, unrelated: 1, unknown_point: 2, ambiguous: 2, present_point: 3, implied_point: 3, past_claim: 4 };
     const take = (f: OmissionForm) => { if (rank[f] > rank[form]) form = f; };
     for (const clause of clauses) {
-        const omission = PAST_CLAIM.test(clause) || OMISSION_WORD.test(clause) || PRESENT_MISSING.test(clause);
+        const probe = omissionProbe(clause, o.labels, names);
+        const omission = PAST_CLAIM.test(probe) || OMISSION_WORD.test(probe) || PRESENT_MISSING.test(probe);
         if (!omission) continue;
         const negated = NEGATOR.test(clause);
-        if (PAST_CLAIM.test(clause) && !negated) { take('past_claim'); continue; }
+        if (PAST_CLAIM.test(probe) && !negated) { take('past_claim'); continue; }
         if (negated) { take('ambiguous'); continue; }
         if (o.labels === null || labelWords.length === 0) { take('unknown_point'); continue; }
         const imperative = IMPERATIVE_OMIT.exec(clause);

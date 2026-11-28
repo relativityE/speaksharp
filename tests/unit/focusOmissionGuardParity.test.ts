@@ -34,12 +34,20 @@ const CORPUS: Array<[string, readonly string[] | null]> = [
         'Avoid skipping transitions.', 'Name the guarantee early so it is unmistakable.', 'Pause before the launch date so it lands.',
         'Make point 2 clearer by naming it first.', 'Signpost your third point earlier.', 'You never got to the pricing tiers; open with them.',
         'The launch date was overlooked.', 'You omitted the pricing tiers.', 'You did not get to the pricing tiers.', 'The guarantee was left out.',
+        // Sam review of #1993: time-out omissions, attributive participles, an object noun after "you missed".
+        'You ran out of time before getting to the pricing tiers.', "You didn't get a chance to cover the launch date.",
+        'You never got around to the guarantee.', 'You missed pricing tiers.', 'Name the cost of missed deadlines before the close.',
+        'Flag skipped steps in the rollout before the demo.',
+        'Discuss the cost of missed deadlines.', 'Missed pricing tiers.', 'The speaker missed pricing tiers.', 'You missed Money-back guarantee.',
     ].map((next) => [next, LABELS] as [string, readonly string[]]),
     ['You keep missing the mission statement.', ['Mission statement']],
     ['Your mission statement was clear and well paced.', ['Mission statement', 'Launch date']],
     ["Don't skip the guarantee next time.", null],
     ["Don't skip the guarantee next time.", []],
     ['You missed the guarantee.', null],
+    // A label that itself contains an omission participle: quoting it is not an omission claim.
+    ['Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent']],
+    ['You missed the deadlines point.', ['Measure missed deadlines and time spent']],
 ];
 
 describe('Edge Focus omission guard ⇔ live acceptance classifier', () => {
@@ -91,3 +99,31 @@ describe('the Focus prompt rules the Edge sends are the ones the live prompt bin
         expect(rules.join('\n')).toContain('Never say a point was missed, skipped, forgotten, omitted, overlooked, left out, not mentioned, not covered or never reached');
     });
 });
+
+describe('Sam review of #1993: precision of the guard (both copies)', () => {
+    const form = (next: string, labels: readonly string[] | null = LABELS) => omissionClaimVerdict({ well: WELL, next, labels }).form;
+    it('catches running out of time before a point, and other "did not get to it" forms', () => {
+        expect(form('You ran out of time before getting to the pricing tiers.')).toBe('past_claim');
+        expect(form("You didn't get a chance to cover the launch date.")).toBe('past_claim');
+        expect(form('You never got around to the guarantee.')).toBe('past_claim');
+    });
+    it('does not flag an attributive participle about the topic ("missed deadlines")', () => {
+        expect(form('Name the cost of missed deadlines before the close.')).toBe('none');
+        expect(form('Flag skipped steps in the rollout before the demo.')).toBe('none');
+        expect(form('Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent'])).toBe('none');
+    });
+    it('CONTROL: real omission claims about the speaker stay flagged', () => {
+        expect(form('You missed the guarantee.')).toBe('past_claim');
+        expect(form('You missed pricing tiers.')).toBe('past_claim');
+        expect(form('The launch date was overlooked.')).toBe('past_claim');
+        expect(form('You missed the deadlines point.', ['Measure missed deadlines and time spent'])).toBe('past_claim');
+        expect(form('Skip the filler words between points.')).toBe('unrelated');
+    });
+    it('Sam review: label text is context, not a mask: real claims about a chosen point are still caught', () => {
+        expect(form('Discuss the cost of missed deadlines.')).toBe('none');
+        expect(form('Missed pricing tiers.')).toBe('past_claim');
+        expect(form('The speaker missed pricing tiers.')).toBe('past_claim');
+        expect(form('You missed Money-back guarantee.')).toBe('past_claim');
+    });
+});
+
