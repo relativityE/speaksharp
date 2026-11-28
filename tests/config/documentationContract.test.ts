@@ -418,6 +418,8 @@ describe('stale-docs policy: warn, then block after a fixed number of warnings',
     // Literal commit counts, so a change to the policy constants must also change this test.
     expect(stalenessVerdict(0)).toEqual({ verdict: 'current', warnings: 0, remaining: 4 });
     expect(stalenessVerdict(1)).toEqual({ verdict: 'warn', warnings: 1, remaining: 3 });
+    // PO option A: 1-3 behind already warn (not quiet), so the warning is seen before the last chance.
+    expect(stalenessVerdict(3)).toEqual({ verdict: 'warn', warnings: 3, remaining: 1 });
     expect(stalenessVerdict(4)).toEqual({ verdict: 'warn', warnings: 4, remaining: 0 });
     expect(stalenessVerdict(5).verdict).toBe('block');
     expect(stalenessVerdict(26).verdict).toBe('block');
