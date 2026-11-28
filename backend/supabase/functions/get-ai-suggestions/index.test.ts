@@ -2277,6 +2277,37 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     ],
   };
 
+  await t.step('J3.b controlled: same point set, distinct takes get their own Focus prompt, saved pair and replay', async () => {
+    resetProvider();
+    adaptiveGemini = true;
+    const repeats = ['We should improve this week’s team handoff.', 'Our renewal story was about making last week’s handoff easier.'];
+    const seenPrompts: string[] = [];
+    for (const [i, id] of ['session-a', 'session-b'].entries()) {
+      const mock = mockSupabase({ session: focusSession({ transcript: repeats[i] }), focus: FOCUS });
+      const input = { sessionId: id, product: 'focus_points', accepted_coaching_versions: CAPABLE_CLIENT };
+      const generated = await handler(request(input), mock.create);
+      assertEquals(generated.status, 200);
+      const result = await generated.json();
+      const expected = { ...(i === 0 ? suggestionA : suggestionB), version: 'gemini_coaching_focus_v1' };
+      assertEquals(result.suggestions, expected);
+      assertEquals(mock.state.authorityArgs?.p_session_id, id);
+      assertEquals(mock.state.updated, { ai_suggestions: expected });
+      assertEquals(mock.state.authorityRpcCount, 1);
+      assertEquals(mock.state.quotaCount, 1);
+      assertStringIncludes(lastPrompt, repeats[i]);
+      assertStringIncludes(lastPrompt, FOCUS.points[2].label);
+      seenPrompts.push(lastPrompt);
+      const reopened = mockSupabase({ session: focusSession(mock.state.updated as { ai_suggestions: unknown }), focus: FOCUS });
+      const read = await handler(request(input), reopened.create);
+      assertEquals(read.status, 200);
+      assertEquals((await read.json()).suggestions, expected);
+      assertEquals(reopened.state.quotaCount, 0);
+      assertEquals(reopened.state.updated, null);
+    }
+    assertNotEquals(seenPrompts[0], seenPrompts[1]);
+    assertEquals(fetchCount, 2);
+  });
+
   await t.step('#1258 the prompt reads the SAVED filler counts; the stripped legacy field is only a fallback', async () => {
     resetProvider();
     const mock = mockSupabase({ session: savedSession({ filler_words: null, filler_counts: { um: 4, uh: 3, you_know: 1 } }) });
