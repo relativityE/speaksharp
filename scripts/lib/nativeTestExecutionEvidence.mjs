@@ -554,7 +554,7 @@ const coachingFocusOmissionGuardProfiles=coachingTimeoutFallbackProfiles.map(ite
   id:'coaching-focus-omission-guard',files:{...item.files,
     'backend/supabase/functions/get-ai-suggestions/index.ts':'05680278fb9c1b020e5824d9cc27bb6e7be4266de80b02ee88cef743dbadebf6',
     'backend/supabase/functions/get-ai-suggestions/index.test.ts':'3bd67a28530ae9a8f8314169e8ca8aa74f46daf75a9c5cbd04dc9369e0a5ebcb',
-    'backend/supabase/functions/get-ai-suggestions/focusOmissionGuard.ts':'6fb1be95d28316e91e900d04f534ccdf0bb148fc8ebd0e2d2f8d25b11059ef57',
+    'backend/supabase/functions/get-ai-suggestions/focusOmissionGuard.ts':'832e817cd1e62b6a01785557e863fd7f1e7edab6b5621e0f61ba1230149ff1f8',
   },
 }));
 // #1997: the controlled late-answer persistence assertions change only the exact test source.
