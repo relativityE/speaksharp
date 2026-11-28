@@ -119,23 +119,20 @@ const COLLECTIVE_POINTS = /\b(?:your|chosen|selected|focus|each|every|any|all)\s
 /**
  * An omission participle used ATTRIBUTIVELY, right after a determiner or preposition ("the cost of missed deadlines",
  * "flag the skipped steps"), describes the topic, not the speaker, unless its noun names a chosen point; any other position
- * ("you also missed…", "completely skipped mentioning…") stays a verb. A label that itself contains omission wording is
- * masked as whole words. Only the omission test reads the masked text; every point lookup reads the original clause.
+ * ("you also missed…", "and omitted details", "completely skipped mentioning…") stays a verb, and so does a gerund after
+ * it. Only the omission test reads the rewritten text; every point lookup reads the original clause.
  */
-const ATTRIBUTIVE_PARTICIPLE = /(?<=\b(?:the|a|an|of|for|on|about|with|any|no|those|these|their|its|by|from|and|or|in|to)\s+)\b(missed|skipped|forgotten|omitted|overlooked)(\s+)([a-z0-9][\w'-]*)/gi;
+const ATTRIBUTIVE_PARTICIPLE = /(?<=\b(?:the|a|an|of|for|on|about|with|any|no|those|these|their|its|by|from|in|to)\s+)\b(missed|skipped|forgotten|omitted|overlooked)(\s+)([a-z0-9][\w'-]*)/gi;
 const NOT_A_TOPIC_NOUN = new Set(['it', 'them', 'that', 'this', 'those', 'these', 'the', 'a', 'an', 'your', 'my', 'our', 'his', 'her', 'their', 'one', 'any', 'every', 'each', 'all', 'point', 'points', 'to', 'out', 'on', 'over', 'in', 'at', 'by', 'with']);
 function omissionProbe(clause: string, labels: readonly string[] | null, names: (t: string) => boolean): string {
     const normalizedLabels = (labels ?? []).map((label) => norm(label)).filter(Boolean);
-    let probe = clause;
-    // Only a label that itself carries omission wording is masked, and only as whole words (a short label such as "IT"
-    // must never erase part of "omitted"; review of #1999).
-    for (const label of normalizedLabels) {
-        if (!(OMISSION_WORD.test(label) || PAST_CLAIM.test(label))) continue;
-        probe = probe.replace(new RegExp(`\\b${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'), ' point ');
-    }
-    return probe.replace(ATTRIBUTIVE_PARTICIPLE, (whole: string, participle: string, space: string, noun: string) => {
+    // No label masking: a label word used as the predicate ("You missed deadlines" with the label "Missed deadlines") stays a
+    // claim. A quoted label is attributive anyway ("the cost of missed deadlines") and is handled below (PM review at 307c686a).
+    return clause.replace(ATTRIBUTIVE_PARTICIPLE, (whole: string, participle: string, space: string, noun: string) => {
         const quotesLabel = normalizedLabels.some((label) => label.includes(`${participle.toLowerCase()} ${noun.toLowerCase()}`));
-        return NOT_A_TOPIC_NOUN.has(noun.toLowerCase()) || (names(noun) && !quotesLabel) ? whole : `${space}${noun}`;
+        // A gerund after the participle ("skipped mentioning…") is a verb phrase, never a topic noun.
+        if (NOT_A_TOPIC_NOUN.has(noun.toLowerCase()) || /ing$/i.test(noun) || (names(noun) && !quotesLabel)) return whole;
+        return `${space}${noun}`;
     });
 }
 export function omissionClaimVerdict(o: { well: string; next: string; labels: readonly string[] | null }): Verdict & { form: OmissionForm } {

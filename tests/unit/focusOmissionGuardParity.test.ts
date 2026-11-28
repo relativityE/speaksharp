@@ -50,6 +50,11 @@ const CORPUS: Array<[string, readonly string[] | null]> = [
     ['You completely skipped mentioning the launch date.', ['Launch date', 'Pricing tiers']],
     ['The pricing tiers were omitted.', ['IT', 'Pricing tiers']],
     ['You left it out at the end.', ['IT', 'Pricing tiers']],
+    // PM review at 307c686a: a label word as the predicate, and "and" alone, never make a verb attributive.
+    ['You missed deadlines.', ['Missed deadlines']],
+    ['Discuss the cost of missed deadlines.', ['Missed deadlines']],
+    ['You covered the launch date and omitted details.', ['Launch date', 'Pricing tiers']],
+    ['You finished one point and skipped mentioning others.', ['Launch date', 'Pricing tiers']],
     // A label that itself contains an omission participle: quoting it is not an omission claim.
     ['Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent']],
     ['You missed the deadlines point.', ['Measure missed deadlines and time spent']],
@@ -135,6 +140,28 @@ describe('PM review of #1993: precision of the guard (both copies)', () => {
         expect(form('You completely skipped mentioning the launch date.', ['Launch date', 'Pricing tiers'])).toBe('past_claim');
         expect(form('The pricing tiers were omitted.', ['IT', 'Pricing tiers'])).toBe('past_claim');
         expect(form('You left it out at the end.', ['IT', 'Pricing tiers'])).toBe('past_claim');
+    });
+
+    it('PM review at 307c686a: classifier AND actual replacement agree on every paired case (no shared miss)', () => {
+        const cases: Array<[string, readonly string[], 'flag' | 'serve']> = [
+            ['You missed deadlines.', ['Missed deadlines'], 'flag'],
+            ['Discuss the cost of missed deadlines.', ['Missed deadlines'], 'serve'],
+            ['You covered the launch date and omitted details.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['You finished one point and skipped mentioning others.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['You also missed two of your chosen points.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['The pricing tiers were omitted.', ['IT', 'Pricing tiers'], 'flag'],
+            ['Flag the skipped steps in the rollout before the demo.', ['Launch date', 'Pricing tiers'], 'serve'],
+            ['Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent'], 'serve'],
+        ];
+        for (const [next, labels, expected] of cases) {
+            const points: FocusGuardPoint[] = labels.map((label, i) => ({ label, verdict: i === 0 ? 'detected' : 'not_detected' }));
+            const guarded = guardFocusOmission({ what_worked: WELL, what_to_try_next: next }, points);
+            const live = omissionClaimVerdict({ well: WELL, next, labels });
+            const replaced = guarded.replaced.includes('what_to_try_next');
+            expect({ next, replaced, livePass: live.status === 'PASS' }).toEqual({ next, replaced: expected === 'flag', livePass: expected === 'serve' });
+            // Whatever is served passes the live row.
+            expect(omissionClaimVerdict({ well: guarded.suggestions.what_worked, next: guarded.suggestions.what_to_try_next, labels }).status).toBe('PASS');
+        }
     });
 });
 
