@@ -6,6 +6,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadRepeatOrigin } from '@/services/progress/loadRepeatOrigin';
 import { openAttemptSnapshot, subscribeOpenAttempt } from '@/services/progress/openAttempt';
 import { formatOriginalSessionLabel, formatRepeatValues, reviewOwnedOutcome, TARGET_METRIC_LABELS } from './repeatOutcomeCopy';
+import { repeatPaceSentence } from './repeatPaceCopy';
 
 /**
  * Outcome 4, first increment: on a repeat's Progress page, say which session it repeated (linked) and what the stored
@@ -66,6 +67,11 @@ export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId
     const label = formatOriginalSessionLabel(view.originalCreatedAt);
     const metric = TARGET_METRIC_LABELS[view.target.metric];
     const result = view.repeatResult;
+    // Present only when the pace-comparison flag is on (the loader adds it). When the stored target is pace and its
+    // values are already shown above, the pace line keeps only the variation sentence so the numbers are not repeated.
+    const paceSentence = view.pace ? repeatPaceSentence(view.pace, {
+        valuesShownAbove: view.target.metric === 'pace' && view.lifecycle === 'completed' && result?.status === 'available',
+    }) : null;
     return (
         <section data-testid="repeat-origin" aria-label="Repeat of an earlier session" className="rounded-xl border border-primary/20 bg-background p-4 space-y-1">
             <p className="text-sm font-semibold text-foreground">
@@ -113,6 +119,9 @@ export const RepeatOriginSection: React.FC<{ sessionId: string }> = ({ sessionId
                     </p>
                 </>;
             })()}
+            {paceSentence && (
+                <p data-testid="repeat-origin-pace" className="text-sm text-foreground/80">{paceSentence}</p>
+            )}
         </section>
     );
 };
