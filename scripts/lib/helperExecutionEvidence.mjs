@@ -103,13 +103,15 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/billing/user-journey/restoreAccess.ts',testFile:'tests/billing/user-journey/restoreAccess.test.ts',
   callables:['assertTakeReadable','assertHistoryWalled','assertHistoryRestored','assertSingleCharge','portalShowsPlan','portalPlanMiss','visiblePlanChains'],
 }, {helperFile:"tests/billing/user-journey/paidValueLoop.ts",testFile:"tests/billing/user-journey/paidValueLoop.test.ts",callables:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]}, {helperFile:"tests/billing/user-journey/localStackResources.mjs",testFile:"tests/billing/user-journey/localStackResources.test.ts",callables:["captureStackIdentity", "assertIdentityShape", "stackIdentitySha256", "verifyStackDestroyed"]}, {helperFile:"tests/billing/user-journey/localStackReceipt.mjs",testFile:"tests/billing/user-journey/contract.test.ts",callables:["journeyReceiptDefects", "destructionDefects", "finaliseLocalStackReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPlan.mjs",testFile:"tests/billing/user-journey/fullMode.test.ts",callables:["workflowDispatch", "planRun", "finaliseModeReceipt"]}, {helperFile:"tests/billing/user-journey/runnerPreflight.mjs",testFile:"tests/billing/user-journey/runnerPreflight.test.ts",callables:["fingerprint", "assertTestKeys", "assertKeysMatchStack", "assertLocalSupabaseKeys", "probeLocalBackend", "runnerPreflight"]}, {
-  // J1.f / J7.d on the disposable billing stack: the deletion link, the page's final message, the loop step and the leg receipts.
+  // J1.f / J7.d on the disposable billing stack: the deletion link, the page's final message, the loop step, the leg receipts,
+  // the retained-data verdict against the retention policy and the post-deletion sign-in outcome.
   helperFile:'tests/billing/user-journey/accountDeletionJourney.ts',testFile:'tests/unit/accountDeletionJourney.test.ts',
-  callables:['deletionLink','terminalMessage','deletionLoopStep','legReceipt','scorerAccount','combinedDeletionReceipt','legScorerFile','combineLegScorerFiles'],
+  callables:['deletionLink','terminalMessage','deletionLoopStep','legReceipt','scorerAccount','combinedDeletionReceipt','legScorerFile','combineLegScorerFiles','classifyRetainedData','retainedGaps','signInOutcome'],
 }, {
-  // J1.f / J7.d: the run's disposable deletion grant, its seed and env lines, and the request-scoped coverage seed.
+  // J1.f / J7.d: the run's disposable deletion grant, its seed and env lines, the request-scoped coverage seed and the
+  // read-only retained-data count.
   helperFile:'tests/billing/user-journey/accountDeletionLocalStack.mjs',testFile:'tests/unit/accountDeletionLocalStack.test.ts',
-  callables:['buildDeletionGrant','seedSql','envFileLines','coverageSql','localDbUrl','closurePhaseSql'],
+  callables:['buildDeletionGrant','seedSql','envFileLines','coverageSql','localDbUrl','closurePhaseSql','retainedDataSql'],
 }, {
   // J1.f / J7.d scoring: each leg's deletion facts plus the stack's teardown, destruction proof and Stripe residue.
   helperFile:'tests/billing/user-journey/deletionReceipt.mjs',testFile:'tests/billing/user-journey/deletionReceipt.test.ts',

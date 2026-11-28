@@ -178,7 +178,7 @@ const CASE07_SQL=Object.freeze({
 });
 // Real (non-type, unrenamed) imports a wiring contract requires; route contracts require none.
 const REQUIRED_IMPORTS=Object.freeze({
-'tests/billing/user-journey/account-deletion.billing.spec.ts':{module:'./accountDeletionJourney',names:['ENTRY_ROUTE','combinedDeletionReceipt','deletionLink','deletionLoopStep','legReceipt','scorerAccount','terminalMessage']},
+'tests/billing/user-journey/account-deletion.billing.spec.ts':{module:'./accountDeletionJourney',names:['ENTRY_ROUTE','classifyRetainedData','combinedDeletionReceipt','deletionLink','deletionLoopStep','legReceipt','scorerAccount','signInOutcome','terminalMessage']},
 "tests/billing/user-journey/paid-value-loop.billing.spec.ts":{module:"./paidValueLoop",names:["paidValueLoopReceipt", "assertSavedTake", "assertEligibleEvaluation", "savedCoaching", "coachingShownAsSaved", "assertRecommendation", "comparisonExpectation", "assertComparisonShown"]},
 
   'tests/live/rwt-abandon-and-two-tabs.live.spec.ts':{module:'./helpers/rwtTwoPlaces',names:['displacedFenceVerdict','sameBrowserRefusedVerdict']},
@@ -375,6 +375,8 @@ const wiring={
   "facts.terminal = await confirmAndComplete(page, account.uid);",
   "const scorer = legScorerFile(scorerAccount(facts, sha256(account.uid)), { release: RELEASE, stackRun: STACK_RUN });",
   "facts.closurePhase = readClosurePhase(account.uid);",
+  "facts.retainedData = readRetainedData(account.uid, account.email);",
+  "facts.signInAfterDeletion = await signInAfterDeletion(account.email, account.password);",
   "const accounts = combineLegScorerFiles(files, { release: RELEASE, stackRun: STACK_RUN });",
 ],
 "tests/billing/user-journey/paid-value-loop.billing.spec.ts":["readonly targets = assertSandboxConfiguration(env, committedTarget);", "if (useLocalStack) await runnerPreflight(env);", "requireFact(balance.livemode === false, 'stripe_account_not_test');", "assertEligibleEvaluation(evaluation, sessionId, this.uid);", "const result = paidValueLoopReceipt(run?.steps ?? new Set());", "result: status.result,", "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');"],

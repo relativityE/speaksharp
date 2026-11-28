@@ -2,11 +2,21 @@
 /** J1.f / J7.d deletion journeys on the disposable billing stack: the link, the terminal message and the leg receipt. */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ENTRY_ROUTE, STATUS_RECHECK_MS, combineLegScorerFiles, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, legScorerFile, scorerAccount, terminalMessage, type DeletionLegFacts } from '../billing/user-journey/accountDeletionJourney';
+import { ENTRY_ROUTE, RETENTION_POLICY, STATUS_RECHECK_MS, classifyRetainedData, combineLegScorerFiles, combinedDeletionReceipt, deletionLink, deletionLoopStep, legReceipt, legScorerFile, retainedGaps, scorerAccount, signInOutcome, terminalMessage, type DeletionLegFacts } from '../billing/user-journey/accountDeletionJourney';
 import { finaliseDeletionReceipt } from '../billing/user-journey/deletionReceipt.mjs';
 
 const API = 'http://127.0.0.1:54321';
 const APP = 'http://localhost:5173';
+/** What retainedDataSql prints for a clean deletion: every keyed type at zero, the trial email kept and unlinked. */
+const CLEAN_LINES = ['auth.identities.user_id|0|0', 'auth.users.id|0|0', 'public.sessions.user_id|0|0', 'public.trial_entitlements.user_id|0|0',
+    'public.user_issue_reports.user_id|0|0', 'public.user_profiles.id|0|0', 'storage.owned.objects|0|0', 'public.trial_entitlements.email|1|0',
+    'public.trial_entitlements.email_unlinked|1|0'];
+const lines = (...over: string[]) => {
+    const map = new Map(CLEAN_LINES.map((l) => [l.split('|')[0], l]));
+    for (const o of over) map.set(o.split('|')[0], o);
+    return [...map.values()].join('\n');
+};
+const CLEAN = classifyRetainedData(lines());
 const redirect = (over = '') => encodeURIComponent(`${APP}/account/delete?account_deletion_token=tok123${over}`);
 const verify = (o: { origin?: string; type?: string; token?: string; to?: string } = {}) =>
     `${o.origin ?? API}/auth/v1/verify?token=${o.token ?? 'otp1'}&type=${o.type ?? 'magiclink'}&redirect_to=${o.to ?? redirect()}`;
@@ -79,7 +89,8 @@ describe('deletionLoopStep: after confirming, act as the user would until the pa
 
 describe('leg receipt', () => {
     const facts: DeletionLegFacts = { leg: 'J7.d', route: ENTRY_ROUTE['J7.d'], accountSha: 'a'.repeat(16), entryReached: true, verificationRequested: true,
-        verificationLinkFound: true, terminal: 'deleted', closurePhase: 'completed', authUser: 'absent', residueClear: true, fallbackCleanup: 'not_run' };
+        verificationLinkFound: true, terminal: 'deleted', closurePhase: 'completed', authUser: 'absent', residueClear: true, retainedData: CLEAN,
+        signInAfterDeletion: 'refused', fallbackCleanup: 'not_run' };
     it('each leg is its own route and carries only fixed words and a hash', () => {
         expect(ENTRY_ROUTE).toEqual({ 'J1.f': 'trial_wall', 'J7.d': 'account_page' });
         const r = legReceipt(facts, { release: 'f'.repeat(40), stackRun: 'billing-local-stack-1-1', startedAt: 1, finishedAt: 11 });
@@ -91,7 +102,7 @@ describe('leg receipt', () => {
 describe('the journeys\' combined receipt is exactly what the scorer (deletionReceipt.mjs) reads', () => {
     const leg = (l: 'J1.f' | 'J7.d', over: Partial<DeletionLegFacts> = {}): DeletionLegFacts => ({ leg: l, route: ENTRY_ROUTE[l], accountSha: 'a'.repeat(16),
         entryReached: true, verificationRequested: true, verificationLinkFound: true, terminal: 'deleted', closurePhase: 'completed', authUser: 'absent',
-        residueClear: true, fallbackCleanup: 'not_run', ...over });
+        residueClear: true, retainedData: CLEAN, signInAfterDeletion: 'refused', fallbackCleanup: 'not_run', ...over });
     const run = { release: 'f'.repeat(40), stackRun: 'billing-local-stack-45355779902-1' };
     const score = (a: DeletionLegFacts, b: DeletionLegFacts) =>
         finaliseDeletionReceipt(combinedDeletionReceipt([scorerAccount(a, '1'.repeat(64)), scorerAccount(b, '2'.repeat(64))], run),
@@ -112,13 +123,100 @@ describe('the journeys\' combined receipt is exactly what the scorer (deletionRe
         expect(score(leg('J1.f'), leg('J7.d', { verificationLinkFound: false })).defects['J7.d']).toContain('verification_not_observed');
         expect(score(leg('J1.f', { terminal: 'deleted_cleanup_unverified' }), leg('J7.d')).defects['J1.f']).toContain('terminal_ui_not_deleted');
     });
+    it('both sides of the retention promise reach the scorer: an accepted or unread sign-in, and a retained-data GAP, FAIL or UNREAD', () => {
+        expect(score(leg('J1.f', { signInAfterDeletion: 'accepted' }), leg('J7.d')).defects['J1.f']).toEqual(['sign_in_not_refused']);
+        expect(score(leg('J1.f'), leg('J7.d', { signInAfterDeletion: 'unread' })).defects['J7.d']).toEqual(['sign_in_not_refused']);
+        const gap = classifyRetainedData(lines('public.account_closure_attempts.user_id|1|1'));
+        expect(score(leg('J1.f', { retainedData: gap }), leg('J7.d')).defects['J1.f']).toEqual(['retained_data_gap']);
+        expect(score(leg('J1.f', { retainedData: classifyRetainedData(lines('public.sessions.user_id|2|0', 'public.trial_entitlements.email|0|0',
+            'public.trial_entitlements.email_unlinked|0|0')) }), leg('J7.d')).defects['J1.f']).toEqual(['retained_data_violation']);
+        expect(score(leg('J1.f', { retainedData: classifyRetainedData(lines('auth.users.id|1|0')) }), leg('J7.d')).defects['J1.f']).toEqual(['retained_data_violation']);
+        expect(score(leg('J1.f', { retainedData: null }), leg('J7.d')).defects['J1.f']).toEqual(['retained_data_unread']);
+        expect(score(leg('J1.f', { retainedData: { verdict: 'UNREAD', records: [] } }), leg('J7.d')).defects['J1.f']).toEqual(['retained_data_unread']);
+    });
+    it('the scorer record names a GAP\'s types and carries no address, id or value', () => {
+        const a = scorerAccount(leg('J1.f', { retainedData: classifyRetainedData(lines('public.account_closure_attempts.user_id|1|1')) }), '1'.repeat(64));
+        expect(a).toMatchObject({ retainedData: 'GAP', retainedGaps: ['public.account_closure_attempts.user_id'], signInRefused: true });
+        expect(JSON.stringify(a)).not.toMatch(/@|eyJ|access_token/);
+    });
+});
+
+describe('classifyRetainedData: only what the deletion page says may remain, remains', () => {
+    it('the policy is the page\'s own retention notice, unchanged', () => {
+        const page = readFileSync('frontend/src/pages/AccountDeletionPage.tsx', 'utf8');
+        expect(page).toContain('Your practice data and preferences will be removed.');
+        expect(page).toContain('Your trial email is retained to prevent repeat trials. Historical billing and support records may remain.');
+        expect(RETENTION_POLICY.source).toBe('frontend/src/pages/AccountDeletionPage.tsx retention notice');
+    });
+    it('a clean deletion is PASS: every keyed type removed, the trial email retained once and unlinked', () => {
+        expect(CLEAN.verdict).toBe('PASS');
+        expect(CLEAN.records.find((r) => r.type === 'public.trial_entitlements.email')).toEqual({ type: 'public.trial_entitlements.email', count: 1, withEmail: 0, verdict: 'retained_allowed' });
+        expect(CLEAN.records.filter((r) => r.verdict === 'removed').map((r) => r.type)).toContain('public.sessions.user_id');
+        expect(retainedGaps(CLEAN)).toEqual([]);
+    });
+    it('the Auth user or owned storage still present is a broken promise (FAIL); kept practice data is named as a GAP', () => {
+        for (const over of ['auth.users.id|1|0', 'storage.owned.objects|3|0']) expect({ over, verdict: classifyRetainedData(lines(over)).verdict }).toEqual({ over, verdict: 'FAIL' });
+        const kept = classifyRetainedData(lines('public.sessions.user_id|1|0'));
+        expect(kept.verdict).toBe('GAP');
+        expect(retainedGaps(kept)).toEqual(['public.sessions.user_id']);
+    });
+    it('the trial email missing, duplicated or still linked to the user is FAIL', () => {
+        expect(classifyRetainedData(lines('public.trial_entitlements.email|0|0', 'public.trial_entitlements.email_unlinked|0|0')).verdict).toBe('FAIL');
+        expect(classifyRetainedData(lines('public.trial_entitlements.email_unlinked|0|0')).verdict).toBe('FAIL');
+    });
+    it('a record type the policy does not name that still holds rows is a GAP, reported by type and count, never widened away', () => {
+        const r = classifyRetainedData(lines('public.account_closure_attempts.user_id|1|1', 'public.account_completion_stages.user_id|4|0'));
+        expect(r.verdict).toBe('GAP');
+        expect(retainedGaps(r)).toEqual(['public.account_closure_attempts.user_id', 'public.account_completion_stages.user_id']);
+        expect(r.records.find((x) => x.type === 'public.account_closure_attempts.user_id')).toEqual({ type: 'public.account_closure_attempts.user_id', count: 1, withEmail: 1, verdict: 'gap' });
+    });
+    it('only the exact, policy-backed support record type may remain; a billing- or stripe-named table is judged like any other', () => {
+        // Billing history is keyed by Stripe customer, not by user, so no user-keyed billing type is policy-backed today.
+        expect(RETENTION_POLICY.mayRemain).toEqual(['public.user_issue_reports.user_id']);
+        expect(classifyRetainedData(lines('public.user_issue_reports.user_id|2|0')).verdict).toBe('PASS');
+        // Sam on 999d88d2: a new or operational table must not pass on its name.
+        for (const over of ['public.stripe_customers.user_id|1|0', 'public.billing_events.user_id|1|0', 'public.stripe_refund_followups.owner_id|1|0']) {
+            const r = classifyRetainedData(lines(over));
+            expect({ over, verdict: r.verdict, gaps: retainedGaps(r) }).toEqual({ over, verdict: 'GAP', gaps: [over.split('|')[0]] });
+        }
+        expect(classifyRetainedData(lines('public.account_checkout_operations.user_id|1|0')).verdict).toBe('GAP');
+    });
+    it('anything unreadable is UNREAD, never a pass: empty, a stray line, a repeated type, or a missing fixed type', () => {
+        expect(classifyRetainedData('').verdict).toBe('UNREAD');
+        expect(classifyRetainedData(`${lines()}\nERROR:  permission denied`).verdict).toBe('UNREAD');
+        expect(classifyRetainedData(`${lines()}\npublic.sessions.user_id|0|0`).verdict).toBe('UNREAD');
+        expect(classifyRetainedData(lines().split('\n').filter((l) => !l.startsWith('storage.owned')).join('\n')).verdict).toBe('UNREAD');
+        expect(classifyRetainedData('public.sessions.user_id|x|0').verdict).toBe('UNREAD');
+    });
+});
+
+describe('signInOutcome: only Auth\'s own refusal of the real credentials counts', () => {
+    it('a session is accepted; 400 invalid_credentials is refused; anything else is unread', () => {
+        expect(signInOutcome({ session: { access_token: 'x' }, error: null })).toBe('accepted');
+        expect(signInOutcome({ session: null, error: { status: 400, code: 'invalid_credentials', message: 'Invalid login credentials' } })).toBe('refused');
+        expect(signInOutcome({ session: null, error: { status: 400, code: null, message: 'Invalid login credentials' } })).toBe('refused');
+        expect(signInOutcome({ session: null, error: { status: 429, code: 'over_request_rate_limit', message: 'rate limit' } })).toBe('unread');
+        expect(signInOutcome({ session: null, error: { status: 0, code: null, message: 'fetch failed' } })).toBe('unread');
+        expect(signInOutcome({ session: null, error: { status: 400, code: 'email_not_confirmed', message: 'Email not confirmed' } })).toBe('unread');
+        expect(signInOutcome({ session: null, error: null })).toBe('unread');
+    });
+    it('the spec reads retained data, then signs in, both before the fallback cleanup', () => {
+        const spec = readFileSync('tests/billing/user-journey/account-deletion.billing.spec.ts', 'utf8');
+        const read = spec.indexOf('facts.retainedData = readRetainedData(account.uid, account.email);');
+        const signIn = spec.indexOf('facts.signInAfterDeletion = await signInAfterDeletion(account.email, account.password);');
+        const fallback = spec.indexOf('await cleanupRunOwnedAccount(');
+        expect(read).toBeGreaterThan(spec.indexOf('facts.residueClear ='));
+        expect(signIn).toBeGreaterThan(read);
+        expect(fallback).toBeGreaterThan(signIn);
+        expect(spec).toContain("signIn: 'refused', retained: 'PASS', retainedGaps: [], fallback: 'not_run' });");
+    });
 });
 
 describe('each route runs on its own (run 45407419238): per-leg scorer files, rebuilt into one receipt', () => {
     const run = { release: 'f'.repeat(40), stackRun: 'billing-local-stack-45407419238-1' };
     const facts = (leg: 'J1.f' | 'J7.d'): DeletionLegFacts => ({ leg, route: ENTRY_ROUTE[leg], accountSha: 'a'.repeat(16), entryReached: true,
         verificationRequested: true, verificationLinkFound: true, terminal: 'deleted', closurePhase: 'completed', authUser: 'absent',
-        residueClear: true, fallbackCleanup: 'not_run' });
+        residueClear: true, retainedData: CLEAN, signInAfterDeletion: 'refused', fallbackCleanup: 'not_run' });
     const file = (leg: 'J1.f' | 'J7.d', r = run) => legScorerFile(scorerAccount(facts(leg), (leg === 'J1.f' ? '1' : '2').repeat(64)), r);
     it('combines this run\'s files in leg order, whichever finished first', () => {
         expect(combineLegScorerFiles([file('J7.d'), file('J1.f')], run).map((a) => a.leg)).toEqual(['J1.f', 'J7.d']);

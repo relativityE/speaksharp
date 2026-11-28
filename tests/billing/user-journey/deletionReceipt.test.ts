@@ -18,9 +18,9 @@ const destruction = () => ({ schema: DESTROYED_SCHEMA, destroyed: true, project:
 const ref = (id: string) => createHash('sha256').update(id, 'utf8').digest('hex');
 const account = (leg: string, route: string, id: string, over: Record<string, unknown> = {}) => ({ leg, route, accountRef: ref(id),
   closurePhase: 'completed', authUserAbsent: true, residueVerified: true, fallbackCleanup: 'NOT_RUN',
-  entryReached: true, verificationObserved: true, terminalUi: 'deleted', ...over });
+  entryReached: true, verificationObserved: true, terminalUi: 'deleted', signInRefused: true, retainedData: 'PASS', retainedGaps: [], ...over });
 const receipt = (accounts = [account('J1.f', 'trial_wall', 'u1'), account('J7.d', 'account_page', 'u2')], over = {}) => ({
-  schema: 'account-deletion-local/v1', testedRelease: RELEASE, stackRun: PROJECT, stripeMode: 'test', accounts, ...over });
+  schema: 'account-deletion-local/v2', testedRelease: RELEASE, stackRun: PROJECT, stripeMode: 'test', accounts, ...over });
 const CLEAN = { journeys: 'success', stackStopped: 'success', stackDestroyed: 'success', stripeClean: 'success' };
 const expected = (over = {}) => ({ release: RELEASE, stackRun: PROJECT, destruction: destruction(), identity, ...over });
 const score = (r: unknown, checks = CLEAN, exp = expected()) => finaliseDeletionReceipt(r, checks, exp);
@@ -96,6 +96,7 @@ test('cleanup missing or failed fails both legs', () => {
 test('wrong release, wrong stack, live Stripe or a malformed receipt fails both legs', () => {
   for (const r of [receipt(undefined, { testedRelease: 'b'.repeat(40) }), receipt(undefined, { stackRun: 'billing-local-stack-123456-2' }),
     receipt(undefined, { stripeMode: 'live' }), receipt(undefined, { schema: 'billing-user-journey/v1' }),
+    receipt(undefined, { schema: 'account-deletion-local/v1' }),
     { ...receipt(), extra: true }, null, [], 'PASSED']) {
     assert.equal(score(r).result, 'NOT_PROVEN');
   }
@@ -117,5 +118,25 @@ test('each leg needs its own observed entry, Mailpit verification and terminal "
     const out = score(receipt([account('J1.f', 'trial_wall', 'u1'), account('J7.d', 'account_page', 'u2', { [field]: value })]));
     assert.deepEqual(out.legs, { 'J1.f': 'PASSED', 'J7.d': 'NOT_PROVEN' }, `${field}=${String(value)}`);
     assert.deepEqual(out.defects['J7.d'], [defect]);
+  }
+});
+
+test('both sides of the retention promise: a sign-in Auth did not refuse, or retained data that is not PASS, fails that leg', () => {
+  for (const [over, defect] of [[{ signInRefused: false }, 'sign_in_not_refused'],
+    [{ retainedData: 'GAP', retainedGaps: ['public.account_closure_attempts.user_id'] }, 'retained_data_gap'],
+    [{ retainedData: 'FAIL' }, 'retained_data_violation'], [{ retainedData: 'UNREAD' }, 'retained_data_unread'],
+    [{ retainedData: 'constructor' }, 'retained_data_unread'], [{ retainedData: undefined }, 'retained_data_unread']] as const) {
+    const out = score(receipt([account('J1.f', 'trial_wall', 'u1'), account('J7.d', 'account_page', 'u2', over)]));
+    assert.deepEqual(out.legs, { 'J1.f': 'PASSED', 'J7.d': 'NOT_PROVEN' }, JSON.stringify(over));
+    assert.deepEqual(out.defects['J7.d'], [defect], JSON.stringify(over));
+  }
+});
+
+test('a GAP must name its types, a PASS names none, and a type is a schema.table.column name only', () => {
+  for (const over of [{ retainedData: 'GAP', retainedGaps: [] }, { retainedGaps: ['public.x.user_id'] }, { retainedGaps: ['someone@example.test'] },
+    { retainedGaps: 'public.x.user_id' }]) {
+    const out = score(receipt([account('J1.f', 'trial_wall', 'u1', over), account('J7.d', 'account_page', 'u2')]));
+    assert.equal(out.legs['J1.f'], 'NOT_PROVEN', JSON.stringify(over));
+    assert.ok(out.defects['J1.f'].includes('retained_gaps_shape'), JSON.stringify(over));
   }
 });

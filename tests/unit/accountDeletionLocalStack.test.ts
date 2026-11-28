@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { CLOSURE_SCHEMA_SHA256, COMPLETION_SCHEMA_SHA256, GRANT_WINDOW_MS, LOCAL_TARGET, buildDeletionGrant, closurePhaseSql, coverageSql, envFileLines, localDbUrl }
+import { CLOSURE_SCHEMA_SHA256, COMPLETION_SCHEMA_SHA256, GRANT_WINDOW_MS, LOCAL_TARGET, buildDeletionGrant, closurePhaseSql, coverageSql, envFileLines, localDbUrl, retainedDataSql }
     from '../billing/user-journey/accountDeletionLocalStack.mjs';
 import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256, verifyAccountClosureRuntimeBinding }
     from '../../backend/supabase/functions/_shared/accountClosureRuntimeBinding';
@@ -89,6 +89,15 @@ describe('disposable deletion grant for the billing local stack', () => {
         expect(() => coverageSql("x' OR true --")).toThrow('uuid');
         expect(localDbUrl('postgresql://postgres:postgres@127.0.0.1:54322/postgres')).toContain('127.0.0.1:54322');
         expect(() => localDbUrl('postgresql://postgres:postgres@db.example.supabase.co:5432/postgres')).toThrow('loopback');
+    });
+    it('the retained-data read validates its inputs (a uuid user, the run\'s own address shape) and is one rolled-back READ ONLY transaction', () => {
+        expect(() => retainedDataSql("x' OR true --", 'a@example.invalid')).toThrow('uuid');
+        expect(() => retainedDataSql('d0110000-0000-4000-8000-000000000001', "a'@example.invalid")).toThrow('address');
+        const sql = retainedDataSql('d0110000-0000-4000-8000-000000000001', 'A@Example.invalid');
+        expect(sql).toContain('BEGIN TRANSACTION READ ONLY;');
+        expect(sql.trimEnd().endsWith('ROLLBACK;')).toBe(true);
+        expect(sql).toContain("WHERE email = 'a@example.invalid'");
+        expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|GRANT)\b/);
     });
     it('the closure-phase read is one uuid user\'s attempt over the stack database, and the journey never reads it as service_role', () => {
         expect(closurePhaseSql('d0110000-0000-4000-8000-000000000001'))

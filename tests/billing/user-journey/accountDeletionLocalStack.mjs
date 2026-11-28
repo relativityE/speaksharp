@@ -115,6 +115,61 @@ export function closurePhaseSql(userId) {
     return `SELECT phase FROM public.account_closure_attempts WHERE user_id='${userId}'::uuid;`;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** The run's own disposable address shape (smokeIdentity): no quote, backslash or whitespace can reach the SQL. */
+const SAFE_EMAIL = /^[a-z0-9._+-]{1,64}@[a-z0-9.-]{1,190}$/i;
+/** User-keyed column names counted even without a foreign key to auth.users (deletion journals deliberately outlive Auth). */
+export const USER_KEY_COLUMNS = Object.freeze(['user_id', 'owner_id', 'owner_uid', 'member_id']);
+
+/**
+ * READ-ONLY, the stack's own loopback database, inside one READ ONLY transaction that is rolled back: every record type still
+ * tied to one deleted user, counted, so the spec can prove both sides of the deletion promise (what must be gone, and that only
+ * what the policy allows remains). The record types come from the live catalog, so a future table is counted, never missed:
+ *   - every single-column foreign key to auth.users(id), in any schema;
+ *   - every public uuid column named in USER_KEY_COLUMNS, with or without a foreign key;
+ *   - the Auth user itself, and the account's owned storage (list_account_closure_storage);
+ *   - the retained trial-email record for the address, and how many of those rows are no longer linked to any user.
+ * Each output line is `type|count|withEmail`: a schema.table.column name, a row count and how many of those rows carry at least
+ * one non-null column whose name contains "email" (each row counted once, however many such columns it has). The trial-email
+ * rows are keyed by the address, so each carries it. No value from any row is ever selected or printed.
+ */
+export function retainedDataSql(userId, email) {
+    if (!UUID.test(String(userId))) throw new Error('retained data: the user id must be a uuid');
+    if (!SAFE_EMAIL.test(String(email))) throw new Error('retained data: unexpected address shape');
+    const address = String(email).toLowerCase();
+    const cols = `'{${USER_KEY_COLUMNS.join(',')}}'::text[]`;
+    return [
+        '\\set ON_ERROR_STOP on',
+        'BEGIN TRANSACTION READ ONLY;',
+        // One count statement per user-keyed column, generated from the catalog and run by \gexec.
+        'WITH keyed AS (',
+        '  SELECT n.nspname AS s, t.relname AS r, a.attname AS c, t.oid AS rel',
+        '    FROM pg_catalog.pg_constraint k JOIN pg_catalog.pg_class t ON t.oid = k.conrelid',
+        '    JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace',
+        '    JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.conkey[1]',
+        "   WHERE k.contype = 'f' AND k.confrelid = 'auth.users'::regclass AND cardinality(k.conkey) = 1",
+        '  UNION',
+        '  SELECT n.nspname, t.relname, a.attname, t.oid',
+        '    FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class t ON t.oid = a.attrelid',
+        '    JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace',
+        "   WHERE n.nspname = 'public' AND t.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped",
+        `     AND a.atttypid = 'uuid'::regtype AND a.attname = ANY (${cols})`,
+        ')',
+        "SELECT format('SELECT %L || ''|'' || count(*) || ''|'' || count(*) FILTER (WHERE %s) FROM %I.%I WHERE %I = %L::uuid',",
+        "    s || '.' || r || '.' || c,",
+        "    coalesce((SELECT string_agg(format('%I IS NOT NULL', e.attname), ' OR ') FROM pg_catalog.pg_attribute e",
+        "      WHERE e.attrelid = keyed.rel AND e.attnum > 0 AND NOT e.attisdropped AND e.attname ILIKE '%email%'), 'false'),",
+        `    s, r, c, '${userId}')`,
+        '  FROM keyed ORDER BY s, r, c \\gexec',
+        `SELECT 'auth.users.id|' || count(*) || '|0' FROM auth.users WHERE id = '${userId}'::uuid;`,
+        `SELECT 'storage.owned.objects|' || count(*) || '|0' FROM public.list_account_closure_storage('${userId}'::uuid);`,
+        `SELECT 'public.trial_entitlements.email|' || count(*) || '|' || count(*) FROM public.trial_entitlements WHERE email = '${address}';`,
+        `SELECT 'public.trial_entitlements.email_unlinked|' || count(*) || '|' || count(*) FROM public.trial_entitlements WHERE email = '${address}' AND user_id IS NULL;`,
+        'ROLLBACK;',
+        '',
+    ].join('\n');
+}
+
 export const COVERAGE_EVIDENCE = Object.freeze({
     legacy: 'disposable local stack only: no legacy producer exists; not production drain evidence',
     portal: 'disposable local stack only: no billing portal session exists; not production settlement evidence',
