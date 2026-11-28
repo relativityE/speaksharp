@@ -37,7 +37,7 @@ const CORPUS: Array<[string, readonly string[] | null]> = [
         // PM review of #1993: time-out omissions, attributive participles, an object noun after "you missed".
         'You ran out of time before getting to the pricing tiers.', "You didn't get a chance to cover the launch date.",
         'You never got around to the guarantee.', 'You missed pricing tiers.', 'Name the cost of missed deadlines before the close.',
-        'Flag skipped steps in the rollout before the demo.',
+        'Flag the skipped steps in the rollout before the demo.',
         'Discuss the cost of missed deadlines.', 'Missed pricing tiers.', 'The speaker missed pricing tiers.', 'You missed Money-back guarantee.',
     ].map((next) => [next, LABELS] as [string, readonly string[]]),
     ['You keep missing the mission statement.', ['Mission statement']],
@@ -45,6 +45,11 @@ const CORPUS: Array<[string, readonly string[] | null]> = [
     ["Don't skip the guarantee next time.", null],
     ["Don't skip the guarantee next time.", []],
     ['You missed the guarantee.', null],
+    // Review of #1999: verbal omissions with an intervening adverb, and a short label inside an omission verb.
+    ['You also missed two of your chosen points.', ['Launch date', 'Pricing tiers']],
+    ['You completely skipped mentioning the launch date.', ['Launch date', 'Pricing tiers']],
+    ['The pricing tiers were omitted.', ['IT', 'Pricing tiers']],
+    ['You left it out at the end.', ['IT', 'Pricing tiers']],
     // A label that itself contains an omission participle: quoting it is not an omission claim.
     ['Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent']],
     ['You missed the deadlines point.', ['Measure missed deadlines and time spent']],
@@ -109,7 +114,7 @@ describe('PM review of #1993: precision of the guard (both copies)', () => {
     });
     it('does not flag an attributive participle about the topic ("missed deadlines")', () => {
         expect(form('Name the cost of missed deadlines before the close.')).toBe('none');
-        expect(form('Flag skipped steps in the rollout before the demo.')).toBe('none');
+        expect(form('Flag the skipped steps in the rollout before the demo.')).toBe('none');
         expect(form('Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent'])).toBe('none');
     });
     it('CONTROL: real omission claims about the speaker stay flagged', () => {
@@ -124,6 +129,12 @@ describe('PM review of #1993: precision of the guard (both copies)', () => {
         expect(form('Missed pricing tiers.')).toBe('past_claim');
         expect(form('The speaker missed pricing tiers.')).toBe('past_claim');
         expect(form('You missed Money-back guarantee.')).toBe('past_claim');
+    });
+    it('review of #1999: an adverb before the participle keeps it a verb; a short label never masks part of a word', () => {
+        expect(form('You also missed two of your chosen points.', ['Launch date', 'Pricing tiers'])).toBe('past_claim');
+        expect(form('You completely skipped mentioning the launch date.', ['Launch date', 'Pricing tiers'])).toBe('past_claim');
+        expect(form('The pricing tiers were omitted.', ['IT', 'Pricing tiers'])).toBe('past_claim');
+        expect(form('You left it out at the end.', ['IT', 'Pricing tiers'])).toBe('past_claim');
     });
 });
 

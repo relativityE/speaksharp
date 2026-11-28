@@ -117,16 +117,22 @@ const NEGATOR = /\b(?:no|nothing|none|neither|nor|not\s+(?:a|one|any|a\s+single)
 const COLLECTIVE_POINTS = /\b(?:your|chosen|selected|focus|each|every|any|all)\s+(?:\w+\s+)?points?\b|\bone\s+of\s+(?:your|the)\s+(?:\w+\s+)?points?\b/i;
 
 /**
- * An omission participle used ATTRIBUTIVELY ("the cost of missed deadlines", "flag skipped steps") describes the topic, not
- * the speaker, unless its noun names a chosen point; the take's own label text is masked too (a label may itself contain
- * "missed"). Only the omission test reads the masked text; every point lookup reads the original clause.
+ * An omission participle used ATTRIBUTIVELY, right after a determiner or preposition ("the cost of missed deadlines",
+ * "flag the skipped steps"), describes the topic, not the speaker, unless its noun names a chosen point; any other position
+ * ("you also missed…", "completely skipped mentioning…") stays a verb. A label that itself contains omission wording is
+ * masked as whole words. Only the omission test reads the masked text; every point lookup reads the original clause.
  */
-const ATTRIBUTIVE_PARTICIPLE = /(?<!\b(?:you|we|i|they|he|she|it|who|that|which|was|were|been|be|is|are|has|have|had|get|got)\s+)\b(missed|skipped|forgotten|omitted|overlooked)(\s+)([a-z0-9][\w'-]*)/gi;
+const ATTRIBUTIVE_PARTICIPLE = /(?<=\b(?:the|a|an|of|for|on|about|with|any|no|those|these|their|its|by|from|and|or|in|to)\s+)\b(missed|skipped|forgotten|omitted|overlooked)(\s+)([a-z0-9][\w'-]*)/gi;
 const NOT_A_TOPIC_NOUN = new Set(['it', 'them', 'that', 'this', 'those', 'these', 'the', 'a', 'an', 'your', 'my', 'our', 'his', 'her', 'their', 'one', 'any', 'every', 'each', 'all', 'point', 'points', 'to', 'out', 'on', 'over', 'in', 'at', 'by', 'with']);
 function omissionProbe(clause: string, labels: readonly string[] | null, names: (t: string) => boolean): string {
     const normalizedLabels = (labels ?? []).map((label) => norm(label)).filter(Boolean);
     let probe = clause;
-    for (const label of normalizedLabels) probe = probe.replace(new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' point ');
+    // Only a label that itself carries omission wording is masked, and only as whole words (a short label such as "IT"
+    // must never erase part of "omitted"; review of #1999).
+    for (const label of normalizedLabels) {
+        if (!(OMISSION_WORD.test(label) || PAST_CLAIM.test(label))) continue;
+        probe = probe.replace(new RegExp(`\\b${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'), ' point ');
+    }
     return probe.replace(ATTRIBUTIVE_PARTICIPLE, (whole: string, participle: string, space: string, noun: string) => {
         const quotesLabel = normalizedLabels.some((label) => label.includes(`${participle.toLowerCase()} ${noun.toLowerCase()}`));
         return NOT_A_TOPIC_NOUN.has(noun.toLowerCase()) || (names(noun) && !quotesLabel) ? whole : `${space}${noun}`;
