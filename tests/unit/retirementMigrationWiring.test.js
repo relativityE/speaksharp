@@ -37,7 +37,7 @@ describe('exact local retirement apply wiring', () => {
     expect(config.requiredAppliedVersions).toContain('20261025021046');
     // The later #1831 start-abandonment and #1811 feedback-fence entries are excluded too: each stays pending until its own exact apply.
     // Migration 129 is now also a later allowlisted target, so it is excluded once, at its allowlist position, still held.
-    expect(config.excludedMigrations.map(row => row.version)).toEqual(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000', billingVersion, '20261126005433', '20261127144500', '20260812042000']);
+    expect(config.excludedMigrations.map(row => row.version)).toEqual(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000', billingVersion, '20261126005433', '20261127144500', '20261127210000', '20260812042000']);
     expect(expectedAuthorizationPhrase('a'.repeat(40), config)).toBe(`APPLY ${version} ${file} SHA256 ${config.targetSha256} AT ${'a'.repeat(40)}`);
     expect(assertBeforeApply(ledger(), config).pending).toEqual([version, billingVersion]);
     expect(() => assertBeforeApply(ledger().replace('20261025021046 | 20261025021046', '20261025021046 | '), config)).toThrow();
@@ -47,7 +47,7 @@ describe('exact local retirement apply wiring', () => {
   it('isolates the exact pinned pending billing successor without enabling its application', () => {
     // 129 is its own exact target now (isolated --include-all, the refund follow-up held), never part of this one.
     const own = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: billingVersion });
-    expect([own.requiresIncludeAll, own.excludedMigrations.map(row => row.version)]).toEqual([true, ['20261126005433', '20261127144500', '20260812042000', '20261112130000']]);
+    expect([own.requiresIncludeAll, own.excludedMigrations.map(row => row.version)]).toEqual([true, ['20261126005433', '20261127144500', '20261127210000', '20260812042000', '20261112130000']]);
     expect(EXACT_MIGRATION_ALLOWLIST.filter(row => row.version === billingVersion)).toHaveLength(1);
     expect(config.excludedMigrations.find(row => row.version === billingVersion)?.mustRemainPending).toBe(true);
     expect(() => assertBeforeApply(ledger().replace(`${billingVersion} | |`, `${billingVersion} | ${billingVersion} |`), config)).toThrow(/must remain pending/);

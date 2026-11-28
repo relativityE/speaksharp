@@ -79,7 +79,11 @@ describe('#1897 review 4 — which review the run checks', () => {
         expect(expectedSavedFocus(RAIL)).toEqual(SAVED);
         expect(expectedSavedFocus(['pending', null])).toEqual([null, null]);
         expect(savedFocusMatches(SAVED, RAIL)).toBe(true);
-        expect(savedFocusMatches(['covered', 'partial', 'missing', 'covered'], RAIL)).toBe(false);
+        // 20261127210000: a partly-made point may now reopen as `partial`; either display is accepted for a rail `partial`
+        expect(savedFocusMatches(['covered', 'partial', 'missing', 'covered'], RAIL)).toBe(true);
+        // ...but `partial` never stands in for a fully covered or a missing rail point
+        expect(savedFocusMatches(['partial', 'covered', 'missing', 'covered'], RAIL)).toBe(false);
+        expect(savedFocusMatches(['covered', 'covered', 'partial', 'covered'], RAIL)).toBe(false);
         expect(savedFocusMatches(SAVED.slice(0, 3), RAIL)).toBe(false);
         expect(savedFocusMatches(null, RAIL)).toBe(false);
         expect(savedFocusMatches([], [])).toBe(false);
@@ -181,7 +185,9 @@ describe('#1897 review 4 — Back from Progress and reload', () => {
         ['transcript_wrong', 'coaching_off_saved', { transcript: 'differs' }],
         ['transcript_wrong', 'saving_off', { transcript: 'matches' }],
         ['transcript_wrong', 'saving_off', { transcript: 'missing' }],
-        ['focus_results_wrong', 'coaching_off_saved', { focus: ['covered', 'partial', 'missing', 'covered'] }],
+        // 20261127210000: `partial` is now a valid display for a rail `partial`, never for a covered rail point
+        ['focus_results_wrong', 'coaching_off_saved', { focus: ['partial', 'covered', 'missing', 'covered'] }],
+        ['focus_results_wrong', 'coaching_off_saved', { focus: ['covered', 'missing', 'missing', 'covered'] }],
         ['focus_results_wrong', 'saving_off', { focus: null }],
     ] as const)('control %s (%s) FAILs after Back and after the reload given %j', (reason, mode, change) => {
         expect(offBackReloadVerdict(mode, { ...obs(mode), afterBack: { ...view(mode), ...change } })).toMatchObject({ verdict: 'FAIL', reason });

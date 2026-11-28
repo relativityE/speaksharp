@@ -212,3 +212,57 @@ describe('outcome 4 RepeatOriginSection', () => {
         expect(screen.queryByTestId('repeat-origin-tip-retention')).toBeNull();
     });
 });
+
+describe('Open Mic repeat pace line', () => {
+    it('absent pace (flag off): no pace line at all', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat());
+        renderSection();
+        await screen.findByTestId('repeat-origin');
+        expect(screen.queryByTestId('repeat-origin-pace')).toBeNull();
+    });
+
+    it('a compared pace shows values and a neutral direction, with no verdict words', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat({ pace: { status: 'compared', beforeWpm: 150, afterWpm: 120, changePercent: -20, band: 'changed' } }));
+        renderSection();
+        expect(await screen.findByTestId('repeat-origin-pace'))
+            .toHaveTextContent('Pace: 150 → 120 words per minute (original session → this repeat). The repeat was 20% slower.');
+        expect(screen.getByTestId('repeat-origin')).not.toHaveTextContent(FORBIDDEN);
+    });
+
+    it('within normal variation is said plainly', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat({ pace: { status: 'compared', beforeWpm: 152, afterWpm: 138, changePercent: -9.2, band: 'within_normal_variation' } }));
+        renderSection();
+        expect(await screen.findByTestId('repeat-origin-pace')).toHaveTextContent('Changes under 10% are treated as normal take-to-take variation.');
+    });
+
+    it('a pace target with its values already shown: the pace line does not repeat the numbers', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat({
+            outcome: 'did_not_move', target: { ...TARGET, metric: 'pace', direction: 'increase', units: 'wpm' },
+            repeatResult: { status: 'available', metric: 'pace', direction: 'increase', units: 'wpm', before: 140, after: 132 },
+            pace: { status: 'compared', beforeWpm: 140, afterWpm: 132, changePercent: -5.7, band: 'within_normal_variation' },
+        }));
+        renderSection();
+        const line = await screen.findByTestId('repeat-origin-pace');
+        expect(line).toHaveTextContent('That is a 6% difference.');
+        expect(line).not.toHaveTextContent('words per minute');
+    });
+
+    it('a not-comparable repeat shows why pace is not compared', async () => {
+        loadRepeatOrigin.mockResolvedValue(repeat({
+            lifecycle: 'not_comparable', outcome: 'not_comparable', repeatResult: null,
+            pace: { status: 'cant_compare', reason: 'different_length' },
+        }));
+        renderSection();
+        expect(await screen.findByTestId('repeat-origin-pace')).toHaveTextContent('Pace is not compared: the two takes are very different lengths.');
+    });
+
+    it('a Focus Points loop or an unavailable read shows no pace line', async () => {
+        for (const pace of [{ status: 'cant_compare', reason: 'not_open_mic' }, { status: 'unavailable' }]) {
+            loadRepeatOrigin.mockResolvedValue(repeat({ pace }));
+            const { unmount } = renderSection();
+            await screen.findByTestId('repeat-origin');
+            expect(screen.queryByTestId('repeat-origin-pace')).toBeNull();
+            unmount();
+        }
+    });
+});

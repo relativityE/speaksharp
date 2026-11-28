@@ -15,14 +15,32 @@ const { SavedFocusPointsCoverage } = await import('../SavedFocusPointsCoverage')
 beforeEach(() => { load.mockReset(); readProduct.mockReset(); });
 
 describe('SavedFocusPointsCoverage (Analytics session detail)', () => {
+    it('a partly-made point reopens as partial (yellow) with its time, never as Detected', async () => {
+        load.mockResolvedValue({
+            kind: 'coverage', detected: 2, total: 3, brief: null,
+            points: [
+                { label: 'Budget and launch', status: 'detected', detectedAtSeconds: 9, partial: true },
+                { label: 'Shared board', status: 'detected', detectedAtSeconds: 74, partial: false },
+                { label: 'Pilot', status: 'not_detected', detectedAtSeconds: null, partial: false },
+            ],
+        });
+        render(<SavedFocusPointsCoverage sessionId="s1" />);
+        await waitFor(() => expect(screen.getByTestId('saved-focus-points')).toBeInTheDocument());
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'partial');
+        expect(screen.getByTestId('focus-point-0-verdict')).toHaveTextContent(/^Partly detected at 0:09$/);
+        expect(screen.getByTestId('focus-point-0')).not.toHaveTextContent('Detected at');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
+        expect(screen.getByTestId('focus-point-2')).toHaveAttribute('data-status', 'missing');
+    });
+
     it('shows every saved point with its verdict in words and the detected total', async () => {
         load.mockResolvedValue({
             kind: 'coverage', detected: 2, total: 4, brief: null,
             points: [
-                { label: 'Updates get lost', status: 'detected', detectedAtSeconds: 5 },
-                { label: 'Shared board', status: 'detected', detectedAtSeconds: 74 },
-                { label: 'Pilot', status: 'not_detected', detectedAtSeconds: null },
-                { label: 'Measure', status: 'unavailable', detectedAtSeconds: null },
+                { label: 'Updates get lost', status: 'detected', detectedAtSeconds: 5, partial: false },
+                { label: 'Shared board', status: 'detected', detectedAtSeconds: 74, partial: false },
+                { label: 'Pilot', status: 'not_detected', detectedAtSeconds: null, partial: false },
+                { label: 'Measure', status: 'unavailable', detectedAtSeconds: null, partial: false },
             ],
         });
         render(<SavedFocusPointsCoverage sessionId="s1" />);
@@ -96,9 +114,9 @@ describe('SavedFocusPointsCoverage colours match the live rail (#1258 RWT)', () 
         load.mockResolvedValue({
             kind: 'coverage', detected: 1, total: 3, brief: null,
             points: [
-                { label: 'a', status: 'detected', detectedAtSeconds: 5 },
-                { label: 'b', status: 'not_detected', detectedAtSeconds: null },
-                { label: 'c', status: 'unavailable', detectedAtSeconds: null },
+                { label: 'a', status: 'detected', detectedAtSeconds: 5, partial: false },
+                { label: 'b', status: 'not_detected', detectedAtSeconds: null, partial: false },
+                { label: 'c', status: 'unavailable', detectedAtSeconds: null, partial: false },
             ],
         });
         render(<SavedFocusPointsCoverage sessionId="s4" />);

@@ -23,6 +23,7 @@ const AFTER_D2 = [
     '20261119200000_deleted_account_save_journal_cleanup_1643.sql',
     '20261126005433_coaching_model_readiness.sql',
     '20261127144500_coaching_model_selection_checks.sql',
+    '20261127210000_objective_evidence_partial_coverage.sql',
 ];
 
 /** Only what Supabase provides outside the migrations (verbatim from the trial current-chain suite). */

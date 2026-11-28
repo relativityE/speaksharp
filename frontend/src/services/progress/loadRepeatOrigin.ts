@@ -2,6 +2,8 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import { hasCompleteEligibleProgressEvidence, PROGRESS_FORMULA_VERSION } from './buildProgressEvaluation';
 import type { StructuredTarget } from './progressPresentation';
 import type { ProgressAttemptView, RepeatResultView } from './loadSessionProgress';
+import { isRepeatPaceComparisonEnabled } from '@/config/repeatPaceComparison';
+import { comparePace, type PaceTake, type RepeatPaceComparison } from './repeatPaceComparison';
 
 /**
  * Outcome 4, first increment — "the repeat shows what it repeated".
@@ -38,6 +40,11 @@ export type RepeatOriginView =
         repeatResult: RepeatResultView | null;
         /** The original's coaching tip as it stood when Practice again was pressed (outcome 4 D2). Never measured. */
         tip: PractisedTipView;
+        /**
+         * Open Mic repeat pace comparison (`repeatPaceComparison.ts`). Present ONLY when that flag is on; with the flag
+         * off the key is absent and no extra read is made, so today's view is unchanged.
+         */
+        pace?: RepeatPaceComparison;
     };
 
 /**
@@ -87,6 +94,10 @@ interface OriginEvalRow {
 
 const EVAL_FIELDS = 'session_id, eligible, clarity_raw, filler_count, error_marker_count, wpm, word_count, cohort_key';
 const RECOMMENDATION_FIELDS = 'id, user_id, source_session_id, target_metric, target_direction, target_value, target_units, shown_text, source_metric_value';
+
+/** Pace comparison reads: each take's persisted evaluation and its product marker (owner-scoped, both takes at once). */
+const PACE_EVAL_FIELDS = 'session_id, user_id, eligible, exclusion_reasons, duration_seconds, wpm, cohort_key';
+const PACE_SESSION_FIELDS = 'id, user_id, product';
 
 const ATTEMPT_FIELDS = 'id, user_id, recommendation_id, lifecycle, outcome, practice_session_id, next_comparable_session_id';
 /** Mirrors the server's `prec_att_practised_tip_shape` bound. */
@@ -169,9 +180,75 @@ export async function loadRepeatOrigin(sessionId: string, userId: string): Promi
         outcome: attempt.outcome,
         tip: tipColumn ? practisedTip(attempt.practised_tip) : { status: 'unavailable' as const },
     };
-    if (attempt.lifecycle === 'not_comparable') return { ...base, lifecycle: 'not_comparable', repeatResult: null };
+    const withPace = async <T extends object>(view: T): Promise<T | (T & { pace: RepeatPaceComparison })> =>
+        isRepeatPaceComparisonEnabled()
+            ? { ...view, pace: await loadPaceComparison(supabase, userId, originalSessionId, sessionId) }
+            : view;
+    if (attempt.lifecycle === 'not_comparable') return withPace({ ...base, lifecycle: 'not_comparable' as const, repeatResult: null });
 
-    return { ...base, lifecycle: 'completed', repeatResult: await completedRepeatResult(supabase, sessionId, originalSessionId, recommendation, attempt) };
+    return withPace({ ...base, lifecycle: 'completed' as const, repeatResult: await completedRepeatResult(supabase, sessionId, originalSessionId, recommendation, attempt) });
+}
+
+interface PaceEvalRow {
+    session_id: string;
+    user_id: string;
+    eligible: boolean;
+    exclusion_reasons: unknown;
+    duration_seconds: number | string | null;
+    wpm: number | null;
+    cohort_key: string | null;
+}
+
+interface PaceSessionRow {
+    id: string;
+    user_id: string;
+    product: string | null;
+}
+
+const finiteNumber = (value: unknown): number | null => {
+    const n = typeof value === 'string' ? Number(value) : value;
+    return typeof n === 'number' && Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Both takes' evaluations (same formula version) and product markers, read for this owner only. Any read error, or a
+ * take without exactly one row of each, is `unavailable`: pace is then not mentioned, and the rest of the block stands.
+ */
+async function loadPaceComparison(
+    supabase: ReturnType<typeof getSupabaseClient>,
+    userId: string,
+    originalSessionId: string,
+    sessionId: string,
+): Promise<RepeatPaceComparison> {
+    const unavailable: RepeatPaceComparison = { status: 'unavailable' };
+    const ids = [originalSessionId, sessionId];
+    try {
+        const [evaluations, sessions] = await Promise.all([
+            supabase.from('session_progress_evaluations').select(PACE_EVAL_FIELDS)
+                .eq('formula_version', PROGRESS_FORMULA_VERSION).eq('user_id', userId).in('session_id', ids),
+            supabase.from('sessions').select(PACE_SESSION_FIELDS).eq('user_id', userId).in('id', ids),
+        ]);
+        if (evaluations.error || sessions.error || !Array.isArray(evaluations.data) || !Array.isArray(sessions.data)) return unavailable;
+        const evalRows = (evaluations.data as unknown as PaceEvalRow[]).filter((row) => row.user_id === userId);
+        const sessionRows = (sessions.data as unknown as PaceSessionRow[]).filter((row) => row.user_id === userId);
+        const take = (id: string): PaceTake | null => {
+            const ev = evalRows.filter((row) => row.session_id === id);
+            const session = sessionRows.filter((row) => row.id === id);
+            if (ev.length !== 1 || session.length !== 1) return null;
+            return {
+                product: typeof session[0].product === 'string' ? session[0].product : null,
+                eligible: ev[0].eligible === true,
+                exclusionReasons: Array.isArray(ev[0].exclusion_reasons)
+                    ? (ev[0].exclusion_reasons as unknown[]).filter((r): r is string => typeof r === 'string') : [],
+                durationSeconds: finiteNumber(ev[0].duration_seconds),
+                wpm: finiteNumber(ev[0].wpm),
+                cohortKey: typeof ev[0].cohort_key === 'string' ? ev[0].cohort_key : null,
+            };
+        };
+        return comparePace(take(originalSessionId), take(sessionId));
+    } catch {
+        return unavailable;
+    }
 }
 
 function isMissingTipColumn(error: unknown): boolean {

@@ -56,10 +56,10 @@ describe('loadSavedFocusPointsCoverage', () => {
             detected: 2,
             total: 4,
             points: [
-                { label: POINTS[0].label, status: 'detected', detectedAtSeconds: 5 },
-                { label: POINTS[1].label, status: 'detected', detectedAtSeconds: 14 },
-                { label: POINTS[2].label, status: 'not_detected', detectedAtSeconds: null },
-                { label: POINTS[3].label, status: 'unavailable', detectedAtSeconds: null },
+                { label: POINTS[0].label, status: 'detected', detectedAtSeconds: 5, partial: false },
+                { label: POINTS[1].label, status: 'detected', detectedAtSeconds: 14, partial: false },
+                { label: POINTS[2].label, status: 'not_detected', detectedAtSeconds: null, partial: false },
+                { label: POINTS[3].label, status: 'unavailable', detectedAtSeconds: null, partial: false },
             ],
             // The saved set, so "Practice this again" rebinds exactly these points.
             brief: { briefId: 'b1', projectId: 'proj1', topic: 'A better weekly team handoff' },
@@ -103,8 +103,43 @@ describe('loadSavedFocusPointsCoverage', () => {
     it('never shows an unknown verdict as detected', async () => {
         tables.objective_evidence = { data: [{ brief_point_id: 'p1', verdict: 'maybe', detected_at_seconds: 3 }], error: null };
         const result = await loadSavedFocusPointsCoverage('s1');
-        expect(result.kind === 'coverage' && result.points[0]).toEqual({ label: POINTS[0].label, status: 'unavailable', detectedAtSeconds: null });
+        expect(result.kind === 'coverage' && result.points[0]).toEqual({ label: POINTS[0].label, status: 'unavailable', detectedAtSeconds: null, partial: false });
         expect(result.kind === 'coverage' && result.detected).toBe(0);
+    });
+
+    it('a saved partial detection reopens as partial; it still counts as detected; coverage never upgrades a non-detection', async () => {
+        tables.objective_evidence = { data: [
+            { brief_point_id: 'p1', verdict: 'detected', detected_at_seconds: 5, coverage: 'partial' },
+            { brief_point_id: 'p2', verdict: 'detected', detected_at_seconds: 14, coverage: 'covered' },
+            { brief_point_id: 'p3', verdict: 'not_detected', detected_at_seconds: null, coverage: 'partial' },
+        ], error: null };
+        const result = await loadSavedFocusPointsCoverage('s1');
+        expect(result.kind === 'coverage' ? result.points.map((p) => [p.status, p.partial]) : []).toEqual([
+            ['detected', true], ['detected', false], ['not_detected', false], ['unavailable', false]]);
+        expect(result.kind === 'coverage' && result.detected).toBe(2);
+        expect(calls.find((c) => c.table === 'objective_evidence' && c.op === 'select')?.args[0]).toBe('brief_point_id, verdict, detected_at_seconds, coverage');
+    });
+
+    it('before the migration reaches a database (undefined column), falls back to the original read instead of failing', async () => {
+        let first = true;
+        const legacy = { data: [{ brief_point_id: 'p1', verdict: 'detected', detected_at_seconds: 5 }], error: null };
+        Object.defineProperty(tables, 'objective_evidence', { configurable: true, get: () => {
+            if (first) { first = false; return { data: null, error: { code: '42703', message: 'column objective_evidence.coverage does not exist' } }; }
+            return legacy;
+        } });
+        try {
+            const result = await loadSavedFocusPointsCoverage('s1');
+            expect(result.kind).toBe('coverage');
+            expect(result.kind === 'coverage' && result.points[0]).toEqual({ label: POINTS[0].label, status: 'detected', detectedAtSeconds: 5, partial: false });
+            expect(calls.filter((c) => c.table === 'objective_evidence' && c.op === 'select').map((c) => c.args[0]))
+                .toEqual(['brief_point_id, verdict, detected_at_seconds, coverage', 'brief_point_id, verdict, detected_at_seconds']);
+        } finally { delete (tables as Record<string, unknown>).objective_evidence; }
+    });
+
+    it('CONTROL: an unrelated evidence read failure is still an error, not silently retried', async () => {
+        tables.objective_evidence = { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
+        await expect(loadSavedFocusPointsCoverage('s1')).resolves.toEqual({ kind: 'error' });
+        expect(calls.filter((c) => c.table === 'objective_evidence' && c.op === 'select')).toHaveLength(1);
     });
 
     it('is `none` for a session with no Focus Points record (Open Mic)', async () => {

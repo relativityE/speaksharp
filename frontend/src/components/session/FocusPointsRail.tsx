@@ -52,7 +52,20 @@ export interface FocusPointsRailProps {
     /** The id of the visible reason for the hold, announced with the disabled action. */
     retryDescribedBy?: string;
     onNewSet?: () => void;
+    /**
+     * Default-off meaning matcher: which engine produced the saved verdict. Absent or `keyword` keeps today's
+     * keyword note word-for-word. `nli` shows the meaning-based note. `fallback` (flag on, but the meaning model
+     * was not ready / timed out / failed) keeps the keyword note and labels the verdict as keyword-based.
+     */
+    detection?: { engine: 'keyword' | 'nli'; fallback?: boolean };
 }
+
+/** The keyword detector's limitation, as the user reads it (#1467). Unchanged by the meaning matcher. */
+export const KEYWORD_DETECTION_NOTE = 'We look for your point\u2019s words in what you said. If you covered it differently, we may not spot it.';
+/** Shown only when the saved verdict came from the on-device meaning model. */
+export const MEANING_DETECTION_NOTE = 'We checked the meaning of what you said against each point, on this device. It can still miss a point made in very different words.';
+/** Shown with the keyword note when meaning-based detection was on but could not be used for this take. */
+export const MEANING_FALLBACK_NOTE = 'Meaning-based detection wasn\u2019t available for this take, so these results are keyword-based.';
 
 function fmtClock(seconds: number): string {
     const s = Math.max(0, Math.round(seconds));
@@ -113,6 +126,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     retryStarting = false,
     retryDescribedBy,
     onNewSet,
+    detection,
 }) => {
     const isAfter = sessionState === 'after';
     const unavailable = isAfter && checkUnavailable;
@@ -246,9 +260,18 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
             {verdict && (
                 <p
                     data-testid="focus-points-detection-note"
+                    data-engine={detection ? detection.engine : undefined}
                     className="mt-4 text-[13px] leading-snug text-neutral-secondary"
                 >
-                    We look for your point&rsquo;s words in what you said. If you covered it differently, we may not spot it.
+                    {detection?.engine === 'nli' ? MEANING_DETECTION_NOTE : KEYWORD_DETECTION_NOTE}
+                </p>
+            )}
+            {verdict && detection?.engine === 'keyword' && detection.fallback && (
+                <p
+                    data-testid="focus-points-detection-fallback"
+                    className="mt-1 text-[12px] leading-snug text-neutral-muted"
+                >
+                    {MEANING_FALLBACK_NOTE}
                 </p>
             )}
 

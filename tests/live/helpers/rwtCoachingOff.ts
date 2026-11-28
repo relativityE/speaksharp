@@ -52,11 +52,16 @@ export function expectedSavedFocus(rail: readonly (string | null)[]): (string | 
     return rail.map((s) => (s === 'covered' || s === 'partial' ? 'covered' : s === 'missing' ? 'missing' : null));
 }
 
-/** Pure. The saved Focus results shown equal the first take's rail, point for point, with every point settled. */
+/**
+ * Pure. The saved Focus results shown equal the first take's rail, point for point, with every point settled.
+ * Migration 20261127210000 keeps a partly-made point as `partial` on reopen; releases before it show it as `covered`.
+ * So a rail `partial` accepts either saved display; a rail `covered` must be `covered` and `missing` must be `missing`.
+ */
 export function savedFocusMatches(shown: readonly (string | null)[] | null, rail: readonly (string | null)[]): boolean {
     const expected = expectedSavedFocus(rail);
     return shown !== null && expected.length > 0 && expected.every((e) => e !== null)
-        && shown.length === expected.length && shown.every((s, i) => s === expected[i]);
+        && shown.length === expected.length
+        && shown.every((s, i) => s === expected[i] || (rail[i] === 'partial' && s === 'partial'));
 }
 
 // ── After Stop ──────────────────────────────────────────────────────────────────────────────────────────────────
