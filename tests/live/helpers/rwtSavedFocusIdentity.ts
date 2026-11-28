@@ -31,6 +31,8 @@ export interface SavedFocusIdentityObservation {
     savedPoints: readonly SavedFocusPointIdentity[];
     evidence: readonly SavedFocusEvidenceRow[];
     visibleEvidence: readonly string[];
+    /** Separate Analytics coverage panel: ordered, directly visible values, independent of the coaching pair. */
+    visiblePanel?: readonly { ordinal: number; label: string; status: string | null }[];
 }
 
 export interface SavedFocusIdentityResult {
@@ -150,7 +152,19 @@ export function savedFocusIdentityVerdict(input: SavedFocusIdentityObservation):
     }
     if (input.evidence.length === 0) errors.push('no saved evidence rows');
 
-    const visible = parseVisibleFocusEvidence(input.visibleEvidence);
+    const visible = input.visiblePanel === undefined ? parseVisibleFocusEvidence(input.visibleEvidence) : (() => {
+        const points = new Map<number, VisibleEvidenceStatus>();
+        const errors: string[] = [];
+        if (input.visiblePanel.length !== expectedCount) errors.push('visible point count mismatch');
+        for (const [index, row] of input.visiblePanel.entries()) {
+            if (row.ordinal !== index + 1 || row.label !== input.expected[index]?.label) {
+                errors.push(`visible point label or order differs at point ${index + 1}`);
+            }
+            if (row.status === 'covered') points.set(row.ordinal, 'detected');
+            else if (row.status === 'missing') points.set(row.ordinal, 'not_detected');
+        }
+        return { points, errors };
+    })();
     errors.push(...visible.errors);
     for (let index = 0; index < expectedCount; index += 1) {
         const ordinal = index + 1;

@@ -25,7 +25,7 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
-import { J3B_REPEAT_ROW, J3_ACCEPTANCE_CONSENT_MODE, J3_SAVED_TIMING_ROW, focusSavedTimingVerdict, j3ConsentRowRecorder, j3bRepeatReopenVerdict, repeatReviewCard } from './rwtJ3Evidence';
+import { J3B_REPEAT_ROW, J3_ACCEPTANCE_CONSENT_MODE, J3_SAVED_TIMING_ROW, armJ3bFailureObserver, focusSavedTimingVerdict, j3ConsentRowRecorder, j3bFallbackStatus, j3bRepeatReopenVerdict, j3bUpstreamStatus, readJ3bFailureObserver, readJ3bSavedPanel, repeatReviewCard } from './rwtJ3Evidence';
 import { loadedReviewSessionId } from './rwtJ1dJourney';
 import { railSettled, readRailRowCount } from './rwtLiveTimedTake';
 import { armTakeMonitor, awaitTakeOutcome, disposeTakeMonitor, holdMeasuredLiveTake, readTakeMonitor, stopMeasuredTake, stopMonitoredTake, takeEvidenceRows, type ArmedTakeMonitor, type TakeOutcome } from './rwtLiveTakeMonitor';
@@ -38,7 +38,7 @@ import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
 import { coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair, reopenBoundFocusReviewPair } from './rwtCoachingCollector';
 import { coachingContract } from './rwtCoachingEvidence';
-import { coachingTelemetryVerdict, failureTelemetryBinding, takeExchangeEvidence } from './coachingExternal';
+import { UNAVAILABLE_HEADLINES, coachingTelemetryVerdict, failureTelemetryBinding, takeExchangeEvidence } from './coachingExternal';
 import {
     AnalyticsTap,
     RwtReceipt,
@@ -1024,6 +1024,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 { completedSessions: completedErr ? null : (completed ?? []).length, queryError: completedErr?.code ?? null });
         });
 
+        let repeatFailureUi: ReturnType<typeof readJ3bFailureObserver> = null;
         await test.step('Practice again — Analytics action, then the completed review\'s Retry this set', async () => {
             generationsForTake = tap.sent('practice_loop_review_requested').length;
             rowsGenerationsAt = Date.now();
@@ -1070,7 +1071,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     { saveTakeMs, beforeCapture: async () => {
                         if (cueAligned) await resetFixtureAudioToStart(page);
                         await captureGate().confirm();
-                    }, ...(cueAligned ? { onSaveTakeRecording: async () => { await playAfterCue(); } } : {}) });
+                    }, ...(cueAligned ? { onSaveTakeRecording: async () => {
+                        // Install before the fixture plays; the observer records a terminal card without delaying the rapid Retry.
+                        await page.evaluate(armJ3bFailureObserver, [...UNAVAILABLE_HEADLINES]).catch(() => undefined);
+                        await playAfterCue();
+                    } } : {}) });
             } finally {
                 targetWatch = false;
                 await targetWatcher;
@@ -1110,6 +1115,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // recorded unanswered at the Edge budget plus transport allowance). Nothing is sent or retried; the designed
             // same-page interruption above is unchanged, and the next Start's own measurement starts after this wait.
             await generations.settle();
+            if (fixtureKey === 'focus_points_partial_tts' && repeatSessionId && repeatSessionId !== persistedId) {
+                repeatFailureUi = await page.evaluate(readJ3bFailureObserver, repeatSessionId).catch(() => null);
+            }
             const next = await nextStartEvidence(page, `${suite}-next`, () => captureGate().confirm());
             nextStartRows(receipt, next);
         });
@@ -1177,6 +1185,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 let repeatCoachingSaved: boolean | null = null;
                 let repeatIdentity: ReturnType<typeof savedFocusIdentityVerdict> | null = null;
                 let repeatCardId: string | null = null;
+                const repeatExchanges = repeatSessionId && repeatSessionId !== persistedId ? generations.forSession(repeatSessionId) : [];
+                const exchange = takeExchangeEvidence(repeatExchanges);
+                const providerStatus = exchange.unique && repeatExchanges.every((e) => e.sent.product === 'focus_points')
+                    ? j3bUpstreamStatus(exchange.evidence) : null;
+                const fallback = j3bFallbackStatus(repeatFailureUi);
+                const repeatFailure = repeatSessionId && providerStatus !== null
+                    ? { takeId: repeatSessionId, providerStatus, fallback } : null;
                 try {
                     if (persistedId && firstObjectiveId) {
                         const { data: firstOs, error: e1 } = await admin!.from('objective_session').select('brief_id').eq('id', firstObjectiveId).eq('user_id', owner.uid).maybeSingle();
@@ -1200,7 +1215,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         repeatObjective = (ros ?? []).length === 1 ? ros![0] as { id: string; source_session_id: string; brief_id: string } : (ros ?? []).length === 0 ? null : 'error';
                         const source = await readFocusSource(repeatSessionId);
                         repeatCoachingSaved = source === 'error' || source === null ? null : source.ai_suggestions !== null && source.ai_suggestions !== undefined;
-                        if (repeatObjective && repeatObjective !== 'error' && repeatCoachingSaved) {
+                        if (repeatObjective && repeatObjective !== 'error' && (repeatCoachingSaved || repeatFailure)) {
                             const [{ data: rp, error: e5 }, { data: re, error: e6 }] = await Promise.all([
                                 admin!.from('objective_brief_point').select('id,brief_id,sort_order,label').eq('brief_id', repeatObjective.brief_id).eq('user_id', owner.uid),
                                 admin!.from('objective_evidence').select('brief_point_id,verdict').eq('session_id', repeatObjective.id).eq('user_id', owner.uid),
@@ -1208,12 +1223,19 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                             fail('repeat points')(e5); fail('repeat evidence')(e6);
                             const tab = await page.context().newPage();
                             let visible: string[] = [];
+                            let visiblePanel: ReturnType<typeof readJ3bSavedPanel> = null;
                             try {
                                 await tab.goto(`/analytics/${repeatSessionId}`);
                                 // J1.d pattern (Sam, Nov 19 on 947d357): wait for the card's own loaded id, and read evidence only
                                 // from the card that carries the repeat's id; any other card (the first take's) is never read.
                                 repeatCardId = await loadedReviewSessionId(tab);
-                                if (repeatCardId === repeatSessionId) {
+                                if (repeatCardId === repeatSessionId && !repeatCoachingSaved) {
+                                    // This panel is a sibling of Saved Review. Bind both through the same loaded detail,
+                                    // not by trying to find the coverage panel inside the coaching card.
+                                    const panel = tab.getByTestId('saved-focus-points');
+                                    const shown = await panel.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+                                    if (shown) visiblePanel = await tab.evaluate(readJ3bSavedPanel, repeatSessionId);
+                                } else if (repeatCardId === repeatSessionId) {
                                     const block = repeatReviewCard(tab, repeatSessionId).getByTestId('review-evidence').first();
                                     if (await block.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)) {
                                         visible = (await block.innerText({ timeout: 10_000 }).catch(() => '')).split('\n');
@@ -1221,22 +1243,29 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                                 }
                             } finally { await tab.close(); }
                             // The fixture's own statuses, never the repeat's rail or its saved result under test.
-                            repeatIdentity = savedFocusIdentityVerdict(focusIdentityObservation({
+                            const savedObservation = focusIdentityObservation({
                                 expectedBriefId: firstBriefId, savedBriefId: repeatObjective.brief_id, labels: points,
                                 railStatuses: expectedFinal.map((e) => (e === 'covered' || e === 'partial' || e === 'missing' ? e : null)),
                                 savedPoints: (rp ?? []).map((p) => ({ id: p.id as string, brief_id: p.brief_id as string, sort_order: p.sort_order as number, label: p.label as string })),
                                 evidence: (re ?? []).map((r) => ({ brief_point_id: r.brief_point_id as string, verdict: r.verdict as string })),
                                 visibleEvidence: visible,
-                            }));
+                            });
+                            repeatIdentity = savedFocusIdentityVerdict({ ...savedObservation,
+                                ...(repeatCoachingSaved ? {} : { visiblePanel: visiblePanel ?? [] }),
+                            });
                         }
                     } else repeatObjective = null;
                 } catch { /* every unread part stays null / 'error' and holds */ }
                 const v = j3bRepeatReopenVerdict({ reviewMode: reviewModeOf(consent), firstSessionId: persistedId, repeatSessionId, firstObjectiveId,
-                    repeatObjective, repeatCoachingSaved, firstBriefId, repeatIdentity, firstMismatchesAfter, repeatCardId });
-                receipt.row(J3B_REPEAT_ROW, v.status, v.status === 'PASS'
-                    ? 'the repeat on the same set saved on its own, its saved and reopened point results match the fixture (partial counts as detected), and the first take is unchanged'
-                    : 'the repeat take is not proved to be its own save matching the fixture, or it changed the first take',
-                { reason: v.reason, mismatchedOrdinals: repeatIdentity?.mismatchedOrdinals.join(',') ?? null, errors: repeatIdentity?.errors.join('; ') ?? null });
+                    repeatObjective, repeatCoachingSaved, firstBriefId, repeatIdentity, firstMismatchesAfter, repeatCardId, repeatFailure });
+                const providerLimited = v.reason === 'repeat_saved_and_reopened_provider_limited';
+                receipt.row(J3B_REPEAT_ROW, v.status, providerLimited
+                    ? `repeat saved and reopened on the same set with its own points and Retry; Gemini ${providerStatus} (${providerStatus === 429 ? 'rate limit' : 'provider unavailable'}); successful repeat coaching not exercised`
+                    : v.status === 'PASS'
+                        ? 'the repeat on the same set saved on its own, its saved and reopened point results match the fixture (partial counts as detected), and the first take is unchanged'
+                        : 'the repeat take is not proved to be its own save matching the fixture, or it changed the first take',
+                { reason: v.reason, providerStatus, repeatFallback: repeatFailure?.fallback ?? null,
+                    mismatchedOrdinals: repeatIdentity?.mismatchedOrdinals.join(',') ?? null, errors: repeatIdentity?.errors.join('; ') ?? null });
             });
         }
 
