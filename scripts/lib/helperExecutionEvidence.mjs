@@ -170,6 +170,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtLateCoaching.ts',testFile:'tests/unit/rwtLateCoaching.test.ts',
   callables:['sha256Hex','answerOrder','latestAnsweredAt','lateCoachingSavedRow','accessTokenFromAuthStorage','tokenSubject','ownerSessionReader','nonblankParity','classifyTarget','ownerNewerCompletedCounter','deferredLateCoachingSink','reopenWithinCutoff'],
 }, {
+  helperFile:'tests/live/helpers/rwtSingleCoachingProof.ts',testFile:'tests/unit/rwtSingleCoachingProof.test.ts',
+  callables:['singleCoachingProof','armOneCoachingProviderBoundary'],
+}, {
   // J1.b (#1961): the coaching collector's hold-window witness, through the unit consumer that drives a real capture.
   helperFile:'tests/live/helpers/rwtCoachingCollector.ts',testFile:'tests/unit/rwtCoachingRetentionEvidence1593.test.ts',
   callables:['createCoachingTakeCapture','witnessShownTake'],
