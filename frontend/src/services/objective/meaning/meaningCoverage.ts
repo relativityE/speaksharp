@@ -109,7 +109,12 @@ async function evaluateClaim(claim: string, wins: Window[], nli: NliFn, allowed:
         if (singles[i - 1].e >= ENTAIL_THRESHOLD || singles[i].e >= ENTAIL_THRESHOLD) continue;
         const text = wins[i - 1].text + ' ' + wins[i].text;
         const e = (await nli(text, h)).entail;
-        if (e >= ENTAIL_THRESHOLD && !allowed(text)) { guardRejected = true; continue; }
+        // Both clauses must pass the attribution guards on their own (Codex P2 on #1995): the guard reads a clause's leading
+        // words, so a later "Competitors do that in March" would otherwise ride on the speaker's first clause.
+        if (e >= ENTAIL_THRESHOLD && !(allowed(text) && allowed(wins[i - 1].text) && allowed(wins[i].text))) {
+            guardRejected = true;
+            continue;
+        }
         if (e >= ENTAIL_THRESHOLD) {
             const sources = Array.from(new Set([...wins[i - 1].sources, ...wins[i].sources]));
             // Stamped at the start of the clause that completes the claim (prototype v2).

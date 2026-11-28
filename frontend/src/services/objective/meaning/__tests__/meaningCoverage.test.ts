@@ -399,3 +399,24 @@ describe('polarity and weak evidence (Codex P2s on #1995, round 4)', () => {
     });
 });
 
+
+describe('clause pairs check both clauses\' attribution (Codex P2 on #1995, round 6)', () => {
+    it('another party\'s clause cannot complete the speaker\'s claim through a pair', async () => {
+        const segments = [seg(3, 'We will hire two engineers. Competitors do that in March.')];
+        const result = await one('We will hire two engineers in March', segments, [
+            { premise: /We will hire two engineers\. Competitors do that in March/i, entail: 0.978 },
+            { premise: /^We will hire two engineers\.?$/i, entail: 0.4 },
+        ]);
+        expect(result.status).not.toBe('covered');
+    });
+
+    it('CONTROL: a same-subject continuation still completes the claim through a pair', async () => {
+        const segments = [seg(3, 'We will hire two engineers. That happens in March.')];
+        const result = await one('We will hire two engineers in March', segments, [
+            { premise: /We will hire two engineers\. That happens in March/i, entail: 0.97 },
+            { premise: /^We will hire two engineers\.?$/i, entail: 0.4 },
+        ]);
+        expect(result.status).toBe('covered');
+        expectAttributed(result, segments);
+    });
+});
