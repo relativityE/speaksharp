@@ -119,6 +119,7 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { productFillerCount } from './helpers/rwtFillerOracle';
 import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } from './helpers/rwtFillerReference';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
+import { armOneCoachingProviderBoundary, singleCoachingProof } from './helpers/rwtSingleCoachingProof';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair, witnessShownTake } from './helpers/rwtCoachingCollector';
 import { answerOrder, deferredLateCoachingSink, latestAnsweredAt, lateCoachingSavedRow, ownerNewerCompletedCounter, ownerSessionReader, reopenWithinCutoff } from './helpers/rwtLateCoaching';
@@ -263,7 +264,9 @@ test.describe('RWT — Open Mic first session @live', () => {
         // Refused authorization is a named HOLD before any navigation — never a model or product finding.
         const run: RunTarget = await resolveRunTarget(JOURNEY);
 
+        const oneCoachingRequest = process.env.RWT_ONE_SAVED_COACHING_DIAGNOSTIC === '1';
         const receipt = new RwtReceipt(SUITE);
+        if (oneCoachingRequest) receipt.meta.coachingProofMode = 'one-first-request-diagnostic';
         receipt.forbid(SERVICE_ROLE);
         receipt.meta.fixture = fixture.key;
         receipt.meta.fixtureKind = fixture.entry.kind;
@@ -289,6 +292,7 @@ test.describe('RWT — Open Mic first session @live', () => {
         // function's own answer — held in memory for the diagnostic chain and the restricted synthetic artifact only.
         const generations = new CoachingGenerationTap();
         generations.attach(page);
+        if (oneCoachingRequest) await armOneCoachingProviderBoundary(page, generations);
         await installMicAcquisitionCounter(page);
         // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's context.
         const parity = new HarnessParityTap();
@@ -1048,6 +1052,23 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('Progress debt', owed === 0 ? 'PASS' : 'FAIL',
                     owed === 0 ? 'no completed session is still owed an evaluation' : 'a completed session is still owed an evaluation', { owed });
             });
+
+            if (oneCoachingRequest) {
+                // The first take has traversed the normal application, prompt, save, Back and Analytics controls.
+                // No further Starts can spend provider quota; the interrupted/other-take cases are controlled in CI.
+                // This diagnostic is not a substitute for the current required legacy receipt.
+                await generations.settle();
+                const proof = singleCoachingProof({ takeId: persistedId, product: 'open_mic',
+                    browserPosts: generations.sentCount, exchanges: generations.exchanges });
+                const passes = (step: string) => receipt.rows.some((row) => row.step === step && row.verdict === 'PASS');
+                const appOwned = ['session saved', 'saved exactly once', 'coaching request bound to this take',
+                    'Back requests no coaching', 'Analytics generates no coaching'].every(passes);
+                receipt.row('J1.b single first-take provider proof', proof.status !== 'PASS' ? proof.status : !appOwned ? 'HOLD' : 'PASS',
+                    !appOwned ? 'the exact take, save-once or no-extra-generation app evidence was incomplete'
+                        : 'the app-owned proof and one exact take-bound provider exchange were observed; coaching outcome is judged separately',
+                    { reason: proof.reason, browserPosts: proof.browserPosts, pendingPosts: proof.pendingPosts, providerAttempts: proof.providerAttempts });
+                return;
+            }
 
             // ── Practice again through the rendered controls: Analytics → take → the review's own repeat (#1533) ───
             await test.step('Practice again — Analytics action, then the completed review\'s repeat action', async () => {
