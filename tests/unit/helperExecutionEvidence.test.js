@@ -18,6 +18,7 @@ assert.ok(contract, 'Synthetic fixture requires the registered rwtMarkerObserver
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 const AHT1811_HELPERS=[
+  ['tests/live/helpers/rwtSingleCoachingProof.ts','tests/unit/rwtSingleCoachingProof.test.ts',['singleCoachingProof','armOneCoachingProviderBoundary']],
   ['tests/live/helpers/feedbackAttemptLedger.ts','tests/unit/feedbackBoundedWrites.test.ts',["stableDraftSha","capDecision","isNamedIdempotencyReplay","syntheticRejection","feedbackCapVerdict","feedbackLedgerVerdict","stickyFinalVerdict","writeFeedbackAttemptRows","feedbackLegRecovered","feedbackLegRows","finalIsolationVerdict","withoutFaultLegSubmits"]],
   ['tests/live/helpers/feedbackFence.ts','tests/unit/feedbackFence1811.test.ts',["fenceRunKey","verifyFeedbackFence","openFeedbackFence","closeFeedbackFence","cleanFeedbackFence","cleanAndVerifyFeedbackFence","fenceCleanupVerdict","JourneyFeedbackFence#open","JourneyFeedbackFence#openRow","JourneyFeedbackFence#stopWriter","JourneyFeedbackFence#close","JourneyFeedbackFence#cleanRow"]],
   ['tests/live/helpers/feedbackDiagnosticRef.ts','tests/unit/feedbackDiagnosticRef1539.test.ts',["readStoredDiagnosticRef","noSessionBindingVerdict","olderTakeBindingVerdict","classifyInsertBody","writeNoSessionReportRows","writeOlderTakeReportRows","writeOlderTakeBindingRow"]],

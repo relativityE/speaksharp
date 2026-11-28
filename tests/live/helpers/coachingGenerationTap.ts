@@ -60,7 +60,7 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 
 const int = (v: unknown): number | null => (Number.isInteger(v) ? Number(v) : null);
 
 // Count probes separately: an empty 204 never proves a provider attempt.
-function isMicStartReadiness(request: Pick<Request, 'postDataJSON'>) {
+export function isMicStartReadiness(request: Pick<Request, 'postDataJSON'>) {
     try {
         const body = request.postDataJSON();
         return body?.operation === 'mic_start_readiness'

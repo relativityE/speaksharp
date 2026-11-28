@@ -108,6 +108,7 @@ let fetchStatus = 200;
 let fetchStatusQueue: number[] = [];
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
+let beforeProviderReply: ((prompt: string) => Promise<void>) | null = null;
 /** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
 let geminiModelVersion: string | null = 'gemini-3.6-flash';
 let fetchThrows = false;
@@ -194,6 +195,7 @@ globalThis.fetch = async (url, init) => {
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
     : geminiText;
+  await beforeProviderReply?.(lastPrompt);
   const response = new Response(JSON.stringify({
     ...(geminiModelVersion === null ? {} : { modelVersion: geminiModelVersion }),
     candidates: [{ content: { parts: [{ text }] } }],
@@ -385,6 +387,7 @@ function resetProvider() {
   capturedProviderRequests.length = 0;
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
+  beforeProviderReply = null;
   geminiModelVersion = 'gemini-3.6-flash';
   fetchThrows = false;
   fetchFailuresRemaining = 0;
@@ -1166,17 +1169,63 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(unsettled.state.updated, null);
   });
 
-  await t.step('materially different saved sessions produce different grounded coaching', async () => {
+  await t.step('J1.b controlled: a late first answer persists once to its own take after the next take succeeds', async () => {
     resetProvider();
     adaptiveGemini = true;
-    const first = await handler(request({ sessionId: 'session-a' }), mockSupabase().create);
-    const firstSuggestions = (await first.json()).suggestions;
-
-    const secondMock = mockSupabase({ session: savedSession({ transcript: 'Our renewal story showed the customer lost twelve hours to manual reconciliation.' }) });
-    const second = await handler(request({ sessionId: 'session-b' }), secondMock.create);
-    const secondSuggestions = (await second.json()).suggestions;
-    assertNotEquals(firstSuggestions, secondSuggestions);
-    assertEquals(secondSuggestions, suggestionB);
+    const firstTake = savedSession();
+    const secondTake = savedSession({ transcript: 'Our renewal story showed the customer lost twelve hours to manual reconciliation.' });
+    const firstMock = mockSupabase({ session: firstTake });
+    const secondMock = mockSupabase({ session: secondTake });
+    let firstAtProvider!: () => void;
+    let releaseFirst!: () => void;
+    const firstEntered = new Promise<void>((resolve) => { firstAtProvider = resolve; });
+    const firstReply = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    beforeProviderReply = async (prompt) => {
+      if (prompt.includes('support has no weekend coverage')) {
+        firstAtProvider();
+        await firstReply;
+      }
+    };
+    const first = handler(request({ sessionId: 'session-a', product: 'open_mic' }), firstMock.create);
+    try {
+      // A handler that bypasses the provider or builds the wrong prompt must fail, not hang at the barrier.
+      assertEquals(await Promise.race([firstEntered.then(() => 'at-provider'), first.then(() => 'answered')]), 'at-provider');
+      const second = await handler(request({ sessionId: 'session-b', product: 'open_mic' }), secondMock.create);
+      assertEquals(second.status, 200);
+      assertEquals((await second.json()).suggestions, suggestionB);
+      assertEquals(firstMock.state.updated, null);
+      assertEquals(secondMock.state.authorityArgs?.p_session_id, 'session-b');
+      assertEquals(secondMock.state.updated, { ai_suggestions: suggestionB });
+    } finally {
+      releaseFirst();
+      beforeProviderReply = null;
+    }
+    const late = await first;
+    assertEquals(late.status, 200);
+    const firstBody = await late.json();
+    assertEquals(firstBody.suggestions, suggestionA);
+    assertEquals(firstMock.state.authorityArgs?.p_session_id, 'session-a');
+    assertEquals(firstMock.state.updated, { ai_suggestions: suggestionA });
+    assertEquals([firstMock.state.authorityRpcCount, secondMock.state.authorityRpcCount], [1, 1]);
+    assertEquals([firstMock.state.quotaCount, secondMock.state.quotaCount], [1, 1]);
+    assertEquals(fetchCount, 2);
+    const prompts = capturedProviderRequests.map(({ body }) => JSON.stringify(body));
+    assertStringIncludes(prompts[0], 'support has no weekend coverage');
+    assertStringIncludes(prompts[1], 'renewal story');
+    assertNotEquals(prompts[0], prompts[1]);
+    // Exercise the read side too, using each pair captured by its actual persistence call.
+    for (const [id, stored, pair] of [
+      ['session-a', firstMock.state.updated as { ai_suggestions: unknown }, suggestionA],
+      ['session-b', secondMock.state.updated as { ai_suggestions: unknown }, suggestionB],
+    ] as const) {
+      const reopened = mockSupabase({ session: savedSession(stored) });
+      const read = await handler(request({ sessionId: id, product: 'open_mic' }), reopened.create);
+      assertEquals(read.status, 200);
+      assertEquals((await read.json()).suggestions, pair);
+      assertEquals(reopened.state.quotaCount, 0);
+      assertEquals(reopened.state.updated, null);
+    }
+    assertEquals(fetchCount, 2);
   });
 
   // #1424 (Codex finding): the JSON contract must be REQUESTED of the provider, not merely hoped for in prose.
