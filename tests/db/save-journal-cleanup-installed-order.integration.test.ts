@@ -20,7 +20,7 @@ const DIR = 'backend/supabase/migrations';
 const TARGET = '20261119200000';
 const LAST_IN_PRODUCTION = '20261117105700';
 const WITHHELD = new Set(['20261027192550', '20261112130000']);
-const LATER_COACHING_READINESS = ['20261126005433', '20261127144500'];
+const LATER_COACHING_READINESS = ['20261126005433', '20261127144500', '20261127210000'];
 const UNRELEASED_BEFORE_TARGET = ['20261119120000']; // #1827 repeat tip: merged, not yet in production
 const BOOT = readFileSync('tests/db/trial-read-access-current-chain.integration.test.ts', 'utf8').split('const BOOTSTRAP = `')[1].split('`;')[0];
 const TARGET_FILE = readdirSync(DIR).find(f => f.startsWith(`${TARGET}_`))!;

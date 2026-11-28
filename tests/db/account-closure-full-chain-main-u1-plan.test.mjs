@@ -148,7 +148,8 @@ const SAVE_JOURNAL_CLEANUP=Object.freeze({name:'20261119200000_deleted_account_s
 const COACHING_READINESS=Object.freeze({name:'20261126005433_coaching_model_readiness.sql',version:'20261126005433',
   sha256:'fa07703cef9764d346621e6a2a2543606a1e3eb5b24fa1e1265bd0f24e243079'});
 const COACHING_CHECKS=Object.freeze({name:'20261127144500_coaching_model_selection_checks.sql',version:'20261127144500',sha256:'8698f1aee329f0c64b7342f8b72dd0cf5cb0514684ab90f96f634a0f3e43320d'});
-const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name,COACHING_CHECKS.name].includes(row.name));
+const FOCUS_PARTIAL=Object.freeze({name:'20261127210000_objective_evidence_partial_coverage.sql',version:'20261127210000',sha256:'ebd84ec68178edc8ece0e91cd5040411c10fe91f5de504e371b4891ae077f33c'});
+const physical=repositoryPhysical.filter(row=>![WITHHELD.name,START_ABANDONMENT.name,REFUND.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name,COACHING_CHECKS.name,FOCUS_PARTIAL.name].includes(row.name));
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -177,8 +178,8 @@ test('reviewed withheld retirement is repository inventory, never historical rep
   // Adding the exact withheld pin does not let an old profile accept later applied members.
   assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,139);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name,COACHING_CHECKS.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,140);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[WITHHELD.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name,COACHING_CHECKS.name,FOCUS_PARTIAL.name]);
 });
 // Repository registration is NOT an installed-schema or release attestation.
 test('the feedback fence is pinned and excluded from every profile before main-feedback-fence-131',()=>{
@@ -265,8 +266,8 @@ test('the refund follow-up migration is pinned inventory that no profile replays
     assert.throws(()=>buildMainU1ReplayPlan([...rows,{...REFUND,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
   }
   const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-coaching-retirement-129');
-  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,139);
-  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name,COACHING_CHECKS.name]);
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,140);
+  assert.deepEqual(plan.withheld.map(row=>row.name),[BILLING.name,REFUND.name,START_ABANDONMENT.name,FEEDBACK_FENCE.name,PAYMENT_WALL.name,PRACTICE_PRIVACY.name,REPEAT_TIP.name,SAVE_JOURNAL_CLEANUP.name,COACHING_READINESS.name,COACHING_CHECKS.name,FOCUS_PARTIAL.name]);
 });
 test('the deleted-account save-journal cleanup is digest-pinned inventory that no profile replays',()=>{
   const observed=repositoryPhysical.find(row=>row.name===SAVE_JOURNAL_CLEANUP.name);

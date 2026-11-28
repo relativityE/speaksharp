@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { COACHING_CHECKS_MIGRATION, COACHING_READINESS_MIGRATION, EXACT_MIGRATION_ALLOWLIST, resolveExactMigrationConfig } from './exactMigrationGate.mjs';
+import { COACHING_CHECKS_MIGRATION, COACHING_READINESS_MIGRATION, EXACT_MIGRATION_ALLOWLIST, FOCUS_PARTIAL_MIGRATION, resolveExactMigrationConfig } from './exactMigrationGate.mjs';
 import { completionSettlementContract, completionSettlementSnapshotQuery } from './completionSettlementMigrationPostflight.mjs';
 import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './c1MigrationPostflight.mjs';
 import { RETIREMENT_CATALOG_DELTA } from './retirementCatalogPins.mjs';
@@ -474,8 +474,18 @@ export function t2ReleaseContract(root, installed, options = {}) {
     throw new Error('T2 release catalog context unknown');
   }
   const observed = typeof installed === 'string' ? JSON.parse(installed) : installed;
-  const coachingChecks = Array.isArray(observed) && observed.at(-1) === COACHING_CHECKS_MIGRATION.version;
-  const beforeChecks = coachingChecks ? observed.slice(0, -1) : observed;
+  // Focus Points partial coverage (20261127210000) sits after the coaching checks on the production ledger.
+  const focusPartial = Array.isArray(observed) && observed.at(-1) === FOCUS_PARTIAL_MIGRATION.version;
+  const beforePartial = focusPartial ? observed.slice(0, -1) : observed;
+  const coachingChecks = Array.isArray(beforePartial) && beforePartial.at(-1) === COACHING_CHECKS_MIGRATION.version;
+  if (focusPartial) {
+    const file = join(root, 'backend/supabase/migrations', FOCUS_PARTIAL_MIGRATION.file);
+    if (!coachingChecks || !lstatSync(file).isFile() || realpathSync(file) !== file
+      || createHash('sha256').update(readFileSync(file)).digest('hex') !== FOCUS_PARTIAL_MIGRATION.sha256) {
+      throw new Error('T2 Focus Points partial coverage migration source or predecessor mismatch');
+    }
+  }
+  const beforeChecks = coachingChecks ? beforePartial.slice(0, -1) : beforePartial;
   const readiness = Array.isArray(beforeChecks) && beforeChecks.at(-1) === COACHING_READINESS_MIGRATION.version;
   if (coachingChecks) {
     const file = join(root, 'backend/supabase/migrations', COACHING_CHECKS_MIGRATION.file);
@@ -572,7 +582,7 @@ export function t2ReleaseContract(root, installed, options = {}) {
     : stage === 3 ? 'post-128-retirement' : `post-${126 + stage}`;
   // Post-129 the settle family is no longer known-absent: it must be present and exact, with completion OFF/unbound.
   const settlement = settled ? completionSettlementContract(root, 'after', NEXT_RELEASE_SOURCE.version).expectedFunction : null;
-  return { profile, catalogContext, stage, ledger: [...observed], pins, inventory, expected, c1, settlement, ...readiness && { readiness }, ...coachingChecks && { coachingChecks },
+  return { profile, catalogContext, stage, ledger: [...observed], pins, inventory, expected, c1, settlement, ...readiness && { readiness }, ...coachingChecks && { coachingChecks }, ...focusPartial && { focusPartial },
     knownAbsent: { ...NEXT_RELEASE_SOURCE, families: [...absentFamilies, ...(stage < 3 ? RETIREMENT_FUNCTIONS : []),
       ...(stage < 4 ? ABANDONMENT_FUNCTIONS : []), ...(stage < 5 ? FEEDBACK_FENCE_FUNCTIONS : [])],
       tables: [...(stage < 3 ? RETIREMENT_TABLES : []), ...(stage < 4 ? ABANDONMENT_TABLES : []),
@@ -606,9 +616,12 @@ export function assertT2ReleaseSnapshot(contract, rows) {
   // The ledger row is judged first, so another stage's rows (post-129 adds a settlement row) read as a ledger change.
   const ledger = JSON.parse(rows[0]);
   if (JSON.stringify(ledger) !== JSON.stringify(contract.ledger)) throw new Error('T2 release ledger changed');
-  if (rows.length !== 6 + Number(Boolean(contract.settlement)) + Number(Boolean(contract.readiness)) + Number(Boolean(contract.coachingChecks))) throw new Error('incomplete T2 release evidence');
-  if (contract.coachingChecks && rows.at(-1) !== 'true') throw new Error('T2 coaching checks catalog or ACL mismatch');
-  if (contract.readiness && rows.at(contract.coachingChecks ? -2 : -1) !== 'true') throw new Error('T2 coaching readiness catalog or ACL mismatch');
+  if (rows.length !== 6 + Number(Boolean(contract.settlement)) + Number(Boolean(contract.readiness)) + Number(Boolean(contract.coachingChecks))
+    + Number(Boolean(contract.focusPartial))) throw new Error('incomplete T2 release evidence');
+  const tail = Number(Boolean(contract.focusPartial));
+  if (contract.focusPartial && rows.at(-1) !== 'true') throw new Error('T2 Focus Points partial coverage catalog or ACL mismatch');
+  if (contract.coachingChecks && rows.at(-1 - tail) !== 'true') throw new Error('T2 coaching checks catalog or ACL mismatch');
+  if (contract.readiness && rows.at((contract.coachingChecks ? -2 : -1) - tail) !== 'true') throw new Error('T2 coaching readiness catalog or ACL mismatch');
   if (rows[5] !== 'true') throw new Error('T2 release known129 function family must be absent');
   if (contract.settlement) {
     const settlement = JSON.parse(rows[6]);
@@ -678,6 +691,22 @@ export function coachingChecksCatalogQuery() {
   ) IS TRUE)::text AS ok;`;
 }
 
+/** 20261127210000: the closed coverage column and the unguarded finalize body that writes it, still out of every API role's reach. */
+export function focusPartialCatalogQuery() {
+  return `SELECT ((
+    1 = (SELECT count(*) FROM pg_attribute WHERE attrelid = to_regclass('public.objective_evidence')
+      AND attname = 'coverage' AND NOT attisdropped AND atttypid = 'text'::regtype AND NOT attnotnull)
+    AND 1 = (SELECT count(*) FROM pg_constraint WHERE conrelid = to_regclass('public.objective_evidence')
+      AND conname = 'objective_evidence_coverage_closed' AND contype = 'c')
+    AND 1 = (SELECT count(*) FROM pg_proc p WHERE p.oid = to_regprocedure('public.objective_finalize_evidence_v1__unguarded(uuid,jsonb)')
+      AND p.prosecdef AND position('coverage' IN p.prosrc) > 0
+      AND NOT has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')
+      AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE'))
+    AND has_function_privilege('authenticated', to_regprocedure('public.objective_finalize_evidence_v1(uuid,jsonb)'), 'EXECUTE')
+  ) IS TRUE)::text AS ok;`;
+}
+
 export function t2ReleaseSnapshotQuery(contract) {
   return `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL search_path=public,pg_temp;
 ${t2ReleaseLedgerQuery()}
@@ -689,5 +718,6 @@ ${t2KnownAbsentQuery(contract)}
 ${contract.settlement ? completionSettlementSnapshotQuery() : ''}
 ${contract.readiness ? coachingReadinessCatalogQuery() : ''}
 ${contract.coachingChecks ? coachingChecksCatalogQuery() : ''}
+${contract.focusPartial ? focusPartialCatalogQuery() : ''}
 COMMIT;`;
 }

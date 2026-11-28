@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
  * Outcome 4, first increment — `loadRepeatOrigin`. A small in-memory PostgREST fake that HONOURS the eq/in filters the
@@ -314,5 +314,78 @@ describe('outcome 4 D2: the tip the repeat practised', () => {
         errors.progress_recommendation_attempts = { code: '42703', message: 'column foo does not exist' };
         expect(await loadRepeatOrigin('B', USER)).toEqual({ status: 'error', sessionId: 'B' });
         expect(selects).toHaveLength(1);
+    });
+});
+
+describe('Open Mic repeat pace comparison in loadRepeatOrigin (flag VITE_REPEAT_PACE_COMPARISON_ENABLED)', () => {
+    const tablesRead = () => from.mock.calls.map(([table]) => table);
+    const openMicTakes = (b: Row = {}) => {
+        tables.sessions = [
+            { id: 'A', user_id: USER, product: 'open_mic', created_at: '2025-01-17T14:00:00.000Z' },
+            { id: 'B', user_id: USER, product: 'open_mic', created_at: '2025-01-17T15:00:00.000Z' },
+        ];
+        tables.session_progress_evaluations = [
+            ev('A', { user_id: USER, duration_seconds: 100, wpm: 150 }),
+            ev('B', { user_id: USER, duration_seconds: 95, filler_count: 2, word_count: 250, wpm: 120, ...b }),
+        ];
+    };
+    afterEach(() => { vi.unstubAllEnvs(); });
+
+    it('flag off (default): no pace key and no extra read; the view is exactly today\'s', async () => {
+        openMicTakes();
+        const view = await loadRepeatOrigin('B', USER);
+        expect(view).not.toHaveProperty('pace');
+        expect(tablesRead().filter((t) => t === 'sessions')).toHaveLength(1);
+        expect(tablesRead().filter((t) => t === 'session_progress_evaluations')).toHaveLength(1);
+        vi.stubEnv('VITE_REPEAT_PACE_COMPARISON_ENABLED', 'yes');
+        expect(await loadRepeatOrigin('B', USER)).not.toHaveProperty('pace');
+    });
+
+    it('flag on: compares the two Open Mic takes on pace', async () => {
+        vi.stubEnv('VITE_REPEAT_PACE_COMPARISON_ENABLED', 'true');
+        openMicTakes();
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({
+            status: 'repeat', lifecycle: 'completed', repeatResult: { status: 'available' },
+            pace: { status: 'compared', beforeWpm: 150, afterWpm: 120, changePercent: -20, band: 'changed' },
+        });
+    });
+
+    it('flag on: a not-comparable repeat still gets its own pace line (here, a too-short take)', async () => {
+        vi.stubEnv('VITE_REPEAT_PACE_COMPARISON_ENABLED', 'true');
+        openMicTakes({ eligible: false, exclusion_reasons: ['too_short'], wpm: null, cohort_key: null });
+        tables.progress_recommendation_attempts = [attempt({ lifecycle: 'not_comparable', outcome: 'not_comparable', next_comparable_session_id: null })];
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({
+            lifecycle: 'not_comparable', pace: { status: 'cant_compare', reason: 'not_eligible', exclusionReason: 'too_short' },
+        });
+    });
+
+    it('flag on: a Focus Points loop is not an Open Mic comparison', async () => {
+        vi.stubEnv('VITE_REPEAT_PACE_COMPARISON_ENABLED', 'true');
+        openMicTakes();
+        tables.sessions = tables.sessions.map((row) => ({ ...row, product: 'focus_points' }));
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({ pace: { status: 'cant_compare', reason: 'not_open_mic' } });
+    });
+
+    it('flag on: a read error makes pace unavailable and leaves the rest of the block standing', async () => {
+        vi.stubEnv('VITE_REPEAT_PACE_COMPARISON_ENABLED', 'true');
+        openMicTakes();
+        errors.session_progress_evaluations = { code: '500', message: 'boom' };
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({ status: 'repeat', originalSessionId: 'A', pace: { status: 'unavailable' } });
+    });
+
+    it('flag on: another account\'s rows served by a wider read are ignored (pace unavailable, never compared)', async () => {
+        vi.stubEnv('VITE_REPEAT_PACE_COMPARISON_ENABLED', 'true');
+        openMicTakes();
+        tables.session_progress_evaluations = tables.session_progress_evaluations.map((row) => row.session_id === 'B' ? { ...row, user_id: 'someone-else' } : row);
+        ignoreFilters.session_progress_evaluations = true;
+        expect(await loadRepeatOrigin('B', USER)).toMatchObject({ pace: { status: 'unavailable' } });
+    });
+
+    it('flag on: a duplicate evaluation for a take is unavailable, never a guess', async () => {
+        vi.stubEnv('VITE_REPEAT_PACE_COMPARISON_ENABLED', 'true');
+        openMicTakes();
+        tables.session_progress_evaluations.push(ev('B', { user_id: USER, duration_seconds: 95, wpm: 200 }));
+        const view = await loadRepeatOrigin('B', USER);
+        expect(view).toMatchObject({ pace: { status: 'unavailable' } });
     });
 });
