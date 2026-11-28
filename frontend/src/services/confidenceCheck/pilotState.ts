@@ -70,11 +70,17 @@ export function answerPre(ownerId: string, answer: ReadinessRating | 'skipped'):
 }
 
 /**
- * A take is starting. `repeat`: Practice again / Retry this set / a linked repeat. Otherwise it is the first take
- * from the before screen: it keeps a `pre` answered on that screen, and drops anything left from an older loop.
+ * A take is starting.
+ *   - `repeat`: an in-session Practice again / Retry this set — the SAME loop, so its baseline is kept.
+ *   - `linked`: a linked repeat accepted from a saved review — its OWN loop, never an earlier loop's baseline.
+ *   - `first`: the first take from the before screen: keeps a `pre` answered on that screen, drops anything older.
  */
-export function noteTakeStart(ownerId: string, kind: 'first' | 'repeat'): void {
+export function noteTakeStart(ownerId: string, kind: 'first' | 'repeat' | 'linked'): void {
     const current = pilotFor(state, ownerId);
+    if (kind === 'linked') {
+        publish({ ...blank(ownerId), repeatPending: true });
+        return;
+    }
     if (kind === 'repeat') {
         publish({ ...(current ?? blank(ownerId)), repeatPending: true, repeatRecorded: false, askPost: false, post: null, feel: null });
         return;

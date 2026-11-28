@@ -173,5 +173,27 @@ describe('confidence check pilot in the session page', () => {
         expect(screen.getByTestId('confidence-pre-rating-5')).toHaveAttribute('aria-pressed', 'true');
         expect(confidencePilotSnapshot()).toMatchObject({ loopStarted: true, pre: 5, tookTake: false });
     });
+
+    it('flag on: a linked repeat of a DIFFERENT saved session never shows an earlier loop\'s baseline as "before the loop"', () => {
+        vi.stubEnv('VITE_CONFIDENCE_CHECK_PILOT_ENABLED', 'true');
+        const { rerender } = render(before());
+        fireEvent.click(screen.getByTestId('confidence-start-loop'));
+        fireEvent.click(screen.getByTestId('confidence-pre-rating-2'));
+        fireEvent.click(screen.getByTestId('mic-start'));
+        rerender(during()); rerender(after());
+        fireEvent.click(screen.getByTestId('verdict-practice-again'));
+        rerender(during()); rerender(after());
+        fireEvent.click(screen.getByTestId('confidence-post-rating-4'));
+        fireEvent.click(screen.getByTestId('confidence-reveal'));
+        // Later: History → another saved session → its linked "Practice again".
+        const practiceTarget = { kind: 'ready', instruction: 'Cut filler words toward 2%' } as const;
+        rerender(before({ practiceTarget }));
+        fireEvent.click(screen.getByTestId('mic-start'));
+        rerender(during({ practiceTarget })); rerender(after({ practiceTarget }));
+        fireEvent.click(screen.getByTestId('confidence-post-rating-5'));
+        fireEvent.click(screen.getByTestId('confidence-reveal'));
+        expect(screen.getByTestId('confidence-you-said')).toHaveTextContent('You said: readiness 5 (Fully ready) now.');
+        expect(screen.getByTestId('confidence-you-said')).not.toHaveTextContent('before the loop');
+    });
 });
 

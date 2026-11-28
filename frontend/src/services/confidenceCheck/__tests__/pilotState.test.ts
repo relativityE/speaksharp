@@ -86,6 +86,17 @@ describe('confidence check pilot state (session-only)', () => {
         expect(mine()).toMatchObject({ askPost: true, post: null, feel: null });
     });
 
+    it('a linked repeat from a saved review starts its OWN loop: an earlier loop\'s baseline is never carried into it', () => {
+        toRepeatAfter();
+        answerPost(ME, 4); revealReview(ME);
+        expect(mine()?.pre).toBe(2);
+        noteTakeStart(ME, 'linked');
+        expect(mine()).toMatchObject({ pre: null, loopStarted: false, repeatPending: true, post: null, feel: null });
+        noteSessionPhase(ME, 'during');
+        noteSessionPhase(ME, 'after');
+        expect(mine()).toMatchObject({ askPost: true, pre: null });
+    });
+
     it('revealing without answering records skipped, never a low score; questions are not asked again', () => {
         toRepeatAfter();
         revealReview(ME);

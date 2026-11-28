@@ -438,7 +438,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const confidenceSnapshot = React.useSyncExternalStore(subscribeConfidencePilot, confidencePilotSnapshot, () => null);
     const confidencePilot = confidencePilotOn ? pilotFor(confidenceSnapshot, authUserId) : null;
     const linkedRepeatPending = practiceTarget !== undefined && practiceTarget.kind !== 'none';
-    const noteConfidenceTakeStart = React.useCallback((kind: 'first' | 'repeat') => {
+    const noteConfidenceTakeStart = React.useCallback((kind: 'first' | 'repeat' | 'linked') => {
         if (confidencePilotOn && authUserId) noteTakeStart(authUserId, kind);
     }, [confidencePilotOn, authUserId]);
     React.useEffect(() => {
@@ -453,7 +453,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }, [confidencePilotOn, authUserId, inAfter]);
     // Before the first take: a linked repeat (Practice again from a saved review) gets no invented baseline.
     const startFromBefore = React.useCallback(() => {
-        noteConfidenceTakeStart(linkedRepeatPending ? 'repeat' : 'first');
+        noteConfidenceTakeStart(linkedRepeatPending ? 'linked' : 'first');
         onStartStop();
     }, [noteConfidenceTakeStart, linkedRepeatPending, onStartStop]);
     const confidencePostPending = inAfter && Boolean(confidencePilot?.askPost);

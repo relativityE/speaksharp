@@ -1128,10 +1128,11 @@ export const SessionPage: React.FC = () => {
                 modelLoadingProgress={visibleModelLoadingProgress}
                 onStartStop={() => {
                     // Confidence check pilot (flag default OFF, session-only): the mobile bar starts takes without the
-                    // view's wrapped handlers, so record here whether this Start is a repeat (from the review, or a linked
-                    // repeat) or a loop's first take. Stop presses (isListening) record nothing.
+                    // view's wrapped handlers, so record here whether this Start is an in-session repeat (from the review), a
+                    // linked repeat from a saved review (its own loop), or a loop's first take. Stop presses record nothing.
                     if (isConfidenceCheckPilotEnabled() && authUserId && !isListening) {
-                        noteTakeStart(authUserId, (showAnalyticsPrompt || isTranscriptFinalizing || practiceTarget.kind !== 'none') ? 'repeat' : 'first');
+                        noteTakeStart(authUserId, (showAnalyticsPrompt || isTranscriptFinalizing) ? 'repeat'
+                            : practiceTarget.kind !== 'none' ? 'linked' : 'first');
                     }
                     void handleStartStop();
                 }}
