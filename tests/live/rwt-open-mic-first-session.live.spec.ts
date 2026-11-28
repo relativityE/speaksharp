@@ -266,8 +266,8 @@ test.describe('RWT — Open Mic first session @live', () => {
 
         const oneCoachingRequest = process.env.RWT_ONE_SAVED_COACHING_DIAGNOSTIC === '1';
         const receipt = new RwtReceipt(SUITE);
-        if (oneCoachingRequest) receipt.meta.coachingProofMode = 'one-first-request-diagnostic';
         receipt.forbid(SERVICE_ROLE);
+        if (oneCoachingRequest) receipt.meta.coachingProofMode = 'one-first-request-diagnostic';
         receipt.meta.fixture = fixture.key;
         receipt.meta.fixtureKind = fixture.entry.kind;
         receipt.meta.fixtureSha256 = fixture.entry.kind === 'human' ? '(private)' : fixture.entry.sha256;

@@ -557,6 +557,12 @@ const coachingFocusOmissionGuardProfiles=coachingTimeoutFallbackProfiles.map(ite
     'backend/supabase/functions/get-ai-suggestions/focusOmissionGuard.ts':'6fb1be95d28316e91e900d04f534ccdf0bb148fc8ebd0e2d2f8d25b11059ef57',
   },
 }));
+// #1997: the controlled late-answer persistence assertions change only the exact test source.
+const coachingOneRequestProofProfiles=coachingFocusOmissionGuardProfiles.map(item=>({
+  id:item.id,files:{...item.files,
+    [coachingTest]:'6b80552ff901061d1b449e0fb0e460b5cc35d5430ec88a5b8f1a69ca7f38f6e8',
+  },
+}));
 export function nativeDenoPolicy(file) {
   const billing=isBillingDenoTest(file);
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
@@ -567,7 +573,7 @@ export function nativeDenoPolicy(file) {
 }
 export function validateSyntheticSource(root,file) {
   if(file!==coachingTest)return null;
-  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles,...coachingNeverBlocksProfiles,...coachingTimeoutFallbackProfiles,...coachingFocusOmissionGuardProfiles].find(candidate=>{
+  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles,...coachingNeverBlocksProfiles,...coachingTimeoutFallbackProfiles,...coachingFocusOmissionGuardProfiles,...coachingOneRequestProofProfiles].find(candidate=>{
     try{return Object.entries(candidate.files).every(([entry,digest])=>hash(fs.readFileSync(regular(root,entry)))===digest);}
     catch{return false;}
   });
