@@ -129,11 +129,11 @@ describe('bounded MVP acceptance-map contract', () => {
   it('preserves the exact historical suffix instead of rewriting prior evidence', () => {
     const offset = source.indexOf(stop);
     expect(offset).toBeGreaterThanOrEqual(0);
-    // Re-pinned for the 24 November currency update only: add the verified source (27717c7f) and served frontend
-    // (cdaaab3c, release run 45461465932) rows; date their prior rows and update the CURRENCY-BLOCK identities/date.
+    // Re-pinned for the 28 November currency update only: add the verified source (f6c88c80) and served frontend
+    // (8fb84ff8, release run 46158356756) rows; date their prior rows and update the CURRENCY-BLOCK identities/date.
     // The rest of the retained suffix, including historical evidence and HOLD/acceptance, is unchanged.
     expect(createHash('sha256').update(source.slice(offset)).digest('hex'))
-      .toBe('7556aafd92057e12a00cb06ef8195283f5f2540a26fdf6a9c8ff3a0d779e350f');
+      .toBe('2c994cab50c2e52a9260dc14de7a84f139121832b72f1666e74320ae306206f0');
   });
 
   it('preserves ten outcomes, all four stages, inventories and retained source identities', () => {
