@@ -45,6 +45,7 @@ import {
     AnalyticsTap,
     RwtReceipt,
     focusCoachingRows,
+    recordFocusCoachingContentRows,
     railStateRows,
     type SavedCoaching,
     requireApprovedSurface,
@@ -1796,6 +1797,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         const pair = readSuggestionPair({ suggestions: row.ai_suggestions });
                         return (row.ai_suggestions === null || pair) ? { takeId: id, product: 'focus_points', pair } : null;
                     } });
+                if (result.outcome === 'PASS') {
+                    const pair = result.proof.terminal?.suggestions;
+                    if (!pair) throw new Error('HOLD J3.b: the one successful repeat did not yield a complete pair');
+                    recordFocusCoachingContentRows(receipt, pair.what_worked, pair.what_to_try_next, {
+                        labels: coverage.map((row) => row.label),
+                        // Before #1991, saved yellow can reopen with the older binary covered marker.
+                        // The panel above already matched the fixture, including its explicit partial when present.
+                        statuses: expectedFinal,
+                    });
+                }
                 receipt.row('J3.b single saved-repeat provider proof', result.outcome,
                     result.outcome === 'EXTERNAL' ? 'the repeat stayed saved and offered Retry; successful live coaching was not demonstrated'
                         : result.outcome === 'PASS' ? 'one repeat-bound answer rendered, persisted and reopened without a second request'

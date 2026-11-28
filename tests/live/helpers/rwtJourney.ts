@@ -2525,6 +2525,34 @@ export async function firstTakeSavedExactlyOnce(admin: SupabaseClient, uid: stri
     return { proven: accountCompletedSessions === 1 && thisTakeCompleted === true, accountCompletedSessions, thisTakeCompleted };
 }
 
+/** Apply the existing content checks to a real rendered pair, without assuming which UI path requested it. */
+export function recordFocusCoachingContentRows(
+    receipt: RwtReceipt, well: string, next: string,
+    openPoints?: { labels: readonly string[]; statuses: readonly (string | null)[] },
+): void {
+    const inTarget = (n: number) => n >= COACHING_PHRASE_TARGET_MIN_WORDS && n <= COACHING_PHRASE_TARGET_WORDS;
+    const withinTarget = inTarget(countWords(well)) && inTarget(countWords(next));
+    receipt.row('Focus coaching length', 'PASS',
+        withinTarget ? `both phrases within the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word target`
+            : `served whole; a phrase is outside the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word band (${bandSide(countWords(well), countWords(next), COACHING_PHRASE_TARGET_MIN_WORDS, COACHING_PHRASE_TARGET_WORDS)}; a quality measure, not a failure)`,
+        { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
+    const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
+    receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
+    // Live run 44941790511 failed the old word match and kept no phrase, so its cause is unknown; that match also failed harmless
+    // advice such as "skip the filler words" (an example of a false positive, not the observed phrase). The verdict tells a stated
+    // or implied omission of a chosen point from unrelated wording; the receipt keeps only its closed form token.
+    const omission = omissionClaimVerdict({ well, next, labels: openPoints?.labels ?? null });
+    receipt.row('Focus coaching makes no omission claim', omission.status, omission.detail, { form: omission.form });
+    // #1258 R4: the provider schema's own ceiling, and an evident reference to a point that is still open (never a FAIL on
+    // wording: the human check decides when no open point is named).
+    const ceiling = characterCeilingVerdict(well, next);
+    receipt.row('Focus coaching within the character ceiling', ceiling.status, ceiling.detail, { wellChars: well.length, nextChars: next.length });
+    const openPoint = openPoints
+        ? openPointReferenceVerdict({ well, next, labels: openPoints.labels, statuses: openPoints.statuses })
+        : { status: 'HOLD' as const, detail: 'the rail\'s final statuses were not supplied' };
+    receipt.row('Focus coaching refers to an open point', openPoint.status, openPoint.detail);
+}
+
 export async function focusCoachingRows(
     page: Page,
     receipt: RwtReceipt,
@@ -2601,27 +2629,7 @@ export async function focusCoachingRows(
         }
         return null;
     }
-    const inTarget = (n: number) => n >= COACHING_PHRASE_TARGET_MIN_WORDS && n <= COACHING_PHRASE_TARGET_WORDS;
-    const withinTarget = inTarget(countWords(well)) && inTarget(countWords(next));
-    receipt.row('Focus coaching length', 'PASS',
-        withinTarget ? `both phrases within the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word target`
-            : `served whole; a phrase is outside the ${COACHING_PHRASE_TARGET_MIN_WORDS}-${COACHING_PHRASE_TARGET_WORDS}-word band (${bandSide(countWords(well), countWords(next), COACHING_PHRASE_TARGET_MIN_WORDS, COACHING_PHRASE_TARGET_WORDS)}; a quality measure, not a failure)`,
-        { wellWords: countWords(well), nextWords: countWords(next), withinTarget });
-    const distinct = normalisePhraseText(well) !== normalisePhraseText(next);
-    receipt.row('Focus coaching distinct', distinct ? 'PASS' : 'FAIL', distinct ? 'two different suggestions' : 'both headings show the same phrase');
-    // Live run 44941790511 failed the old word match and kept no phrase, so its cause is unknown; that match also failed harmless
-    // advice such as "skip the filler words" (an example of a false positive, not the observed phrase). The verdict tells a stated
-    // or implied omission of a chosen point from unrelated wording; the receipt keeps only its closed form token.
-    const omission = omissionClaimVerdict({ well, next, labels: request.openPoints?.labels ?? null });
-    receipt.row('Focus coaching makes no omission claim', omission.status, omission.detail, { form: omission.form });
-    // #1258 R4: the provider schema's own ceiling, and an evident reference to a point that is still open (never a FAIL on
-    // wording: the human check decides when no open point is named).
-    const ceiling = characterCeilingVerdict(well, next);
-    receipt.row('Focus coaching within the character ceiling', ceiling.status, ceiling.detail, { wellChars: well.length, nextChars: next.length });
-    const openPoint = request.openPoints
-        ? openPointReferenceVerdict({ well, next, labels: request.openPoints.labels, statuses: request.openPoints.statuses })
-        : { status: 'HOLD' as const, detail: 'the rail\'s final statuses were not supplied' };
-    receipt.row('Focus coaching refers to an open point', openPoint.status, openPoint.detail);
+    recordFocusCoachingContentRows(receipt, well, next, request.openPoints);
     humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
         'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
 
