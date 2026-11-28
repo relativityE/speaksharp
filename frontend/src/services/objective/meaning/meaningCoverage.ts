@@ -170,7 +170,7 @@ const leadOf = (text: string): string => text.trim().split(/\s+/).slice(0, 5).jo
  *
  * Each claim is judged against ITS OWN subject ("Customers want X and managers need Y" has two), falling back to the
  * point's subject only when the claim names none. A reported view ("a competitor claims…") never substitutes for a
- * direct claim, but a claim that itself asks for a report ("Customers say…") is credited by that report, from the same
+ * direct claim, but a claim that itself asks for a report ("Users report that…") is credited by that report, from the same
  * group (the group guard still applies). A named third party ("Engineers…") is credited only by that same party.
  */
 function windowVerdict(point: string, claim: string, text: string): 'missing' | 'partial' | null {
