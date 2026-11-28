@@ -273,6 +273,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // and during use ONLY the live brief, so a stale snapshot can never make a fresh Open Mic session look
     // like Focus Points (the isolation invariant that motivated clearing the live brief in the first place).
     const inAfter = sessionState === 'after';
+    // Confidence check pilot (flag default OFF): read here so the after-state receipts below can wait for the reveal.
+    const confidencePilotOn = isConfidenceCheckPilotEnabled();
+    const confidenceSnapshot = React.useSyncExternalStore(subscribeConfidencePilot, confidencePilotSnapshot, () => null);
+    const confidencePilot = confidencePilotOn ? pilotFor(confidenceSnapshot, authUserId) : null;
+    // The repeat's review is hidden behind the post questions until answered or skipped. A recorded pending repeat counts
+    // from its FIRST after render (the phase effect sets `askPost` one commit later), so neither the review nor its
+    // receipts can appear for a frame before the questions.
+    const confidencePostPending = inAfter
+        && Boolean(confidencePilot?.askPost || (confidencePilot?.repeatPending && confidencePilot.repeatRecorded));
 
     // #1259 P1 — WHICH REVIEW THIS IS, derived before anything describes it.
     //
@@ -298,7 +307,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * finding about there being too few.
      */
     React.useEffect(() => {
-        if (!inAfter) return;
+        // Nothing is offered while the confidence pilot hides the review; it reports when the user reveals it.
+        if (!inAfter || confidencePostPending) return;
         // The Focus Points rail offers "Retry this set" and "Start a new set" — not Practice again and
         // See all sessions. Reporting the coaching review's menu for it described a screen that was
         // never rendered, which is the one thing an "options offered" receipt must not do.
@@ -306,7 +316,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             ? ['retry_points', ...(onNewSet ? ['new_set'] : [])]
             : ['practice_next', ...(onSeeAllSessions ? ['view_analytics'] : [])];
         emitJourneyStep({ step: 'post_session_options', optionsShown: offered });
-    }, [inAfter, onSeeAllSessions, isObjectiveSurface, onNewSet]);
+    }, [inAfter, onSeeAllSessions, isObjectiveSurface, onNewSet, confidencePostPending]);
 
     /**
      * #1259 F07 — WHAT THE REVIEW ACTUALLY SHOWED, and where it came from.
@@ -434,9 +444,6 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * Practice confidence check pilot (spec Revision 1; flag `VITE_CONFIDENCE_CHECK_PILOT_ENABLED`, default OFF). Session-only:
      * answers live in `pilotState` memory and are never sent anywhere. With the flag off none of this renders or records.
      */
-    const confidencePilotOn = isConfidenceCheckPilotEnabled();
-    const confidenceSnapshot = React.useSyncExternalStore(subscribeConfidencePilot, confidencePilotSnapshot, () => null);
-    const confidencePilot = confidencePilotOn ? pilotFor(confidenceSnapshot, authUserId) : null;
     const linkedRepeatPending = practiceTarget !== undefined && practiceTarget.kind !== 'none';
     const noteConfidenceTakeStart = React.useCallback((kind: 'first' | 'repeat' | 'linked') => {
         if (confidencePilotOn && authUserId) noteTakeStart(authUserId, kind);
@@ -456,7 +463,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         noteConfidenceTakeStart(linkedRepeatPending ? 'linked' : 'first');
         onStartStop();
     }, [noteConfidenceTakeStart, linkedRepeatPending, onStartStop]);
-    const confidencePostPending = inAfter && Boolean(confidencePilot?.askPost);
+
     const choosePracticeAgain = React.useCallback(() => {
         if (liveGateBlocksStart()) return;
         noteConfidenceTakeStart('repeat');
@@ -502,7 +509,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      *   - the mic-observability summary, which is drawn from the envelope this view already keeps.
      */
     React.useEffect(() => {
-        if (!reviewSettled) {
+        // The rail receipt describes a rail the user SAW: while the confidence pilot hides it, nothing is reported.
+        if (!reviewSettled || confidencePostPending) {
             return;
         }
         if (isObjectiveSurface) {
@@ -527,11 +535,14 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             markCompletionStage('practice_loop_ready');
             markCompletionStage('review_rendered');
         }
+    }, [reviewSettled, onRetryPoints, onNewSet, isObjectiveSurface, confidencePostPending]);
+    React.useEffect(() => {
+        if (!reviewSettled) return;
         // #1259 F02 — summarised HERE, from the envelope this view already keeps to draw the
         // after-state waveform. No per-frame hook is needed and none is added: streaming levels is
-        // both forbidden and would drown every other signal.
+        // both forbidden and would drown every other signal. (Not a visibility receipt: never gated.)
         emitMicObservability(levelsRef.current, stopControlRenderedRef.current);
-    }, [reviewSettled, onRetryPoints, onNewSet, isObjectiveSurface]);
+    }, [reviewSettled]);
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
     const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);
