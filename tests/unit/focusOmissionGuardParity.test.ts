@@ -55,6 +55,12 @@ const CORPUS: Array<[string, readonly string[] | null]> = [
     ['Discuss the cost of missed deadlines.', ['Missed deadlines']],
     ['You covered the launch date and omitted details.', ['Launch date', 'Pricing tiers']],
     ['You finished one point and skipped mentioning others.', ['Launch date', 'Pricing tiers']],
+    // Review of #1999 at 68a70284: a stranded preposition before the main verb; pacing advice is not a time-out omission.
+    ['The section you focused on missed two of your chosen points.', ['Launch date', 'Pricing tiers']],
+    ["You didn't have time to pause before the launch date.", ['Launch date', 'Pricing tiers']],
+    ["You didn't have time to mention the launch date.", ['Launch date', 'Pricing tiers']],
+    ["You didn't get around to pausing between points.", ['Launch date', 'Pricing tiers']],
+    ['You never got around to the guarantee.', ['Money-back guarantee']],
     // A label that itself contains an omission participle: quoting it is not an omission claim.
     ['Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent']],
     ['You missed the deadlines point.', ['Measure missed deadlines and time spent']],
@@ -152,6 +158,11 @@ describe('PM review of #1993: precision of the guard (both copies)', () => {
             ['The pricing tiers were omitted.', ['IT', 'Pricing tiers'], 'flag'],
             ['Flag the skipped steps in the rollout before the demo.', ['Launch date', 'Pricing tiers'], 'serve'],
             ['Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent'], 'serve'],
+            ['The section you focused on missed two of your chosen points.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ["You didn't have time to pause before the launch date.", ['Launch date', 'Pricing tiers'], 'serve'],
+            ["You didn't have time to mention the launch date.", ['Launch date', 'Pricing tiers'], 'flag'],
+            ["You didn't get around to pausing between points.", ['Launch date', 'Pricing tiers'], 'serve'],
+            ['You never got around to the guarantee.', ['Money-back guarantee'], 'flag'],
         ];
         for (const [next, labels, expected] of cases) {
             const points: FocusGuardPoint[] = labels.map((label, i) => ({ label, verdict: i === 0 ? 'detected' : 'not_detected' }));

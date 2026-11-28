@@ -24,7 +24,7 @@ export type OmissionForm = 'none' | 'past_claim' | 'implied_point' | 'present_po
 // ── Mirrored verbatim from tests/live/helpers/rwtCoachingConsistency.ts (parity-tested) ─────────────────────────────────
 const STOPWORDS = new Set(['your', 'with', 'that', 'this', 'from', 'have', 'what', 'when', 'will', 'about', 'they', 'them', 'into', 'than']);
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
-export const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b|\bran\s+out\s+of\s+time\s+before\s+(?:getting\s+to|reaching|covering|mentioning)\b|\b(?:didn'?t|did\s+not)\s+(?:get|have)\s+(?:the\s+)?(?:time|a\s+chance)\s+to\b|\b(?:didn'?t|did\s+not|never)\s+got?\s+around\s+to\b/i;
+export const PAST_CLAIM = /\b(missed|skipped|forgot|forgotten|omitted|overlooked)\b|\bleft\s+(?:(?:it|them|that|this)\s+)?out\b|\b(?:didn'?t|did\s+not|never)\s+(?:mention|cover|say|address|include|get\s+to)\b|\b(?:never|(?:was|were)(?:n'?t|\s+not|\s+never)|(?:has|have)(?:n'?t|\s+not|\s+never)(?:\s+been)?)\s+(?:mentioned|covered|said|addressed|included|got\s+to)\b|\bwent\s+unmentioned\b|\bran\s+out\s+of\s+time\s+before\s+(?:getting\s+to|reaching|covering|mentioning)\b|\b(?:didn'?t|did\s+not)\s+(?:get|have)\s+(?:the\s+)?(?:time|a\s+chance)\s+to\s+(?:mention|cover|say|address|include|reach|make|get\s+to)\b|\b(?:didn'?t|did\s+not|never)\s+got?\s+around\s+to\s+(?:mention(?:ing)?|cover(?:ing)?|address(?:ing)?|includ(?:e|ing)|the|your|that|this|it)\b/i;
 export const OMISSION_WORD = /\b(?:miss(?:es|ed|ing)?|skip(?:s|ped|ping)?|forg(?:et|ets|etting|ot|otten)|left\s+out|leav(?:e|es|ing)\s+out|omit(?:s|ted|ting)?|overlook(?:s|ed|ing)?|unmentioned)\b/i;
 export const IMPERATIVE_OMIT = /\b(?:don'?t|do\s+not|never|avoid)\s+(?:skip(?:ping)?|miss(?:ing)?|forget(?:ting)?|leav(?:e|ing)\s+out|omit(?:ting)?)\b((?:\s+\S+){1,3})/i;
 export const PRESENT_MISSING = /(\S+(?:\s+\S+){0,2})\s+(?:is|are|was|were|still)\s+(?:still\s+)?missing\b|\bmissing\s+((?:\S+\s+){0,2}\S+)/i;
@@ -38,7 +38,10 @@ export const COLLECTIVE_POINTS = /\b(?:your|chosen|selected|focus|each|every|any
  * it. Only the omission test reads the rewritten text; every point lookup reads the original clause.
  */
 export const ATTRIBUTIVE_PARTICIPLE = /(?<=\b(?:the|a|an|of|for|on|about|with|any|no|those|these|their|its|by|from|in|to)\s+)\b(missed|skipped|forgotten|omitted|overlooked)(\s+)([a-z0-9][\w'-]*)/gi;
-const NOT_A_TOPIC_NOUN = new Set(['it', 'them', 'that', 'this', 'those', 'these', 'the', 'a', 'an', 'your', 'my', 'our', 'his', 'her', 'their', 'one', 'any', 'every', 'each', 'all', 'point', 'points', 'to', 'out', 'on', 'over', 'in', 'at', 'by', 'with']);
+// Pronouns, determiners, quantifiers and numbers start an OBJECT, so the participle before them is a verb ("…focused on missed
+// two of your points"; review of #1999).
+const NOT_A_TOPIC_NOUN = new Set(['it', 'them', 'that', 'this', 'those', 'these', 'the', 'a', 'an', 'your', 'my', 'our', 'his', 'her', 'their', 'one', 'any', 'every', 'each', 'all', 'point', 'points', 'to', 'out', 'on', 'over', 'in', 'at', 'by', 'with',
+    'two', 'three', 'four', 'five', 'six', 'several', 'some', 'many', 'most', 'both', 'half', 'few', 'more', 'other', 'others']);
 function omissionProbe(clause: string, labels: readonly string[] | null, names: (t: string) => boolean): string {
     const normalizedLabels = (labels ?? []).map((label) => norm(label)).filter(Boolean);
     // No label masking: a label word used as the predicate ("You missed deadlines" with the label "Missed deadlines") stays a
@@ -46,7 +49,7 @@ function omissionProbe(clause: string, labels: readonly string[] | null, names: 
     return clause.replace(ATTRIBUTIVE_PARTICIPLE, (whole: string, participle: string, space: string, noun: string) => {
         const quotesLabel = normalizedLabels.some((label) => label.includes(`${participle.toLowerCase()} ${noun.toLowerCase()}`));
         // A gerund after the participle ("skipped mentioning…") is a verb phrase, never a topic noun.
-        if (NOT_A_TOPIC_NOUN.has(noun.toLowerCase()) || /ing$/i.test(noun) || (names(noun) && !quotesLabel)) return whole;
+        if (NOT_A_TOPIC_NOUN.has(noun.toLowerCase()) || /^\d/.test(noun) || /ing$/i.test(noun) || (names(noun) && !quotesLabel)) return whole;
         return `${space}${noun}`;
     });
 }
