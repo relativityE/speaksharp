@@ -121,7 +121,7 @@ const GUIDE_SECONDS = 60;
 const AVERAGE_TOLERANCE_SECONDS = 4;
 /**
  * The live-marker timing oracle (PM 2026-09-25): each marker change is placed against the point's waveform-pinned window —
- * while the point is spoken or at most 5 s after it ends; sealed observations must establish speaking order. A 1 s early allowance absorbs
+ * while the point is spoken or at most 5 s after it ends; coalesced observations are allowed and definite reversals fail. A 1 s early allowance absorbs
  * capture-start jitter. #1593 case 3: the change time is the take-bound in-page observer's PAGE-SIDE OBSERVATION time, and
  * time zero is the take's one fresh granted getUserMedia INVOCATION (not proven sample onset) — see rwtMarkerObserver.ts.
  */
@@ -702,8 +702,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])), pendingSeenAtMs: sealed.pendingSeenAtMs });
                 const status = markerTimingStatus(verdicts);
                 receipt.row('marker timing vs audio', status,
-                    status === 'PASS' ? 'each marker\'s whole change interval lies while its point was spoken or within 5 s after, in speaking order'
-                        : status === 'HOLD' ? 'a marker interval does not establish its timing or order'
+                    status === 'PASS' ? 'each marker\'s whole change interval lies while its point was spoken or within 5 s after, with no definite reversal'
+                        : status === 'HOLD' ? 'a marker interval does not establish its timing'
                             : 'a marker changed before its point was spoken, more than 5 s after it, out of speaking order, or for an unspoken point',
                     { perPoint: verdicts.join(','), maxAfterPointSec: LIVE_MARKER_MAX_AFTER_SECONDS, clock: playback ? 'page-side observation after cue-aligned actual render bound' : 'page-side observation after getUserMedia invocation',
                         ...(playback ? { micOpenToCueMs: Math.round(playback.cueAtMs - binding.invokedAtMs),

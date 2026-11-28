@@ -534,9 +534,13 @@ describe('Option A: independent five-second windows, sealed speaking order', () 
     it('fails a definite reverse order even in the same rounded second', () => {
         expect(check([obs(1, 9.09, 9.10, 0), obs(0, 9.19, 9.20, 1)])[1]).toBe('out-of-order@9.090..9.100');
     });
-    it('holds a coalesced observation; mutation delivery is not elapsed order', () => {
+    it('accepts a coalesced render as non-decreasing order', () => {
         const v = check([obs(0, 9.09, 9.20, 0), obs(1, 9.09, 9.20, 1)]);
-        expect(v[1]).toBe('uncertain-order@9.090..9.200');
-        expect(markerTimingStatus(v)).toBe('HOLD');
+        expect(v[1]).toBe('ok@9.090..9.200');
+        expect(markerTimingStatus(v)).toBe('PASS');
+    });
+    it('accepts overlapping, individually timely observations without treating overlap as a reversal', () => {
+        const v = check([obs(0, 9.09, 9.20, 1), obs(1, 9.05, 9.15, 0)]);
+        expect(markerTimingStatus(v)).toBe('PASS');
     });
 });

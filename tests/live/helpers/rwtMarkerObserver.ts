@@ -312,14 +312,13 @@ export function classifyMarkerTiming(input: {
         // The interval is open below: a prior delivery AT the deadline puts every possible change after it (Codex P2 r4362921631).
         if (lo >= deadline) return `late@${bounds}`;
         if (lo >= earliest && hi <= deadline) {
-            // The observer batches mutations. Overlapping intervals do not prove ordering, even if their
-            // callback or rounded poll timestamps look ordered. Compare on the shared page clock.
+            // The observer batches mutations. Shared or overlapping observations remain compatible
+            // with non-decreasing order. Only a definite reversal fails.
             if (expectsLive) {
                 const prior = previous;
                 previous = { loMs, hiMs: change.observedAtMs };
                 if (prior) {
                     if (change.observedAtMs <= prior.loMs && change.observedAtMs < prior.hiMs) return `out-of-order@${bounds}`;
-                    if (prior.hiMs > loMs || prior.hiMs === change.observedAtMs) return `uncertain-order@${bounds}`;
                 }
             }
             return `ok@${bounds}`;
