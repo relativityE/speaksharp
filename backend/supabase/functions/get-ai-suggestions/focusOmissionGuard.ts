@@ -42,19 +42,24 @@ export const ATTRIBUTIVE_PARTICIPLE = /(?<=\b(?:the|a|an|of|for|on|about|with|an
 // two of your points"; review of #1999).
 const NOT_A_TOPIC_NOUN = new Set(['it', 'them', 'that', 'this', 'those', 'these', 'the', 'a', 'an', 'your', 'my', 'our', 'his', 'her', 'their', 'one', 'any', 'every', 'each', 'all', 'point', 'points', 'to', 'out', 'on', 'over', 'in', 'at', 'by', 'with',
     'two', 'three', 'four', 'five', 'six', 'several', 'some', 'many', 'most', 'both', 'half', 'few', 'more', 'other', 'others',
-    // An ordinal names a point ("the skipped second point"; review of #1999 at 1f4f8b17).
-    'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'last', 'final', 'next']);
+    // An ordinal names a point ("the skipped second point"; review of #1999 at 1f4f8b17), and so does a speech-content noun
+    // ("the missed topic", "the skipped portion of…"; review at 183c12fc).
+    'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'last', 'final', 'next',
+    'topic', 'topics', 'item', 'items', 'idea', 'ideas', 'message', 'messages', 'content', 'part', 'parts', 'portion', 'portions',
+    'section', 'sections', 'piece', 'pieces', 'bit', 'bits']);
 function omissionProbe(clause: string, labels: readonly string[] | null, names: (t: string) => boolean): string {
     const normalizedLabels = (labels ?? []).map((label) => norm(label)).filter(Boolean);
     // No label masking: a label word used as the predicate ("You missed deadlines" with the label "Missed deadlines") stays a
     // claim. A quoted label is attributive anyway ("the cost of missed deadlines") and is handled below (PM review at 307c686a).
     return clause.replace(ATTRIBUTIVE_PARTICIPLE, (whole: string, participle: string, space: string, noun: string, offset: number) => {
         const quotesLabel = normalizedLabels.some((label) => label.includes(`${participle.toLowerCase()} ${noun.toLowerCase()}`));
-        // The rest of the clause naming a chosen point makes the omission about it ("The omitted detail was the launch date").
+        // The rest of the clause naming a chosen point, or referring to any point ("…of your chosen points", "…of point 2"),
+        // makes the omission about it ("The omitted detail was the launch date"). Quoting a label ("Your point on missed
+        // deadlines…") is the exception for a point reference.
         const rest = clause.slice(0, offset) + clause.slice(offset + whole.length);
         // A gerund after the participle ("skipped mentioning…") is a verb phrase, never a topic noun.
         if (NOT_A_TOPIC_NOUN.has(noun.toLowerCase()) || /^\d/.test(noun) || /ing$/i.test(noun) || (names(noun) && !quotesLabel)
-            || names(rest)) return whole;
+            || names(rest) || (!quotesLabel && /\bpoints?\b/i.test(rest))) return whole;
         return `${space}${noun}`;
     });
 }

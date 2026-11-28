@@ -143,7 +143,7 @@ const deployedCoachingFixture = Object.freeze({
   fixtureFile:'tests/live/helpers/deployedCoachingContract.json', testFile:'tests/unit/deployedCoachingContractExecution1812.test.ts', protocol:'deployed-coaching',
   assertion:'deployed coaching fixture drives both actual readers and rejects changed input',
   sha256:'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b', consumerSha256:'9ff70aa89df82c44ec1069c249d775c578a2a93b96859af336991bb1db143caa',
-  readers:[{file:'tests/live/helpers/rwtCoachingConsistency.ts',sha256:'af7fee5e8ac6c41a67b0fafd81b88ebdb13ae21f20cec833e94fd3be58ab62b4'},{file:'tests/live/helpers/rwtCoachingEvidence.ts',sha256:'324be1d8faaa0e198e56673f2e5570969d389ab744aeaf903c4430133bbfe0ef'}],
+  readers:[{file:'tests/live/helpers/rwtCoachingConsistency.ts',sha256:'32825999e9a3597b8b95a940009e4e4b7193fb239002b064a6311dcf7e524dcf'},{file:'tests/live/helpers/rwtCoachingEvidence.ts',sha256:'324be1d8faaa0e198e56673f2e5570969d389ab744aeaf903c4430133bbfe0ef'}],
 });
 export const registeredFixture = file => file === workflowFixture.fixtureFile ? workflowFixture
   : file === retentionPinsFixture.fixtureFile ? retentionPinsFixture

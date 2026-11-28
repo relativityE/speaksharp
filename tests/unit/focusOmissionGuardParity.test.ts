@@ -65,6 +65,12 @@ const CORPUS: Array<[string, readonly string[] | null]> = [
     ['The omitted detail was the launch date.', ['Launch date', 'Pricing tiers']],
     ['The skipped second point was the pricing tiers.', ['Launch date', 'Pricing tiers']],
     ['The skipped second point needs a clearer opening.', ['Launch date', 'Pricing tiers']],
+    // Review of #1999 at 183c12fc: a point reference anywhere in the clause, or a speech-content noun, keeps it a claim.
+    ['The skipped portion of your chosen points needs attention.', ['Launch date', 'Pricing tiers']],
+    ['The skipped part of point 2 needs work.', ['Launch date', 'Pricing tiers']],
+    ['The missed topic needs a clearer introduction.', ['Launch date', 'Pricing tiers']],
+    ['The skipped material from your chosen points needs attention.', ['Launch date', 'Pricing tiers']],
+    ['The omitted example in point 2 needs work.', ['Launch date', 'Pricing tiers']],
     // A label that itself contains an omission participle: quoting it is not an omission claim.
     ['Your point on missed deadlines landed well.', ['Measure missed deadlines and time spent']],
     ['You missed the deadlines point.', ['Measure missed deadlines and time spent']],
@@ -170,6 +176,11 @@ describe('PM review of #1993: precision of the guard (both copies)', () => {
             ['The omitted detail was the launch date.', ['Launch date', 'Pricing tiers'], 'flag'],
             ['The skipped second point was the pricing tiers.', ['Launch date', 'Pricing tiers'], 'flag'],
             ['The skipped second point needs a clearer opening.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['The skipped portion of your chosen points needs attention.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['The skipped part of point 2 needs work.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['The missed topic needs a clearer introduction.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['The skipped material from your chosen points needs attention.', ['Launch date', 'Pricing tiers'], 'flag'],
+            ['The omitted example in point 2 needs work.', ['Launch date', 'Pricing tiers'], 'flag'],
         ];
         for (const [next, labels, expected] of cases) {
             const points: FocusGuardPoint[] = labels.map((label, i) => ({ label, verdict: i === 0 ? 'detected' : 'not_detected' }));
