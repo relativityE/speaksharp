@@ -28,7 +28,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
-import { J1D_LEG, J1D_ROWS, J1D_SUITE, j1dCaseAssertions, j1dRunnerAdmission, j1dVerdicts } from './helpers/rwtJ1dJourney';
+import { J1D_LEG, J1D_ROWS, J1D_SUITE, j1dCaseAssertions, j1dRunnerAdmission, j1dVerdicts, loadedReviewSessionId } from './helpers/rwtJ1dJourney';
 import { runJ1dLeg } from './helpers/rwtJ1dLeg';
 import { J1C_LEG, J1C_ROW, sessionRowsReader, shortStopRow, shortStopTakeOf, type ShortStopTake } from './helpers/rwtShortStop';
 import { test } from './helpers/rwtProductionTest';
@@ -292,7 +292,10 @@ test.describe('RWT — Open Mic first session @live', () => {
         // function's own answer — held in memory for the diagnostic chain and the restricted synthetic artifact only.
         const generations = new CoachingGenerationTap();
         generations.attach(page);
-        if (oneCoachingRequest) await armOneCoachingProviderBoundary(page, generations);
+        let permitFirstCoaching = true;
+        if (oneCoachingRequest) {
+            await armOneCoachingProviderBoundary(page, generations, { permit: () => permitFirstCoaching });
+        }
         await installMicAcquisitionCounter(page);
         // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's context.
         const parity = new HarnessParityTap();
@@ -398,7 +401,9 @@ test.describe('RWT — Open Mic first session @live', () => {
             // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary
             // tap after a bounded settle of every sent exchange. Unanswered or unreadable stays HOLD — never a zero or the max.
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
-            await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 4 }));
+            if (!oneCoachingRequest) {
+                await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 4 }));
+            }
             // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.
             sampler.stop();
             activeSampler = null;
@@ -1055,7 +1060,7 @@ test.describe('RWT — Open Mic first session @live', () => {
 
             if (oneCoachingRequest) {
                 // The first take has traversed the normal application, prompt, save, Back and Analytics controls.
-                // No further Starts can spend provider quota; the interrupted/other-take cases are controlled in CI.
+                // Keep the real practice/save/Stop path below. Later coaching POSTs are blocked before network.
                 // This diagnostic is not a substitute for the current required legacy receipt.
                 await generations.settle();
                 const proof = singleCoachingProof({ takeId: persistedId, product: 'open_mic',
@@ -1067,7 +1072,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     !appOwned ? 'the exact take, save-once or no-extra-generation app evidence was incomplete'
                         : 'the app-owned proof and one exact take-bound provider exchange were observed; coaching outcome is judged separately',
                     { reason: proof.reason, browserPosts: proof.browserPosts, pendingPosts: proof.pendingPosts, providerAttempts: proof.providerAttempts });
-                return;
+                permitFirstCoaching = false;
             }
 
             // ── Practice again through the rendered controls: Analytics → take → the review's own repeat (#1533) ───
@@ -1097,6 +1102,39 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // #1835 later presses (Sam, Nov 21; kept apart from #1917): the save take's Start and the review's Practice again
                 // each read the owner's choice back inside the press, immediately before its click, as J3 does. A refusal
                 // clicks nothing and stops the journey with its HOLD.
+                let reopenedAppOnly: 'PASS' | 'FAIL' | 'HOLD' = 'HOLD';
+                const appOnlyReopen = async ({ savedSessionId, closesAt }: { savedSessionId: string | null; closesAt: number }) => {
+                    if (!savedSessionId || savedSessionId === persistedId || !capturedUid) return;
+                    let digest: string | null = null;
+                    const [saved, view] = await Promise.all([
+                        lateCoachingDeps(savedSessionId).readSaved(),
+                        reopenWithinCutoff({
+                            newPage: () => page.context().newPage(),
+                            cutoffAt: closesAt,
+                            read: async (reviewPage) => {
+                                const tap = new CoachingGenerationTap();
+                                tap.attach(reviewPage);
+                                await armOneCoachingProviderBoundary(reviewPage, tap, { permit: () => false, blockReadiness: true });
+                                await reviewPage.goto('/analytics/' + encodeURIComponent(savedSessionId), {
+                                    timeout: Math.max(1, closesAt - Date.now()),
+                                });
+                                const id = await loadedReviewSessionId(reviewPage, Math.max(1, closesAt - Date.now()));
+                                const transcript = await reviewPage.getByTestId('session-detail-transcript')
+                                    .innerText({ timeout: Math.max(1, closesAt - Date.now()) }).catch(() => '');
+                                return { pathname: new URL(reviewPage.url()).pathname, renderedSessionId: id,
+                                    transcriptDigest: transcript.trim() ? sha256Hex(transcript) : null,
+                                    pair: null, coachingRequests: tap.sentCount + tap.readinessSentCount };
+                            },
+                        }),
+                    ]);
+                    if (Date.now() > closesAt || !saved.ok || !view.renderedSessionId || !view.transcriptDigest) return;
+                    const row = saved.row;
+                    if (typeof row.transcript === 'string' && row.transcript.trim()) digest = sha256Hex(row.transcript);
+                    if (!digest) return;
+                    reopenedAppOnly = row.id === savedSessionId && row.user_id === capturedUid && row.status === 'completed'
+                        && view.renderedSessionId === savedSessionId && digest === view.transcriptDigest && view.coachingRequests === 0
+                        ? 'PASS' : 'FAIL';
+                };
                 const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; },
                     // Option B (Sam, 21 Nov): take 3 is a SAVE take, so it records past the product's 5 s minimum before its Stop.
                     { saveTakeMs, beforeCapture: () => captureGate().confirm(), holdRepeatPastSaveMinimum: true,
@@ -1104,7 +1142,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                         // J1.b (run 45142628330): on PASS, B is witnessed from that same reopened saved review, still inside the
                         // window and before the repeat's save expires B's inputs. The repeat's timing is unchanged (never awaited
                         // before its Stop) and nothing substitutes C.
-                        duringRepeatHold: ({ savedSessionId, closesAt }) => lateCoachingSavedRow(lateCoaching.sink,
+                        duringRepeatHold: oneCoachingRequest ? appOnlyReopen : ({ savedSessionId, closesAt }) => lateCoachingSavedRow(lateCoaching.sink,
                             savedSessionId && savedSessionId !== persistedId && capturedUid ? savedSessionId : null,
                             lateCoachingDeps(savedSessionId ?? ''), { closesAt,
                                 onShown: (shown) => coachingCapture && savedSessionId
@@ -1113,6 +1151,10 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
+                if (oneCoachingRequest) {
+                    receipt.row('interrupted take reopened without coaching', reopenedAppOnly,
+                        'app-owned proof only: exact saved identity and transcript inside the repeat window without a new coaching send');
+                }
                 repeatSessionId = again.savedSessionId;
                 repeatRecordingAt = again.repeatRecordingAt ?? null;
                 // #1258 R4: not generic — the two takes (different saved evidence) must not get the identical pair.
@@ -1125,7 +1167,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const differRow = coachingParentOutcome
                     ? successDependentRow(coachingParentOutcome, { verdict: differ.status, detail: differ.detail })
                     : { verdict: 'HOLD' as const, detail: 'the coaching step did not settle' };
-                receipt.row('coaching differs between takes', differRow.verdict, differRow.detail,
+                receipt.row('coaching differs between takes', oneCoachingRequest ? 'HOLD' : differRow.verdict,
+                    oneCoachingRequest ? 'later provider sends were withheld; distinct saved replies are checked in controlled CI' : differRow.detail,
                     { bothPairsSaved: 'take' in firstCaptured && 'take' in repeatCaptured,
                         evidenceDiffers: 'take' in firstCaptured && 'take' in repeatCaptured && firstCaptured.totalWords !== null && repeatCaptured.totalWords !== null
                             ? firstCaptured.totalWords !== repeatCaptured.totalWords : null });
@@ -1146,6 +1189,11 @@ test.describe('RWT — Open Mic first session @live', () => {
             // `target-expired`): the repeat now SAVES and newest-one retention then expires the save take's text, so the row was
             // taken INSIDE the repeat's recording window (see the Practice-again step) and is written here, with the order recorded.
             await test.step('interrupted take coaching saved and shown in its saved review', async () => {
+                if (oneCoachingRequest) {
+                    receipt.row('interrupted take coaching saved and shown in its saved review', 'HOLD',
+                        'later provider sends were withheld; controlled CI covers server persistence, not the browser late-answer reopen');
+                    return;
+                }
                 const id = repeatSessionId && capturedUid ? repeatSessionId : null;
                 // Read through the bounded settle (#1474 contract): an in-flight answer is waited for, never missed.
                 const aExchanges = id ? await generations.settledForSession(id) : [];
