@@ -161,7 +161,9 @@ export function savedFocusIdentityVerdict(input: SavedFocusIdentityObservation):
                 errors.push(`visible point label or order differs at point ${index + 1}`);
             }
             if (row.status === 'covered') points.set(row.ordinal, 'detected');
-            else if (row.status === 'missing') points.set(row.ordinal, 'not_detected');
+            else if (row.status === 'partial' && input.expected[index]?.railStatus === 'partial') {
+                points.set(row.ordinal, 'detected');
+            } else if (row.status === 'missing') points.set(row.ordinal, 'not_detected');
         }
         return { points, errors };
     })();

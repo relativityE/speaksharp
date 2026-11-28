@@ -30,7 +30,7 @@ const rail = (statuses: string[]) => {
 };
 const row = (i: number) => document.querySelector(`[data-testid="${MARKER_ROW_PREFIX}${i}"]`) as HTMLElement;
 const arm = (token = 'mo-1', count = 2) => armMarkerObserverInPage({ token, count, railTestId: MARKER_RAIL_TEST_ID, rowPrefix: MARKER_ROW_PREFIX });
-// Point 0 spoken 2–6.21 s, point 1 from 9.02 s: point 0's earliest is 1.0 s, its deadline min(6.21 + 5, 9.02) = 9.02 s.
+// Point 0 spoken 2–6.21 s, point 1 from 9.02 s: point 0's earliest is 1.0 s, its deadline is 6.21 + 5 = 11.21 s.
 const windows: ([number, number] | null)[] = [[2, 6.21], [9.02, 12]];
 const INVOKED = 100_000;
 const at = (sec: number) => INVOKED + Math.round(sec * 1000);
@@ -62,40 +62,40 @@ describe('take-bound marker observer (#1593 case 3)', () => {
         rail(['pending', 'pending']);
         expect(arm()).toEqual({ ok: true });
         await heartbeat(8.5);
-        now = at(8.9); // the real transition, inside the 9.02 s deadline
+        now = at(8.9); // the real transition, inside the 11.21 s deadline
         row(0).setAttribute('data-status', 'partial');
         await flush();
-        now = at(9.4);
+        now = at(11.4);
         const sealed = freezeMarkerObserverInPage('mo-1')!;
         expect(sealed.observations).toEqual([{ point: 0, status: 'partial', afterMs: at(8.5), observedAtMs: at(8.9), seq: 0, railGeneration: 1 }]);
         const v = verdict(sealed.observations);
         expect(v[0]).toBe('ok@8.500..8.900');
         expect(markerTimingStatus(v)).toBe('PASS');
-        // RED for the old model: the same transition, first read by the poll at 9.40 s, is judged late.
-        expect(verdict([{ point: 0, status: 'partial', afterMs: at(9.4), observedAtMs: at(9.4), seq: 0, railGeneration: 1 }])[0]).toBe('late@9.400..9.400');
+        // RED for the old model: the same transition, first read by the poll at 11.40 s, is judged late.
+        expect(verdict([{ point: 0, status: 'partial', afterMs: at(11.4), observedAtMs: at(11.4), seq: 0, railGeneration: 1 }])[0]).toBe('late@11.400..11.400');
     });
 
     it('a truly late transition still fails', async () => {
         rail(['pending', 'pending']);
         arm();
-        await heartbeat(9.1);
-        now = at(9.3);
+        await heartbeat(11.25);
+        now = at(11.3);
         row(0).setAttribute('data-status', 'covered');
         await flush();
         const v = verdict(freezeMarkerObserverInPage('mo-1')!.observations);
-        expect(v[0]).toBe('late@9.100..9.300');
+        expect(v[0]).toBe('late@11.250..11.300');
         expect(markerTimingStatus(v)).toBe('FAIL');
     });
 
     it('Codex P2 r4362921631: a prior delivery exactly AT the deadline makes the change definitely late, not uncertain', async () => {
         rail(['pending', 'pending']);
         arm();
-        await heartbeat(9.02); // the deadline itself: the change lies in (9.020, 9.300], all of it after 9.02
-        now = at(9.3);
+        await heartbeat(11.21); // the open lower bound excludes the deadline itself
+        now = at(11.3);
         row(0).setAttribute('data-status', 'covered');
         await flush();
         const v = verdict(freezeMarkerObserverInPage('mo-1')!.observations);
-        expect(v[0]).toBe('late@9.020..9.300');
+        expect(v[0]).toBe('late@11.210..11.300');
         expect(markerTimingStatus(v)).toBe('FAIL');
     });
 
@@ -103,11 +103,11 @@ describe('take-bound marker observer (#1593 case 3)', () => {
         rail(['pending', 'pending']);
         arm();
         await heartbeat(8.5);
-        now = at(9.02);
+        now = at(11.21);
         row(0).setAttribute('data-status', 'covered');
         await flush();
         const v = verdict(freezeMarkerObserverInPage('mo-1')!.observations);
-        expect(v[0]).toBe('ok@8.500..9.020');
+        expect(v[0]).toBe('ok@8.500..11.210');
         expect(markerTimingStatus(v)).toBe('PASS');
     });
 
@@ -117,10 +117,10 @@ describe('take-bound marker observer (#1593 case 3)', () => {
         await heartbeat(8.5);
         now = at(8.9);
         row(0).setAttribute('data-status', 'partial'); // mutated in time…
-        now = at(9.6); // …but the callback runs late
+        now = at(11.6); // …but the callback runs late
         await flush();
         const v = verdict(freezeMarkerObserverInPage('mo-1')!.observations);
-        expect(v[0]).toBe('uncertain-late@8.500..9.600');
+        expect(v[0]).toBe('uncertain-late@8.500..11.600');
         expect(markerTimingStatus(v)).toBe('HOLD');
     });
 
@@ -240,10 +240,10 @@ describe('take-bound marker observer (#1593 case 3)', () => {
             if (removeOutsider) outsider.remove(); // before the callback: its next record's oldValue would name 'partial'
             now = at(4);
             await flush();
-            await heartbeat(9.1);
-            now = at(9.3);
+            await heartbeat(11.25);
+            now = at(11.3);
             (document.querySelector(`[data-testid="${MARKER_RAIL_TEST_ID}"] [data-testid="${MARKER_ROW_PREFIX}0"]`) as HTMLElement)
-                .setAttribute('data-status', 'partial'); // the real in-rail marker, late against the 9.02 s deadline
+                .setAttribute('data-status', 'partial'); // the real in-rail marker, late against the 11.21 s deadline
             await flush();
             const sealed = freezeMarkerObserverInPage('mo-1')!;
             disposeMarkerObserverInPage('mo-1');
@@ -251,9 +251,9 @@ describe('take-bound marker observer (#1593 case 3)', () => {
         };
         const connected = await run(false);
         expect(connected.sealed.observations.filter((o) => o.point === 0)).toEqual([
-            { point: 0, status: 'partial', afterMs: at(9.1), observedAtMs: at(9.3), seq: 0, railGeneration: 1 },
+            { point: 0, status: 'partial', afterMs: at(11.25), observedAtMs: at(11.3), seq: 0, railGeneration: 1 },
         ]);
-        expect(connected.v[0]).toBe('late@9.100..9.300');
+        expect(connected.v[0]).toBe('late@11.250..11.300');
         expect(markerTimingStatus(connected.v)).toBe('FAIL');
         const removed = await run(true);
         expect(removed.sealed.observations.filter((o) => o.point === 0 && o.status !== 'pending')[0].status).toBe('unknown');
@@ -405,16 +405,16 @@ describe('J3.b heartbeat: the last observed-pending time narrows the interval, n
         expect(markerTimingStatus(r.withSampling)).toBe('PASS');
         expect(r.deliveryOnly[0]).toBe('ok@7.801..9.000');   // already inside here; the next two cases show the narrowing matters
     });
-    it('DEFINITELY LATE: pending read at 9.95 s, change observed at 10.055 s -> late (FAIL), where delivery-only was uncertain', async () => {
-        const r = await take([8.5, 9.0, 9.5, 9.95], 10.055);
-        expect(r.withSampling[0]).toBe('late@9.950..10.055');
+    it('DEFINITELY LATE: pending read at 11.25 s, change observed at 11.355 s -> late (FAIL), where delivery-only was uncertain', async () => {
+        const r = await take([8.5, 9.0, 10.5, 11.25], 11.355);
+        expect(r.withSampling[0]).toBe('late@11.250..11.355');
         expect(markerTimingStatus(r.withSampling)).toBe('FAIL');
-        expect(r.deliveryOnly[0]).toBe('uncertain-late@7.801..10.055');
+        expect(r.deliveryOnly[0]).toBe('uncertain-late@7.801..11.355');
         expect(markerTimingStatus(r.deliveryOnly)).toBe('HOLD');
     });
     it('INCONCLUSIVE WHEN SAMPLING STALLS: last pending read at 7.90 s, change observed at 10.055 s -> still uncertain (HOLD)', async () => {
-        const r = await take([7.9], 10.055);    // the page stalled: no tick between 7.90 s and the change
-        expect(r.withSampling[0]).toBe('uncertain-late@7.900..10.055');
+        const r = await take([7.9], 11.355);    // the page stalled: no tick between 7.90 s and the change
+        expect(r.withSampling[0]).toBe('uncertain-late@7.900..11.355');
         expect(markerTimingStatus(r.withSampling)).toBe('HOLD');
     });
     it('samples only before the first change and never after the freeze; the other point keeps sampling until its own change', async () => {
@@ -468,9 +468,9 @@ describe('J3.b heartbeat: the last observed-pending time narrows the interval, n
             expect(markerTimingStatus(v)).toBe('HOLD');
         }
     });
-    it('the cutoff and clock are unchanged: same windows, same 5 s rule, same invocation zero', () => {
+    it('each point keeps its own five-second cutoff, alignment allowance and clock', () => {
         const src = readFileSync('tests/live/helpers/rwtMarkerObserver.ts', 'utf8');
-        expect(src).toContain('const deadline = Math.min(window[1] + LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);');
+        expect(src).toContain('const deadline = window[1] + LIVE_MARKER_MAX_AFTER_SECONDS;');
         expect(src).toContain('export const LIVE_MARKER_MAX_AFTER_SECONDS = 5;');
         expect(src).toContain('export const MARKER_ALIGNMENT_SLACK_SECONDS = 1;');
     });
@@ -509,14 +509,38 @@ describe('in-page functions run from their serialized text alone (what page.eval
     });
 });
 
-it('requires the entire widened cued-playback interval to meet the original point deadline', () => {
+it('requires the entire widened cued-playback interval to meet the point deadline', () => {
     const first = (lo: number, hi: number) => classifyMarkerTiming({
         windows: [[2.91, 6.21], [9.02, 13.2], null], expectsLive: [true, false, false],
         invokedAtMs: 1000, audioStartLatestMs: 1080,
         observations: [{ point: 0, status: 'covered', afterMs: 1000 + lo, observedAtMs: 1000 + hi }] as Parameters<typeof classifyMarkerTiming>[0]['observations'],
     })[0];
     expect(first(6900, 7010)).toMatch(/^ok@/);
-    expect(first(9000, 9050)).toMatch(/^uncertain-late@/);
-    expect(first(9120, 9190)).toMatch(/^late@/);
+    expect(first(11220, 11290)).toMatch(/^uncertain-late@/);
+    expect(first(11300, 11400)).toMatch(/^late@/);
     expect(first(-100, -50)).toMatch(/^early@/);
+});
+
+describe('Option A: independent five-second windows, sealed speaking order', () => {
+    const obs = (point: number, lo: number, hi: number, seq: number) => ({
+        point, status: 'covered', afterMs: at(lo), observedAtMs: at(hi), seq, railGeneration: 1,
+    });
+    const check = (observations: ReturnType<typeof obs>[]) => verdict(observations, windows, [true, true]);
+
+    it('keeps an ordered marker after the next point starts when within its own five seconds', () => {
+        expect(check([obs(0, 10.065, 10.099, 0), obs(1, 11.100, 11.200, 1)]))
+            .toEqual(['ok@10.065..10.099', 'ok@11.100..11.200']);
+    });
+    it('fails a definite reverse order even in the same rounded second', () => {
+        expect(check([obs(1, 9.09, 9.10, 0), obs(0, 9.19, 9.20, 1)])[1]).toBe('out-of-order@9.090..9.100');
+    });
+    it('accepts a coalesced render as non-decreasing order', () => {
+        const v = check([obs(0, 9.09, 9.20, 0), obs(1, 9.09, 9.20, 1)]);
+        expect(v[1]).toBe('ok@9.090..9.200');
+        expect(markerTimingStatus(v)).toBe('PASS');
+    });
+    it('accepts overlapping, individually timely observations without treating overlap as a reversal', () => {
+        const v = check([obs(0, 9.09, 9.20, 1), obs(1, 9.05, 9.15, 0)]);
+        expect(markerTimingStatus(v)).toBe('PASS');
+    });
 });

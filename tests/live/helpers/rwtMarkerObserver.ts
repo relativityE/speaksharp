@@ -271,8 +271,8 @@ export const MARKER_ALIGNMENT_SLACK_SECONDS = 1;
 export const LIVE_MARKER_MAX_AFTER_SECONDS = 5;
 
 /**
- * Per-point timing verdict, unchanged windows and deadlines: a spoken point's first non-pending change must land no earlier
- * than 1 s before its window opens and no later than min(window end + 5 s, next point's start); a never-spoken point must
+ * Per-point timing verdict (Option A): a spoken point's first non-pending change must land no earlier
+ * than 1 s before its window opens or later than 5 s after it ends; a never-spoken point must
  * never be marked (a transient counts). Times are page-clock ms after the take's getUserMedia INVOCATION. The change is only
  * known to lie in (afterMs, observedAtMs]: PASS needs the WHOLE interval inside the bounds, an interval wholly outside is a
  * FAIL, and an interval that crosses a boundary is `uncertain-*` (non-PASS). Verdicts carry exact ms bounds as seconds.
@@ -290,10 +290,7 @@ export function classifyMarkerTiming(input: {
     const latest = input.audioStartLatestMs ?? input.invokedAtMs;
     if (!Number.isFinite(latest) || latest < input.invokedAtMs) return input.expectsLive.map(() => 'uncertain-audio-origin');
     const first = (i: number) => input.observations.find((o) => o.point === i && o.status !== 'pending') ?? null;
-    const nextStart = (i: number): number | null => {
-        for (let j = i + 1; j < input.windows.length; j += 1) { const w = input.windows[j]; if (w) return w[0]; }
-        return null;
-    };
+    let previous: { loMs: number; hiMs: number } | null = null;
     return input.expectsLive.map((expectsLive, i) => {
         const window = input.windows[i] ?? null;
         const change = first(i);
@@ -310,12 +307,22 @@ export function classifyMarkerTiming(input: {
         // A pending read at or after the change's own observation contradicts the record: sampling anomaly, never decided.
         if (seen !== null && seen >= change.observedAtMs) return `uncertain-sampling@${bounds}`;
         const earliest = window[0] - MARKER_ALIGNMENT_SLACK_SECONDS;
-        const next = nextStart(i);
-        const deadline = Math.min(window[1] + LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);
+        const deadline = window[1] + LIVE_MARKER_MAX_AFTER_SECONDS;
         if (hi < earliest) return `early@${bounds}`;
         // The interval is open below: a prior delivery AT the deadline puts every possible change after it (Codex P2 r4362921631).
         if (lo >= deadline) return `late@${bounds}`;
-        if (lo >= earliest && hi <= deadline) return `ok@${bounds}`;
+        if (lo >= earliest && hi <= deadline) {
+            // The observer batches mutations. Shared or overlapping observations remain compatible
+            // with non-decreasing order. Only a definite reversal fails.
+            if (expectsLive) {
+                const prior = previous;
+                previous = { loMs, hiMs: change.observedAtMs };
+                if (prior) {
+                    if (change.observedAtMs <= prior.loMs && change.observedAtMs < prior.hiMs) return `out-of-order@${bounds}`;
+                }
+            }
+            return `ok@${bounds}`;
+        }
         return lo < earliest ? `uncertain-early@${bounds}` : `uncertain-late@${bounds}`;
     });
 }

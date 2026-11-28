@@ -20,6 +20,12 @@ const timing=(lo,hi)=>marker.markerTimingStatus(marker.classifyMarkerTiming({win
 test('marker complete allowed interval passes',()=>assert.equal(timing(2000,3000),'PASS'));
 test('marker straddling boundary holds',()=>assert.equal(timing(0,2000),'HOLD'));
 test('marker definitely early fails',()=>assert.equal(timing(0,500),'FAIL'));
+const orderTiming=(observations)=>marker.classifyMarkerTiming({windows:[[2.91,6.21],[9.02,13.2]],observations,invokedAtMs:0,expectsLive:[true,true]});
+const transition=(point,afterMs,observedAtMs)=>({point,afterMs,observedAtMs,status:'covered'});
+test('Option A allows an in-order marker after the next point starts',()=>assert.equal(marker.markerTimingStatus(orderTiming([transition(0,10065,10099),transition(1,11100,11200)])),'PASS'));
+test('Option A refuses a reversal in the same rounded second',()=>assert.match(orderTiming([transition(1,9090,9100),transition(0,9190,9200)])[1],/^out-of-order@/));
+test('Option A accepts coalesced marker bounds',()=>assert.equal(marker.markerTimingStatus(orderTiming([transition(0,9090,9200),transition(1,9090,9200)])),'PASS'));
+test('Option A accepts overlapping individually timely bounds',()=>assert.equal(marker.markerTimingStatus(orderTiming([transition(0,9090,9200),transition(1,9050,9150)])),'PASS'));
 test('missing microphone acquisition is not zero',()=>assert.equal(marker.bindTakeAcquisition([],[],0).ok,false));
 test('two acquisitions cannot bind one take',()=>assert.equal(marker.bindTakeAcquisition([{id:0,outcome:'granted'},{id:1,outcome:'granted'}],[1,2],0).ok,false));
 const fi=()=>({expectedBriefId:'b',savedBriefId:'b',expected:[{label:'one',railStatus:'covered'},{label:'two',railStatus:'missing'}],savedPoints:[{id:'p1',brief_id:'b',sort_order:0,label:'one'},{id:'p2',brief_id:'b',sort_order:1,label:'two'}],evidence:[{brief_point_id:'p1',verdict:'detected'},{brief_point_id:'p2',verdict:'not_detected'}],visibleEvidence:['Detected: point 1.','Not detected: point 2.']});

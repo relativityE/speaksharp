@@ -183,9 +183,12 @@ describe('r4127572206 — the expected-partial point must visibly change during 
     it('wiring: the Focus journey judges both the live row and the timing oracle with the shared predicate', () => {
         const src = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
         expect(src).toContain('const notLive = liveChangeFailures(expectedFinal, firstChange);');
-        expect(src).toMatch(/receipt\.row\('live marker changes', notLive\.length === 0 && ordered \? 'PASS' : 'FAIL'/);
+        expect(src).toMatch(/receipt\.row\('live marker changes', notLive\.length === 0 \? 'PASS' : 'FAIL'/);
         // #1593 case 3: the timing verdict moved to the take-bound observer helper; the journey feeds it the shared predicate.
         expect(src).toContain('expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])), pendingSeenAtMs: sealed.pendingSeenAtMs });');
+        // Marker order belongs to the sealed timing verdict, not the rounded live-count row.
+        expect(src).toContain('const status = markerTimingStatus(verdicts);');
+        expect(src).toContain("receipt.row('marker timing vs audio', status,");
         const observer = readFileSync(resolve(__dirname, '../live/helpers/rwtMarkerObserver.ts'), 'utf8');
         expect(observer).toContain("if (!change) return expectsLive ? 'no-live-change' : 'ok-no-change';");
         expect(src).not.toContain("expectedFinal.filter((e) => e === 'covered').length");

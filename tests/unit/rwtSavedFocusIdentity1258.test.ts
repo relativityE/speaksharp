@@ -49,6 +49,15 @@ describe('saved Focus point identity and visible ordinal proof (#1258)', () => {
         expect(savedFocusIdentityVerdict(partial).verdict).toBe('PASS');
     });
 
+    it('accepts an explicit saved partial only for a point expected to be partial', () => {
+        const visiblePanel = full.expected.map(({ label }, index) => ({
+            ordinal: index + 1, label, status: index === 0 ? 'partial' : 'covered',
+        }));
+        const expected = [{ ...full.expected[0], railStatus: 'partial' as const }, ...full.expected.slice(1)];
+        expect(evaluate({ visiblePanel, expected }).verdict).toBe('PASS');
+        expect(evaluate({ visiblePanel }).mismatchedOrdinals).toEqual([1]);
+    });
+
     it('CASUALTY: equal-count swapped saved verdicts fail by point identity', () => {
         const swapped = evaluate({
             expected: [

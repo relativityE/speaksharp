@@ -207,26 +207,25 @@ function bindTakeAcquisition(log, marks, acquisitionsAtArm) {
 exports.MARKER_ALIGNMENT_SLACK_SECONDS = 1;
 exports.LIVE_MARKER_MAX_AFTER_SECONDS = 5;
 /**
- * Per-point timing verdict, unchanged windows and deadlines: a spoken point's first non-pending change must land no earlier
- * than 1 s before its window opens and no later than min(window end + 5 s, next point's start); a never-spoken point must
+ * Per-point timing verdict (Option A): a spoken point's first non-pending change must land no earlier
+ * than 1 s before its window opens or later than 5 s after it ends; a never-spoken point must
  * never be marked (a transient counts). Times are page-clock ms after the take's getUserMedia INVOCATION. The change is only
  * known to lie in (afterMs, observedAtMs]: PASS needs the WHOLE interval inside the bounds, an interval wholly outside is a
  * FAIL, and an interval that crosses a boundary is `uncertain-*` (non-PASS). Verdicts carry exact ms bounds as seconds.
  */
 function classifyMarkerTiming(input) {
+    const latest = input.audioStartLatestMs ?? input.invokedAtMs;
+    if (!Number.isFinite(latest) || latest < input.invokedAtMs)
+        return input.expectsLive.map(() => 'uncertain-audio-origin');
     const first = (i) => input.observations.find((o) => o.point === i && o.status !== 'pending') ?? null;
-    const nextStart = (i) => {
-        for (let j = i + 1; j < input.windows.length; j += 1) {
-            const w = input.windows[j];
-            if (w)
-                return w[0];
-        }
-        return null;
-    };
+    let previous = null;
     return input.expectsLive.map((expectsLive, i) => {
         const window = input.windows[i] ?? null;
         const change = first(i);
-        const lo = change ? (change.afterMs - input.invokedAtMs) / 1000 : 0;
+        // The lower bound is the LATER of the previous delivery and the last heartbeat that read this row still pending.
+        const seen = input.pendingSeenAtMs?.[i] ?? null;
+        const loMs = change ? (seen !== null && Number.isFinite(seen) ? Math.max(change.afterMs, seen) : change.afterMs) : 0;
+        const lo = change ? (loMs - latest) / 1000 : 0;
         const hi = change ? (change.observedAtMs - input.invokedAtMs) / 1000 : 0;
         const bounds = `${lo.toFixed(3)}..${hi.toFixed(3)}`;
         // A pre-removal change whose resulting value is not established is evidence of a write, not of a marker: non-PASS.
@@ -236,16 +235,29 @@ function classifyMarkerTiming(input) {
             return expectsLive ? 'no-live-change' : 'ok-no-change';
         if (change.status === 'unknown')
             return `uncertain-unknown@${bounds}`;
+        // A pending read at or after the change's own observation contradicts the record: sampling anomaly, never decided.
+        if (seen !== null && seen >= change.observedAtMs)
+            return `uncertain-sampling@${bounds}`;
         const earliest = window[0] - exports.MARKER_ALIGNMENT_SLACK_SECONDS;
-        const next = nextStart(i);
-        const deadline = Math.min(window[1] + exports.LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);
+        const deadline = window[1] + exports.LIVE_MARKER_MAX_AFTER_SECONDS;
         if (hi < earliest)
             return `early@${bounds}`;
         // The interval is open below: a prior delivery AT the deadline puts every possible change after it (Codex P2 r4362921631).
         if (lo >= deadline)
             return `late@${bounds}`;
-        if (lo >= earliest && hi <= deadline)
+        if (lo >= earliest && hi <= deadline) {
+            // The observer batches mutations. Shared or overlapping observations remain compatible
+            // with non-decreasing order. Only a definite reversal fails.
+            if (expectsLive) {
+                const prior = previous;
+                previous = { loMs, hiMs: change.observedAtMs };
+                if (prior) {
+                    if (change.observedAtMs <= prior.loMs && change.observedAtMs < prior.hiMs)
+                        return `out-of-order@${bounds}`;
+                }
+            }
             return `ok@${bounds}`;
+        }
         return lo < earliest ? `uncertain-early@${bounds}` : `uncertain-late@${bounds}`;
     });
 }
