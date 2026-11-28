@@ -7262,9 +7262,16 @@ export class SpeechRuntimeController {
                 // straight back, and the user pressing Retry would see the previous take's coverage
                 // instead of a fresh 0/N.
                 if (canPublishShared()) {
-                    useSessionStore.getState().setObjectiveCoverageResult(
-                        objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
-                    );
+                    const rows = objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status }));
+                    // Default-off meaning matcher: `engine` is present only when the flag is on, so the flag-off
+                    // publication is exactly the call it was.
+                    if (objResult.engine) {
+                        useSessionStore.getState().setObjectiveCoverageResult(rows, {
+                            engine: objResult.engine, fallback: objResult.engineFallback !== undefined,
+                        });
+                    } else {
+                        useSessionStore.getState().setObjectiveCoverageResult(rows);
+                    }
                     // R5 diagnostic: content-free proof that this owned take published this exact
                     // terminal status chain. Disabled in normal sessions and never delays save/finalization.
                     recordObjectivePublicationWitness(sessionId, objResult.coverage);

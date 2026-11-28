@@ -190,6 +190,7 @@ export const SessionPage: React.FC = () => {
     // session finalizes; null for Open Mic sessions (and cleared at the next recording start).
     const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
     const objectiveCoverageFailed = useSessionStore(state => state.objectiveCoverageFailed);
+    const objectiveCoverageDetection = useSessionStore(state => state.objectiveCoverageDetection);
     // #1046 Focus Points: a bound brief means this is a Focus Points session — slot D shows the declared
     // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
     // Points works". null ⇒ an Open Mic session (unchanged).
@@ -1054,6 +1055,7 @@ export const SessionPage: React.FC = () => {
                     completedObjectivePaceGuideSecPerPoint={completedObjectiveBrief?.paceGuideSecPerPoint ?? null}
                     objectiveCoverage={objectiveCoverageResult}
                     objectiveCoverageFailed={objectiveCoverageFailed}
+                    objectiveCoverageDetection={objectiveCoverageDetection}
                     practiceFocus={practiceFocus}
                     onSelectFocus={(focus) => useSessionStore.getState().setPracticeFocus(focus)}
                     // #1256 P1 — "Retry these points" must REBIND the finished brief before starting, or the

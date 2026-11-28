@@ -35,6 +35,7 @@ const initialState: SessionState = {
     completedObjectiveBrief: null,
     objectiveCoverageResult: null,
     objectiveCoverageFailed: false,
+    objectiveCoverageDetection: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -232,7 +233,9 @@ export function createTestSessionStore(
         setCompletedObjectiveBrief: vi.fn((completedObjectiveBrief) => set({ completedObjectiveBrief })),
         setProgressGate: vi.fn((progressGate) => set({ progressGate })),
         setProgressGateResolvedFor: vi.fn((progressGateResolvedFor) => set({ progressGateResolvedFor })),
-        setObjectiveCoverageResult: vi.fn((objectiveCoverageResult) => set({ objectiveCoverageResult, objectiveCoverageFailed: false })),
+        setObjectiveCoverageResult: vi.fn((objectiveCoverageResult, detection) => set({
+            objectiveCoverageResult, objectiveCoverageFailed: false, objectiveCoverageDetection: detection ?? null,
+        })),
         setObjectiveCoverageFailed: vi.fn(() => set({ objectiveCoverageFailed: true })),
         setTranscriptFinalizing: vi.fn((isTranscriptFinalizing) =>
             set({

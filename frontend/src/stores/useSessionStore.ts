@@ -23,6 +23,16 @@ export interface ObjectiveCoverageRow {
     status: CoverageStatus;
 }
 
+/**
+ * Default-off meaning matcher (`VITE_FOCUS_MEANING_MATCHER_ENABLED`): which engine produced the published
+ * Focus Points verdict, and whether it is keyword-based only because the meaning matcher could not be used.
+ * null = not reported (flag off, or nothing published) — the rail then reads as today's keyword detector.
+ */
+export interface ObjectiveCoverageDetection {
+    engine: 'keyword' | 'nli';
+    fallback: boolean;
+}
+
 interface TranscriptState {
     transcript: string;
     partial: string;
@@ -198,6 +208,8 @@ export interface SessionState {
      * waiting forever. Any published or reset result clears it.
      */
     objectiveCoverageFailed: boolean;
+    /** Which engine produced `objectiveCoverageResult`; null unless the default-off meaning matcher reported one. */
+    objectiveCoverageDetection: ObjectiveCoverageDetection | null;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     nativeFormatting: NativeFormattingUiState;
@@ -257,7 +269,7 @@ interface SessionActions {
     setCompletedObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
     setProgressGate: (gate: { sessionId: string; ownerId: string | null; state: 'resolving' | 'queued' | 'unresolved' } | null) => void;
     setProgressGateResolvedFor: (ownerId: string | null) => void;
-    setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
+    setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null, detection?: ObjectiveCoverageDetection | null) => void;
     setObjectiveCoverageFailed: () => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
@@ -330,6 +342,7 @@ const initialState: SessionState = {
     progressGateResolvedFor: null,
     objectiveCoverageResult: null,
     objectiveCoverageFailed: false,
+    objectiveCoverageDetection: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -615,6 +628,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
             completedObjectiveBrief: null,
             objectiveCoverageResult: null,
             objectiveCoverageFailed: false,
+            objectiveCoverageDetection: null,
             activeObjectiveBrief: null,
             // DELIBERATELY PRESERVED — app-global authority, not take state:
             //   progressGate / progressGateResolvedFor  (clearing them re-blocks Start with no rerun)
@@ -663,7 +677,9 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),
     setProgressGate: (progressGate) => set({ progressGate }),
     setProgressGateResolvedFor: (progressGateResolvedFor) => set({ progressGateResolvedFor }),
-    setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult, objectiveCoverageFailed: false }),
+    setObjectiveCoverageResult: (objectiveCoverageResult, detection) => set({
+        objectiveCoverageResult, objectiveCoverageFailed: false, objectiveCoverageDetection: detection ?? null,
+    }),
     setObjectiveCoverageFailed: () => set({ objectiveCoverageFailed: true }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) => {
