@@ -237,7 +237,7 @@ console.log(fs.readFileSync(process.env.LEDGER_ROW,'utf8'));});\n`);
 
   it('the T2 CLI admits account-closure-release only on the post-129 completion-settlement ledger', () => {
     const cli = readFileSync(resolve(process.cwd(), 'scripts/t2-migration-postflight.mjs'), 'utf8');
-    expect(cli).toContain("['release', 'edge-release', 'account-closure-release', 'coaching-checks-release'].includes(version)");
+    expect(cli).toContain("['release', 'edge-release', 'account-closure-release', 'coaching-checks-release', 'focus-partial-release'].includes(version)");
     expect(cli).toContain("if (version === 'account-closure-release' && contract.profile !== 'post-129-completion-settlement') {");
   });
 });
