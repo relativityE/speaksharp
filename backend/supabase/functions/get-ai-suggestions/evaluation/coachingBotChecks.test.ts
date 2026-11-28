@@ -161,7 +161,7 @@ Deno.test('#1816 C3 Focus fit, partial: the prompt marks "Why it changes" not de
   const id = 'fp-02-point-not-detected';
   const { prompts } = await run({}, id);
   // The handler's prompt carries the point as not detected, with its rule against calling it missed.
-  assertEquals(/Why it changes[^\n]*not detected by the keyword matcher/.test(prompts[0]), true);
+  assertEquals(/Why it changes[^\n]*not yet clearly detected by the keyword matcher/.test(prompts[0]), true);
   assertEquals(prompts[0].includes('Never say a point was missed'), true);
   const control = noPraiseForUndetected(item(id), CORRECT[id]);
   const faultText = pair('Explaining why the recycling rules change made the reason clear.', 'Say what to do with old crates at the depot.', 'gemini_coaching_focus_v1');
