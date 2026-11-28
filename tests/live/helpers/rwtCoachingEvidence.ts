@@ -297,12 +297,12 @@ export function recomputeCoachingPromptSha256(
       const result = point.verdict === 'detected'
         ? `detected${point.detectedAtSeconds !== null ? ` at ${promptClockText(point.detectedAtSeconds)}` : ''}`
         : point.verdict === 'not_detected'
-          ? 'not detected by the keyword matcher (the speaker may have covered it in other words)'
+          ? 'not yet clearly detected by the keyword matcher (the speaker may have said it in other words)'
           : 'not checked';
       return `      ${index + 1}. ${promptQuoteLabel(point.label)}: ${result}`;
     });
     const allDetected = context.focusContext.points.every((point) => point.verdict === 'detected');
-    focusText = `\n      Focus Points session. The speaker chose these points to cover, in this order${context.focusContext.topic ? `, for the topic ${promptQuoteLabel(context.focusContext.topic)}` : ''}. A keyword matcher checked the transcript for each:\n${lines.join('\n')}\n\n      Focus Points coaching rules:\n      - Both phrases must help the speaker cover THESE chosen points in the next run: which point to open, introduce or signpost, where it belongs, or pacing between points, when this transcript and these results support it.\n      - "Not detected" is only what the matcher found. Never say a point was missed, skipped or not mentioned; suggest how to make it unmistakable instead.\n${allDetected ? '      - Every point was detected. Do not suggest covering a point as if it were missing; coach placement, transitions or pace between points.\n' : ''}`;
+    focusText = `\n      Focus Points session. The speaker chose these points to cover, in this order${context.focusContext.topic ? `, for the topic ${promptQuoteLabel(context.focusContext.topic)}` : ''}. A keyword matcher checked the transcript for each:\n${lines.join('\n')}\n\n      Focus Points coaching rules:\n      - Both phrases must help the speaker make THESE chosen points clear in the next run: which point to open with, introduce or signpost, where it belongs, or pacing between points, when this transcript and these results support it.\n      - "Not yet clearly detected" is only what the matcher found; it is not evidence the speaker left the point out. Never say a point was missed, skipped, forgotten, omitted, overlooked, left out, not mentioned, not covered or never reached, and never call a point missing. For such a point, suggest how to make it clearer or more prominent next time: name it plainly, signpost it, place it earlier, or give it its own pause.\n${allDetected ? '      - Every point was detected. Do not suggest covering a point as if it were missing; coach placement, transitions or pace between points.\n' : ''}`;
   }
   const fullMetricsText = `${metricsText}${focusText}`;
   const prompt = coachingContract.promptTemplate.replace(
