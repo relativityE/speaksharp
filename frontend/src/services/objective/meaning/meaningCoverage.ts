@@ -122,9 +122,13 @@ async function evaluateClaim(claim: string, wins: Window[], nli: NliFn, allowed:
     if (hit && !veto) return { claim, state: 'supported', atSec: hit.win.startSec, entail: hit.e, window: hit.win };
     if (guardRejected && !veto) return { claim, state: 'absent', atSec: null, entail: maxE, guardRejected: true };
     if (veto) return { claim, state: 'contradicted', atSec: null, entail: maxE };
-    if (maxE >= WEAK_THRESHOLD) {
-        const best = singles.find((x) => x.e === maxE);
-        return { claim, state: 'weak', atSec: best?.win.startSec ?? null, entail: maxE, window: best?.win };
+    // Weak evidence passes the same attribution guards (Codex P2 on #1995): someone else's tentative view is never
+    // partial coverage of the speaker's point, because any evidence is persisted as detected.
+    const allowedSingles = singles.filter((x) => allowed(x.win.text));
+    const maxAllowed = Math.max(0, ...allowedSingles.map((x) => x.e));
+    if (maxAllowed >= WEAK_THRESHOLD) {
+        const best = allowedSingles.find((x) => x.e === maxAllowed);
+        return { claim, state: 'weak', atSec: best?.win.startSec ?? null, entail: maxAllowed, window: best?.win };
     }
     return { claim, state: 'absent', atSec: null, entail: maxE };
 }

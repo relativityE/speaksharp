@@ -370,3 +370,32 @@ describe('imperatives and one-segment transcripts (Codex P2s on #1995, round 3)'
     });
 });
 
+describe('polarity and weak evidence (Codex P2s on #1995, round 4)', () => {
+    it('a negative point said verbatim is covered: negation is compared with the claim\'s own polarity', async () => {
+        const segments = [seg(5, 'We will not launch in June.')];
+        const result = await one('We will not launch in June', segments, [{ premise: /^We will not launch in June/i, entail: 0.995 }]);
+        expect(result.status).toBe('covered');
+        expectAttributed(result, segments);
+    });
+
+    it('CONTROL: a negated transcript still contradicts a positive claim', async () => {
+        const result = await one('We will launch in June', [seg(5, 'We will not launch in June.')],
+            [{ premise: /launch in June/i, entail: 0.9 }]);
+        expect(result.status).toBe('missing');
+    });
+
+    it('weak evidence from a reported view is never saved as partial coverage', async () => {
+        const result = await one('We need weekly reports', [seg(3, 'Jordan thinks we might need weekly reports.')],
+            [{ premise: /weekly reports/i, entail: 0.33 }]);
+        expect(result.status).toBe('missing');
+        expect(result.evidence).toBeUndefined();
+    });
+
+    it('CONTROL: weak evidence from the speaker\'s own words is still partial', async () => {
+        const segments = [seg(3, 'We might need weekly reports.')];
+        const result = await one('We need weekly reports', segments, [{ premise: /weekly reports/i, entail: 0.33 }]);
+        expect(result.status).toBe('partial');
+        expectAttributed(result, segments);
+    });
+});
+

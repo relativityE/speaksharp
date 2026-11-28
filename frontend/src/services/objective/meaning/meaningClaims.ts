@@ -130,6 +130,8 @@ function evalClaim(claim: string, windows: ClaimSegment[]): { state: RuleState; 
     const nums = numbers(cn).filter((x) => x.unit);
     const mons = months(cn);
     const dir = (cn.match(/[a-z']+/g) ?? []).map((k) => DIRECTION[stem(k)]).find(Boolean);
+    // Polarity is compared, not assumed (Codex P2 on #1995): "We will not launch in June" said verbatim is support.
+    const claimNegated = NEGATORS.test(cn);
     let best: { state: RuleState; atSec: number | null } = { state: 'absent', atSec: null };
     for (const w of windows) {
         const tn = normalizeNumbers(w.text);
@@ -160,7 +162,7 @@ function evalClaim(claim: string, windows: ClaimSegment[]): { state: RuleState; 
         const tdir = (tn.match(/[a-z']+/g) ?? []).map((k) => DIRECTION[stem(k)]).find(Boolean);
         const negated = NEGATORS.test(tn);
         if ((numContra || monContra || (dir && tdir && dir !== tdir)) && (hits >= 1 || numSeen)) state = 'contradicted';
-        else if (negated && ratio >= 0.34) state = 'contradicted';
+        else if (negated !== claimNegated && ratio >= 0.34) state = 'contradicted';
         else {
             const hasConstraint = nums.length + mons.length > 0;
             const constraintOk = numOk && monOk;
