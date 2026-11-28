@@ -968,7 +968,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 </>
             );
         const confidencePre = confidencePilotOn && authUserId && !linkedRepeatPending
-            ? <ConfidencePreCard loopStarted={Boolean(confidencePilot?.loopStarted)} pre={confidencePilot?.pre ?? null}
+            // A loop whose take already finished is over: a new set (or any return here) offers a fresh, explicit start.
+            ? <ConfidencePreCard loopStarted={Boolean(confidencePilot?.loopStarted && !confidencePilot.tookTake)}
+                pre={confidencePilot?.loopStarted && !confidencePilot.tookTake ? confidencePilot.pre : null}
                 onStartLoop={() => startLoop(authUserId)} onAnswer={(answer) => answerPre(authUserId, answer)} />
             : null;
         return (

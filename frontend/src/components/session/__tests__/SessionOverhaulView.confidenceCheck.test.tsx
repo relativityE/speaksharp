@@ -157,4 +157,21 @@ describe('confidence check pilot in the session page', () => {
         const fresh = await import('@/services/confidenceCheck/pilotState');
         expect(fresh.confidencePilotSnapshot()).toBeNull();
     });
+
+    it('flag on: after a completed loop, a new set offers "Start a practice loop" again and takes a fresh baseline', () => {
+        vi.stubEnv('VITE_CONFIDENCE_CHECK_PILOT_ENABLED', 'true');
+        const { rerender } = render(before());
+        fireEvent.click(screen.getByTestId('confidence-start-loop'));
+        fireEvent.click(screen.getByTestId('confidence-pre-rating-2'));
+        fireEvent.click(screen.getByTestId('mic-start'));
+        rerender(during()); rerender(after());
+        // "Start a new set" (or any return to the before screen) after the loop's take
+        rerender(before());
+        expect(screen.queryByTestId('confidence-pre-rating')).toBeNull();
+        fireEvent.click(screen.getByTestId('confidence-start-loop'));
+        fireEvent.click(screen.getByTestId('confidence-pre-rating-5'));
+        expect(screen.getByTestId('confidence-pre-rating-5')).toHaveAttribute('aria-pressed', 'true');
+        expect(confidencePilotSnapshot()).toMatchObject({ loopStarted: true, pre: 5, tookTake: false });
+    });
 });
+
