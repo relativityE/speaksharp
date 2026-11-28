@@ -42,9 +42,14 @@ describe('save-take duration is behavioural: default, fallback and time budget',
         const partial = Number(sizing![1].replaceAll('_', ''));
         const full = Number(sizing![2].replaceAll('_', ''));
         expect([partial, full]).toEqual([60_000, 42_000]);
-        const saveCall = /again = await practiceAgainEvidence\([\s\S]*?\n\s*\{ saveTakeMs, beforeCapture: async \(\) => \{([\s\S]*?)\},\s*\.\.\.\(cueAligned \? \{ onSaveTakeRecording: async \(\) => \{ await playAfterCue\(\); \} \} : \{\}\) \}\);/.exec(callers[0]);
+        const saveCall = /again = await practiceAgainEvidence\([\s\S]*?\n\s*\{ saveTakeMs, beforeCapture: async \(\) => \{([\s\S]*?)\},\s*\.\.\.\(cueAligned \? \{ onSaveTakeRecording: async \(\) => \{([\s\S]*?)\} \} : \{\}\) \}\);/.exec(callers[0]);
         expect(saveCall).not.toBeNull();
         expect(saveCall![1].trim()).toMatch(/^if \(cueAligned\) await resetFixtureAudioToStart\(page\);\s+await captureGate\(\)\.confirm\(\);$/);
+        const beforeCue = saveCall![2];
+        const arm = beforeCue.indexOf('await page.evaluate(armJ3bFailureObserver, [...UNAVAILABLE_HEADLINES])');
+        expect(arm).toBeGreaterThanOrEqual(0);
+        expect(beforeCue.indexOf('await playAfterCue();')).toBeGreaterThan(arm);
+        expect(beforeCue).not.toMatch(/settle\(|waitForResponse|get-ai-suggestions/);
         expect(callers[0]).toContain('numericComparisonRow(receipt, result, repeatEligibility, saveTakeMs)');
         expect(callers[0]).toContain("const sourceTakeMs = fixtureKey === 'focus_points_partial_tts' ? 60_000 : Math.round((fixture.entry.speechSeconds + 4) * 1000);");
         const frozen = callers[0].indexOf('await freezeMarkerObserver(page, armed.token)');

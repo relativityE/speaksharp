@@ -18,6 +18,7 @@ import { evaluationPrompt, type EvaluationItem } from './evaluation/prompt.ts';
 import { measureGrounding } from './evaluation/evaluator.ts';
 import readinessFixtures from './evaluation/transcripts.json' with { type: 'json' };
 import { activeCoachingModelReadback, authorizeModelReadback } from './modelReadback.ts';
+import { guardFocusOmission } from './focusOmissionGuard.ts';
 
 function micStartReadinessEnabled(): boolean {
   // The restricted native coaching proof deliberately has no permission for this rollout flag.
@@ -395,7 +396,12 @@ const quoteLabel = (text: string): string => `"${text.replace(/[\r\n"]+/g, ' ').
 /**
  * The Focus Points section appended to the metrics block. It states each chosen point, in order, with what the
  * keyword matcher found, and the rules that make the two phrases about COVERING THESE POINTS: supported pace and
- * placement advice, no invented misses, and "not detected" never presented as proof a point was skipped.
+ * placement advice, no invented misses, and "not yet clearly detected" never presented as proof a point was skipped.
+ * Live J3.b run 46097290741: the earlier wording ("cover THESE chosen points", "not detected", and a ban on only three
+ * verbs) still produced an omission claim, so the rule now names every omission family the acceptance classifier flags,
+ * frames an undetected point as a clarity/prominence target, and a fresh Focus answer is checked server-side
+ * (`focusOmissionGuard.ts`) before it is saved. `tests/live/helpers/rwtCoachingEvidence.ts` reconstructs this text
+ * byte for byte for the prompt binding; change both together.
  */
 /**
  * #1258 (PM 5952231855) — THE COACHING INPUT CONTRACT: only the reliable signals.
@@ -438,7 +444,7 @@ export function buildFocusCoachingText(context: FocusContext): string {
     const result = point.verdict === 'detected'
       ? `detected${point.detectedAtSeconds !== null ? ` at ${clockText(point.detectedAtSeconds)}` : ''}`
       : point.verdict === 'not_detected'
-        ? 'not detected by the keyword matcher (the speaker may have covered it in other words)'
+        ? 'not yet clearly detected by the keyword matcher (the speaker may have said it in other words)'
         : 'not checked';
     return `      ${index + 1}. ${quoteLabel(point.label)}: ${result}`;
   });
@@ -448,8 +454,8 @@ export function buildFocusCoachingText(context: FocusContext): string {
 ${lines.join('\n')}
 
       Focus Points coaching rules:
-      - Both phrases must help the speaker cover THESE chosen points in the next run: which point to open, introduce or signpost, where it belongs, or pacing between points, when this transcript and these results support it.
-      - "Not detected" is only what the matcher found. Never say a point was missed, skipped or not mentioned; suggest how to make it unmistakable instead.
+      - Both phrases must help the speaker make THESE chosen points clear in the next run: which point to open with, introduce or signpost, where it belongs, or pacing between points, when this transcript and these results support it.
+      - "Not yet clearly detected" is only what the matcher found; it is not evidence the speaker left the point out. Never say a point was missed, skipped, forgotten, omitted, overlooked, left out, not mentioned, not covered or never reached, and never call a point missing. For such a point, suggest how to make it clearer or more prominent next time: name it plainly, signpost it, place it earlier, or give it its own pause.
 ${allDetected ? '      - Every point was detected. Do not suggest covering a point as if it were missing; coach placement, transitions or pace between points.\n' : ''}`;
 }
 
@@ -1229,6 +1235,21 @@ export async function handler(
         attempts: providerAttemptLog.map((a) => `${a.reason}:${a.status ?? 'none'}:${a.ms}`).join(','),
       }));
       return finish({ error: 'AI coaching could not be generated. Please try again.', reason }, 502);
+    }
+
+    // Live J3.b run 46097290741: the matcher cannot know a Focus point was missed, so a FRESH Focus answer that claims an
+    // omission never reaches the save or the caller. Only the offending phrase is replaced; no provider attempt is added
+    // (a schema-valid 200 is answered, not re-asked). Stored pairs are never rewritten on read. Content-free record only.
+    if (focusContext?.kind === 'focus') {
+      const guarded = guardFocusOmission(suggestions, focusContext.points);
+      if (guarded.replaced.length > 0) {
+        suggestions = guarded.suggestions;
+        console.info('AI_COACHING_FOCUS_OMISSION_GUARD', JSON.stringify({
+          replaced: guarded.replaced.join(','),
+          what_worked_form: guarded.forms.what_worked,
+          what_to_try_next_form: guarded.forms.what_to_try_next,
+        }));
+      }
     }
 
     const quotaLimit = quotaResult?.limit;

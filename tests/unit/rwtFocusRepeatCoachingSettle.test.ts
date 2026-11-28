@@ -42,9 +42,16 @@ describe('J3.b — the repeat take\'s coaching request settles before the next S
 
     it('the designed interruption is unchanged: Practice again (and its rapid repeat) runs before the settle', () => {
         const practice = journey.indexOf('again = await practiceAgainEvidence(');
-        const settle = journey.indexOf('await generations.settle();\n            const next = await nextStartEvidence(');
+        const nextStart = journey.indexOf("test.step('next Start without a hold'");
+        const body = stepBody(journey, 'next Start without a hold');
+        const settle = body.indexOf('await generations.settle();');
+        const snapshot = body.indexOf('await page.evaluate(readJ3bFailureObserver, repeatSessionId)');
+        const next = body.indexOf('await nextStartEvidence(');
         expect(practice).toBeGreaterThan(-1);
-        expect(settle).toBeGreaterThan(practice);
+        expect(nextStart).toBeGreaterThan(practice);
+        expect(settle).toBeGreaterThanOrEqual(0);
+        expect(snapshot).toBeGreaterThan(settle);
+        expect(next).toBeGreaterThan(snapshot);
     });
 
     it('rapid repeat unchanged (Sam 1795523718): nothing waits on coaching from Practice again until the next Start step', () => {

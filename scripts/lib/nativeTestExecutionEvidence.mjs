@@ -548,6 +548,15 @@ const coachingTimeoutFallbackProfiles=coachingNeverBlocksProfiles.map(item=>({
     'backend/supabase/functions/get-ai-suggestions/modelReadiness.ts':'bd6376ce87b970b159f12e9cf481b5a5f3f87a82c1398218bebe1a5ff508ae74',
   },
 }));
+// Live J3.b run 46097290741: the handler checks a fresh Focus answer for omission claims before it is saved. Pins the
+// changed handler and test and adds the guard module to the closure; native permissions and every other input are unchanged.
+const coachingFocusOmissionGuardProfiles=coachingTimeoutFallbackProfiles.map(item=>({
+  id:'coaching-focus-omission-guard',files:{...item.files,
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'05680278fb9c1b020e5824d9cc27bb6e7be4266de80b02ee88cef743dbadebf6',
+    'backend/supabase/functions/get-ai-suggestions/index.test.ts':'3bd67a28530ae9a8f8314169e8ca8aa74f46daf75a9c5cbd04dc9369e0a5ebcb',
+    'backend/supabase/functions/get-ai-suggestions/focusOmissionGuard.ts':'6fb1be95d28316e91e900d04f534ccdf0bb148fc8ebd0e2d2f8d25b11059ef57',
+  },
+}));
 export function nativeDenoPolicy(file) {
   const billing=isBillingDenoTest(file);
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:file===checkoutTest?['STRIPE_SECRET_KEY']:[],
@@ -558,7 +567,7 @@ export function nativeDenoPolicy(file) {
 }
 export function validateSyntheticSource(root,file) {
   if(file!==coachingTest)return null;
-  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles,...coachingNeverBlocksProfiles,...coachingTimeoutFallbackProfiles].find(candidate=>{
+  const profile=[...coachingProfiles,...coachingEfficacyProfiles,...coachingBackoffProfiles,...coachingNeverBlocksProfiles,...coachingTimeoutFallbackProfiles,...coachingFocusOmissionGuardProfiles].find(candidate=>{
     try{return Object.entries(candidate.files).every(([entry,digest])=>hash(fs.readFileSync(regular(root,entry)))===digest);}
     catch{return false;}
   });
