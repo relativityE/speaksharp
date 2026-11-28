@@ -195,5 +195,23 @@ describe('confidence check pilot in the session page', () => {
         expect(screen.getByTestId('confidence-you-said')).toHaveTextContent('You said: readiness 5 (Fully ready) now.');
         expect(screen.getByTestId('confidence-you-said')).not.toHaveTextContent('before the loop');
     });
+
+    it('flag on: a linked repeat keeps its target question after its Progress settles (target hook goes to none)', () => {
+        vi.stubEnv('VITE_CONFIDENCE_CHECK_PILOT_ENABLED', 'true');
+        const practiceTarget = { kind: 'ready', instruction: 'Cut filler words toward 2%' } as const;
+        const { rerender } = render(before({ practiceTarget }));
+        fireEvent.click(screen.getByTestId('mic-start'));
+        rerender(during({ practiceTarget }));
+        // the repeat's attempt resolves during save: useRepeatPracticeTarget now reports kind none
+        rerender(after({ practiceTarget: { kind: 'none' } }));
+        fireEvent.click(screen.getByTestId('confidence-post-rating-3'));
+        expect(screen.getByTestId('confidence-feel')).toHaveTextContent('How did your practice target feel this time?');
+        // a later in-session repeat of that take compares with the last take
+        fireEvent.click(screen.getByTestId('confidence-reveal'));
+        fireEvent.click(screen.getByTestId('verdict-practice-again'));
+        rerender(during({ practiceTarget: { kind: 'none' } })); rerender(after({ practiceTarget: { kind: 'none' } }));
+        fireEvent.click(screen.getByTestId('confidence-post-rating-3'));
+        expect(screen.getByTestId('confidence-feel')).toHaveTextContent('Compared with your last take, this take felt:');
+    });
 });
 

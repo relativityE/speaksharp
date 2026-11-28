@@ -27,6 +27,8 @@ export interface ConfidencePilotState {
     tookTake: boolean;
     /** A repeat take was started and its post questions have not been answered or skipped yet. */
     repeatPending: boolean;
+    /** The pending repeat was a linked repeat from a saved review (fixed at Start; the target hook later goes to none). */
+    linkedRepeat: boolean;
     /** The pending repeat has actually recorded (reached `during`), so an after screen now belongs to it. */
     repeatRecorded: boolean;
     /** The pending repeat's own after screen is showing: ask before revealing its review. */
@@ -56,7 +58,7 @@ export const confidencePilotSnapshot = (): ConfidencePilotState | null => state;
 export const pilotFor = (snapshot: ConfidencePilotState | null, ownerId: string | null): ConfidencePilotState | null =>
     snapshot && ownerId && snapshot.ownerId === ownerId ? snapshot : null;
 
-const blank = (ownerId: string): ConfidencePilotState => ({ ownerId, loopStarted: false, pre: null, tookTake: false, repeatPending: false, repeatRecorded: false, askPost: false, post: null, feel: null });
+const blank = (ownerId: string): ConfidencePilotState => ({ ownerId, loopStarted: false, pre: null, tookTake: false, repeatPending: false, linkedRepeat: false, repeatRecorded: false, askPost: false, post: null, feel: null });
 
 /** Before-take card: the user explicitly starts a practice loop. Rating is a separate, optional step after this. */
 export function startLoop(ownerId: string): void {
@@ -78,11 +80,11 @@ export function answerPre(ownerId: string, answer: ReadinessRating | 'skipped'):
 export function noteTakeStart(ownerId: string, kind: 'first' | 'repeat' | 'linked'): void {
     const current = pilotFor(state, ownerId);
     if (kind === 'linked') {
-        publish({ ...blank(ownerId), repeatPending: true });
+        publish({ ...blank(ownerId), repeatPending: true, linkedRepeat: true });
         return;
     }
     if (kind === 'repeat') {
-        publish({ ...(current ?? blank(ownerId)), repeatPending: true, repeatRecorded: false, askPost: false, post: null, feel: null });
+        publish({ ...(current ?? blank(ownerId)), repeatPending: true, linkedRepeat: false, repeatRecorded: false, askPost: false, post: null, feel: null });
         return;
     }
     if (current && current.loopStarted && !current.tookTake) return;

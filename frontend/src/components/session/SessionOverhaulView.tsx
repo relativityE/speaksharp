@@ -1157,7 +1157,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     ? <ConfidencePostCard
                         post={confidencePilot.post}
                         feel={confidencePilot.feel}
-                        targetLabel={linkedRepeatPending || practiceTarget?.kind === 'ready'
+                        // Fixed at Start: the target hook goes to `none` once the linked attempt resolves during save.
+                        targetLabel={confidencePilot.linkedRepeat
                             ? 'How did your practice target feel this time?'
                             : isObjective ? 'Compared with your last take, making your points felt:' : 'Compared with your last take, this take felt:'}
                         onRate={(answer) => answerPost(authUserId, answer)}
