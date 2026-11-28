@@ -97,9 +97,29 @@ describe('meaning matcher flag ON — finalize', () => {
         expect(res.engine).toBe('nli');
         expect(res).not.toHaveProperty('engineFallback');
         expect(res.coverage?.[0]).toMatchObject({ briefPointId: 'p1', point: 'Customers want faster checkout', status: 'covered' });
-        expect(finalizeObjectiveEvidence).toHaveBeenCalledWith('objsess-1', [{ brief_point_id: 'p1', detected_at_seconds: 8 }]);
+        // #1991: the shared signal mapping saves the closed coverage value beside the detection, for the meaning path too.
+        expect(finalizeObjectiveEvidence).toHaveBeenCalledWith('objsess-1', [{ brief_point_id: 'p1', detected_at_seconds: 8, coverage: 'covered' }]);
         expect(m.match).toHaveBeenCalledWith(['Customers want faster checkout'], SEGMENTS, { timeoutMs: 3000 });
         expect(m.ensureLoaded).not.toHaveBeenCalled();
+    });
+
+    it('#1991 + #1995: a partly-made point stays partial on the saved signal, from the meaning path AND its keyword fallback', async () => {
+        // Meaning path: the model's partial verdict is saved as coverage 'partial' (never collapsed to covered).
+        stubMatcher(true, async () => [{
+            point: 'Customers want faster checkout', status: 'partial', matchRatio: 0.5,
+            evidence: { quote: SEGMENTS[0].text, timestampSec: 8.4 },
+        }]);
+        const viaModel = await finalizeObjectiveSessionOnSave(INPUT);
+        expect(viaModel).toMatchObject({ ok: true, engine: 'nli' });
+        expect(finalizeObjectiveEvidence).toHaveBeenLastCalledWith('objsess-1',
+            [{ brief_point_id: 'p1', detected_at_seconds: 8, coverage: 'partial' }]);
+        // Keyword fallback (the model failed): the keyword matcher's partial is saved as 'partial' too.
+        stubMatcher(true, async () => { throw new Error('MEANING_WORKER_ERROR'); });
+        const viaKeyword = await finalizeObjectiveSessionOnSave({ ...INPUT, segments: [{ text: 'Customers want it.', startSec: 5 }] });
+        expect(viaKeyword).toMatchObject({ ok: true, engine: 'keyword', engineFallback: 'error' });
+        expect(viaKeyword.coverage?.[0].status).toBe('partial');
+        expect(finalizeObjectiveEvidence).toHaveBeenLastCalledWith('objsess-1',
+            [{ brief_point_id: 'p1', detected_at_seconds: 5, coverage: 'partial' }]);
     });
 
     it('no answer within 3000 ms → keyword verdict with a timeout marker', async () => {
