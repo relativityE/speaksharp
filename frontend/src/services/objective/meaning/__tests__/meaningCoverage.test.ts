@@ -302,3 +302,38 @@ describe('subject and attribution guards follow each claim (Codex P2s on #1995)'
     });
 });
 
+describe('guards choose among candidate windows; named third parties (Codex P2s on #1995, round 2)', () => {
+    it('an earlier reported statement does not hide a later direct assertion of the same claim', async () => {
+        const segments = [seg(2, 'Jordan says we need weekly reports.'), seg(8, 'We need weekly reports.')];
+        const result = await one('We need weekly reports', segments, [
+            { premise: /^Jordan says we need weekly reports/i, entail: 0.968 },
+            { premise: /^We need weekly reports/i, entail: 0.995 },
+        ]);
+        expect(result.status).toBe('covered');
+        expect(result.evidence?.timestampSec).toBe(8);
+        expectAttributed(result, segments);
+    });
+
+    it('CONTROL: only a reported statement is still never credited to the speaker', async () => {
+        const result = await one('We need weekly reports', [seg(2, 'Jordan says we need weekly reports.')],
+            [{ premise: /^Jordan says we need weekly reports/i, entail: 0.968 }]);
+        expect(result.status).toBe('missing');
+    });
+
+    it('a point about a named third party is covered by evidence about that same party', async () => {
+        const segments = [seg(5, 'Engineers need faster builds.')];
+        const result = await one('Engineers need faster builds', segments, [{ premise: /^Engineers need faster builds/i, entail: 0.993 }]);
+        expect(result.status).toBe('covered');
+        expectAttributed(result, segments);
+    });
+
+    it('CONTROL: a named third party is not credited by a different party or by our own team', async () => {
+        const other = await one('Engineers need faster builds', [seg(5, 'Investors need faster builds.')],
+            [{ premise: /faster builds/i, entail: 0.99 }]);
+        expect(other.status).toBe('missing');
+        const ours = await one('We need faster builds', [seg(5, 'Engineers need faster builds.')],
+            [{ premise: /faster builds/i, entail: 0.99 }]);
+        expect(ours.status).toBe('missing');
+    });
+});
+
