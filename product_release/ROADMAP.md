@@ -1,7 +1,7 @@
 **Status:** Authoritative for the bounded current work routing below; wider canonical reconciliation remains open under #1318.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — bounded source/component currency correction; independent review and qualification remain required.
-**Last Verified:** 2026-11-24 — source through main `27717c7f` (#1966), read from GitHub (source currency only). The separate observed Production frontend identity is recorded in RELEASE_STATUS; this is not acceptance.
+**Last Verified:** 2026-11-28 — source through main `f6c88c80` (#1999), read from GitHub (source currency only). The separate observed Production frontend identity is recorded in RELEASE_STATUS; this is not acceptance.
 **Applies To:** RWT/Alpha, MVP/Beta sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -14,7 +14,7 @@
 ## Receiving and acceptance ownership
 
 The [5 November source reconciliation](./RELEASE_STATUS.md#5-november-2026-source-reconciliation-and-r10-hold)
-is the dated source-currency receipt for the earlier baseline `8f9f9451` (current source baseline `27717c7f`; scope and history are in RELEASE_STATUS). It preserves the open
+is the dated source-currency receipt for the earlier baseline `8f9f9451` (current source baseline `f6c88c80`; scope and history are in RELEASE_STATUS). It preserves the open
 acceptance obligations below. Historical queue assignments do not restart writers;
 current file handoffs remain in the owning issue/PR thread.
 
@@ -55,10 +55,10 @@ dated source/release receipt and does not independently verify GitHub or Product
 Routing here grants no deployment, activation or acceptance authority.
 
 <!-- CURRENCY-BLOCK
-# 2026-11-24: baseline re-read from GitHub (source only); deployed-release is the separate verified Production frontend identity (release 45461465932, 2026-11-24).
-baseline: 27717c7f1450676c650af5fedc8e69830de4ca8e
-deployed-release: cdaaab3c98c13efe26fe712038c6485886863e94
-verified-on: 2026-11-24
+# 2026-11-28: baseline re-read from GitHub (source only); deployed-release is the separate verified Production frontend identity (release 46158356756, 2026-11-28).
+baseline: f6c88c80c60e8010f65e35a6010dd99eefe6ace3
+deployed-release: 8fb84ff8cada6da1c2c21aad3a2e4153605a4de8
+verified-on: 2026-11-28
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
