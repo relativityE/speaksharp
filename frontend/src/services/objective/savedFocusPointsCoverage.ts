@@ -18,6 +18,12 @@ export interface SavedFocusPoint {
     status: SavedPointStatus;
     /** Seconds into the take where the point was detected; null unless detected. */
     detectedAtSeconds: number | null;
+    /**
+     * A detected point the speaker only PARTLY made (saved `coverage = 'partial'`, migration 20261127210000), so a live
+     * yellow reopens as yellow. False for a fully made point, for any non-detected point, and for rows saved before the
+     * field existed (they carry no coverage and keep their old "detected" display).
+     */
+    partial?: boolean;
 }
 
 /** The saved point set, so "Practise this again" can rebind exactly this set (never a different one). */
@@ -43,6 +49,23 @@ export type SavedFocusPointsCoverage =
 
 const STATUSES: ReadonlySet<string> = new Set(['detected', 'not_detected', 'unavailable']);
 
+type EvidenceRow = { brief_point_id: string; verdict: string; detected_at_seconds: number | null; coverage?: string | null };
+
+/**
+ * The saved evidence rows with their optional `coverage`. Before migration 20261127210000 reaches a database the column
+ * does not exist, so an "undefined column" refusal falls back to the original columns: the panel keeps working exactly as
+ * before (no partial) instead of failing — the frontend may ship ahead of, or without, that migration.
+ */
+async function readEvidence(supabase: ReturnType<typeof getSupabaseClient>, objectiveSessionId: string) {
+    const withCoverage = await supabase.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds, coverage')
+        .eq('session_id', objectiveSessionId);
+    const code = (withCoverage.error as { code?: string } | null)?.code;
+    if (withCoverage.error && (code === '42703' || code === 'PGRST204' || /coverage/i.test(withCoverage.error.message ?? ''))) {
+        return supabase.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds').eq('session_id', objectiveSessionId);
+    }
+    return withCoverage;
+}
+
 export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Promise<SavedFocusPointsCoverage> {
     try {
         const supabase = getSupabaseClient();
@@ -65,8 +88,7 @@ export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Pro
             supabase.from('objective_brief_point').select('id, label, sort_order')
                 .eq('brief_id', (session as { brief_id: string }).brief_id)
                 .order('sort_order', { ascending: true }),
-            supabase.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds')
-                .eq('session_id', (session as { id: string }).id),
+            readEvidence(supabase, (session as { id: string }).id),
             // Only for rebinding the set on "Practise this again": a failed read leaves the results intact but is carried
             // as `briefReadFailed` (#1535 Codex P2 r4116626850), so the action retries instead of opening generic setup.
             supabase.from('objective_brief').select('project_id, event_goal').eq('id', briefId).maybeSingle(),
@@ -76,14 +98,13 @@ export async function loadSavedFocusPointsCoverage(sourceSessionId: string): Pro
             return { kind: 'error' };
         }
 
-        const byPoint = new Map(((evidence ?? []) as Array<{ brief_point_id: string; verdict: string; detected_at_seconds: number | null }>)
-            .map((row) => [row.brief_point_id, row]));
+        const byPoint = new Map(((evidence ?? []) as EvidenceRow[]).map((row) => [row.brief_point_id, row]));
         const rows: SavedFocusPoint[] = ((points ?? []) as Array<{ id: string; label: string }>).map((point) => {
             const row = byPoint.get(point.id);
             // A point with no evidence row, or an unknown verdict, was not evaluated — never shown as detected.
             const status: SavedPointStatus = row && STATUSES.has(row.verdict) ? row.verdict as SavedPointStatus : 'unavailable';
             const at = status === 'detected' && typeof row?.detected_at_seconds === 'number' ? row.detected_at_seconds : null;
-            return { label: point.label, status, detectedAtSeconds: at };
+            return { label: point.label, status, detectedAtSeconds: at, partial: status === 'detected' && row?.coverage === 'partial' };
         });
         if (rows.length === 0) return { kind: 'error' }; // a saved Focus Points session always has its points
         const briefRow = brief as { project_id?: unknown; event_goal?: unknown } | null;

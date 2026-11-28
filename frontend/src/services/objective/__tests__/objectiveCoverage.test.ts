@@ -16,9 +16,21 @@ describe('#1046 objectiveCoverage.computeObjectiveCoverage', () => {
         expect(coverage[1]).toMatchObject({ briefPointId: 'p2', status: 'missing' });
         // 8.6 → rounded 9; missing → null.
         expect(signals).toEqual([
-            { brief_point_id: 'p1', detected_at_seconds: 9 },
+            { brief_point_id: 'p1', detected_at_seconds: 9, coverage: 'covered' },
             { brief_point_id: 'p2', detected_at_seconds: null },
         ]);
+    });
+
+    it('sends a partly-made point as partial so it reopens yellow (20261127210000), and never sends coverage without a detection', () => {
+        const { coverage, signals } = computeObjectiveCoverage(
+            [{ id: 'p1', label: 'pricing cost guarantee' }, { id: 'p2', label: 'refund window policy' }],
+            [{ text: 'we explain pricing and cost today', startSec: 4 }],
+            60,
+        );
+        expect(coverage[0].status).toBe('partial');
+        expect(signals[0]).toEqual({ brief_point_id: 'p1', detected_at_seconds: 4, coverage: 'partial' });
+        expect(signals[1]).toEqual({ brief_point_id: 'p2', detected_at_seconds: null });
+        expect('coverage' in signals[1]).toBe(false);
     });
 
     it('clamps a detection offset to [0, floor(duration)] so finalize never rejects the payload', () => {
@@ -27,7 +39,7 @@ describe('#1046 objectiveCoverage.computeObjectiveCoverage', () => {
             [{ text: 'pricing cost', startSec: 999 }],
             30,
         );
-        expect(signals[0]).toEqual({ brief_point_id: 'p1', detected_at_seconds: 30 });
+        expect(signals[0]).toEqual({ brief_point_id: 'p1', detected_at_seconds: 30, coverage: 'covered' });
     });
 
     it('matches a point via its cue, not just its label', () => {

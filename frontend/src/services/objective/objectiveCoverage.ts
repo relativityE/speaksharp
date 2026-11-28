@@ -36,6 +36,8 @@ export interface ObjectiveBriefPoint {
 export interface ObjectiveFinalizeSignal {
     brief_point_id: string;
     detected_at_seconds: number | null;
+    /** With a detection only: whether the point was fully made or only partly (migration 20261127210000). */
+    coverage?: 'covered' | 'partial';
 }
 
 /** Per-point coverage for the UI rail, carrying the brief_point_id alongside the matcher result. */
@@ -75,10 +77,10 @@ export function computeObjectiveCoverage(
         briefPointId: points[i].id,
     }));
 
-    const signals: ObjectiveFinalizeSignal[] = coverage.map((c) => ({
-        brief_point_id: c.briefPointId,
-        detected_at_seconds: c.evidence ? toOffsetSeconds(c.evidence.timestampSec, durationSeconds) : null,
-    }));
+    const signals: ObjectiveFinalizeSignal[] = coverage.map((c) => (c.evidence
+        ? { brief_point_id: c.briefPointId, detected_at_seconds: toOffsetSeconds(c.evidence.timestampSec, durationSeconds),
+            coverage: c.status === 'partial' ? 'partial' as const : 'covered' as const }
+        : { brief_point_id: c.briefPointId, detected_at_seconds: null }));
 
     return { coverage, signals };
 }

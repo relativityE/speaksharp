@@ -200,7 +200,7 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
                 { id: 'p2', label: 'support guarantee', status: 'missing' },
             ]);
             expect(objectiveHarness.finalizeObjectiveEvidence).toHaveBeenCalledWith('objective-session', [
-                { brief_point_id: 'p1', detected_at_seconds: 8 },
+                { brief_point_id: 'p1', detected_at_seconds: 8, coverage: 'covered' },
                 { brief_point_id: 'p2', detected_at_seconds: null },
             ]);
             useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'viewer', captureLive: false });
