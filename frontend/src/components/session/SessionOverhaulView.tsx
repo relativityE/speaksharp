@@ -20,6 +20,8 @@ import { SessionVerdict } from './SessionVerdict';
 import { type CoverageRailPoint } from './CoverageRail';
 import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
+import { isFocusMeaningMatcherEnabled } from '@/config/focusMeaningMatcher';
+import type { ObjectiveCoverageDetection } from '@/stores/useSessionStore';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
 import { fillerCountClaimable, fillerEvidenceKind, type FillerEvidenceKind } from '@/contracts/fillerEvidence';
@@ -48,6 +50,9 @@ const REVIEW_RECEIPT_UNBOUND_SETTLE_MS = 2_000;
 
 /** Source envelope resolution: finer than any track needs (a 1920px track holds 480 lines at the 4px pitch). */
 const WAVEFORM_SOURCE_LEVELS = 480;
+
+/** Default-off meaning matcher opt-in (see `config/focusMeaningMatcher.ts`): its own chunk, loaded only when shown. */
+const FocusMeaningOptInLazy = React.lazy(() => import('./FocusMeaningOptIn'));
 
 /**
  * #1222 S11 — the session-overhaul VIEW: maps the live session runtime onto the fixed shell + the three
@@ -166,6 +171,8 @@ export interface SessionOverhaulViewProps {
      * never "couldn't check".
      */
     objectiveCoverageFailed?: boolean;
+    /** Default-off meaning matcher: which engine produced `objectiveCoverage` (null/absent = keyword, as today). */
+    objectiveCoverageDetection?: ObjectiveCoverageDetection | null;
     /** #1046 Focus Points slot-D actions. Edit → point editor (before); Retry → same set again (after);
      *  New set → fresh brief (after). Retry falls back to a plain restart when no handler is supplied. */
     onEditPoints?: () => void;
@@ -229,6 +236,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     completedObjectivePaceGuideSecPerPoint,
     objectiveCoverage,
     objectiveCoverageFailed = false,
+    objectiveCoverageDetection = null,
     onEditPoints,
     onRetryPoints,
     onNewSet,
@@ -891,14 +899,20 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             : coverageTerminallyUnavailable
                 ? <section data-testid="coverage-unavailable" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-neutral-secondary">Focus Points detection is unavailable for this take.</section>
             : undefined;
+    // Default-off meaning matcher: the opt-in control is lazy-loaded and rendered ONLY when the flag is on, so a
+    // flag-off build never requests its chunk, creates a worker, or shows consent UI.
+    const meaningOptIn = isObjective && isFocusMeaningMatcherEnabled()
+        ? <React.Suspense fallback={null}><FocusMeaningOptInLazy /></React.Suspense>
+        : null;
     const objectivePlanSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
+        ? <><FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />{meaningOptIn}</>
         : undefined;
     const objectiveDuringSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="during" nextIndex={coverage.nextIndex} />
         : undefined;
     const objectiveAfterSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={chooseRetryPoints} onNewSet={onNewSet ? chooseNewSet : undefined}
+            detection={objectiveCoverageDetection ?? undefined}
             retryDisabled={repeatActionDisabled} retryStarting={startupWaiting} retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
         : isObjective
             ? <FocusPointsRail
