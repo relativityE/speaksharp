@@ -34,7 +34,7 @@ const CORPUS: Array<[string, readonly string[] | null]> = [
         'Avoid skipping transitions.', 'Name the guarantee early so it is unmistakable.', 'Pause before the launch date so it lands.',
         'Make point 2 clearer by naming it first.', 'Signpost your third point earlier.', 'You never got to the pricing tiers; open with them.',
         'The launch date was overlooked.', 'You omitted the pricing tiers.', 'You did not get to the pricing tiers.', 'The guarantee was left out.',
-        // Sam review of #1993: time-out omissions, attributive participles, an object noun after "you missed".
+        // PM review of #1993: time-out omissions, attributive participles, an object noun after "you missed".
         'You ran out of time before getting to the pricing tiers.', "You didn't get a chance to cover the launch date.",
         'You never got around to the guarantee.', 'You missed pricing tiers.', 'Name the cost of missed deadlines before the close.',
         'Flag skipped steps in the rollout before the demo.',
@@ -100,7 +100,7 @@ describe('the Focus prompt rules the Edge sends are the ones the live prompt bin
     });
 });
 
-describe('Sam review of #1993: precision of the guard (both copies)', () => {
+describe('PM review of #1993: precision of the guard (both copies)', () => {
     const form = (next: string, labels: readonly string[] | null = LABELS) => omissionClaimVerdict({ well: WELL, next, labels }).form;
     it('catches running out of time before a point, and other "did not get to it" forms', () => {
         expect(form('You ran out of time before getting to the pricing tiers.')).toBe('past_claim');
@@ -119,7 +119,7 @@ describe('Sam review of #1993: precision of the guard (both copies)', () => {
         expect(form('You missed the deadlines point.', ['Measure missed deadlines and time spent'])).toBe('past_claim');
         expect(form('Skip the filler words between points.')).toBe('unrelated');
     });
-    it('Sam review: label text is context, not a mask: real claims about a chosen point are still caught', () => {
+    it('PM review: label text is context, not a mask: real claims about a chosen point are still caught', () => {
         expect(form('Discuss the cost of missed deadlines.')).toBe('none');
         expect(form('Missed pricing tiers.')).toBe('past_claim');
         expect(form('The speaker missed pricing tiers.')).toBe('past_claim');

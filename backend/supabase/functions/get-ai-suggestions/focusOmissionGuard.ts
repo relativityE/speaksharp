@@ -118,7 +118,7 @@ function replacementFor(field: GuardedField, points: readonly FocusGuardPoint[],
       : `Signpost "${label}" clearly as you reach it.`;
     if (isServableOmissionForm(classifyOmission(candidate, labels))) return candidate;
   }
-  // Sam review of #1993: the honest fallback is the same for two takes with the same verified evidence; no forced variety.
+  // PM review of #1993: the honest fallback is the same for two takes with the same verified evidence; no forced variety.
   return FOCUS_SAFE_TEMPLATES[field];
 }
 
