@@ -17,6 +17,12 @@ import { ClarityVsLastSessionCard } from './ClarityVsLastSessionCard';
 import type { ClarityMove } from '@/hooks/useClarityMove';
 import { TrackedFillerWordsCard } from './TrackedFillerWordsCard';
 import { SessionVerdict } from './SessionVerdict';
+import { ConfidencePostCard, ConfidencePreCard, ConfidenceYouSaid } from './ConfidenceCheck';
+import { isConfidenceCheckPilotEnabled } from '@/config/confidenceCheckPilot';
+import {
+    answerFeel, answerPost, answerPre, clearConfidencePilot, confidencePilotSnapshot, noteSessionPhase, noteTakeStart, pilotFor, revealReview, startLoop,
+    subscribeConfidencePilot,
+} from '@/services/confidenceCheck/pilotState';
 import { type CoverageRailPoint } from './CoverageRail';
 import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
@@ -424,11 +430,39 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const st = useSessionStore.getState();
         return gateBlocksStartFor(st.progressGate, st.progressGateResolvedFor, authUserId);
     }, [authUserId]);
+    /*
+     * Practice confidence check pilot (spec Revision 1; flag `VITE_CONFIDENCE_CHECK_PILOT_ENABLED`, default OFF). Session-only:
+     * answers live in `pilotState` memory and are never sent anywhere. With the flag off none of this renders or records.
+     */
+    const confidencePilotOn = isConfidenceCheckPilotEnabled();
+    const confidenceSnapshot = React.useSyncExternalStore(subscribeConfidencePilot, confidencePilotSnapshot, () => null);
+    const confidencePilot = confidencePilotOn ? pilotFor(confidenceSnapshot, authUserId) : null;
+    const linkedRepeatPending = practiceTarget !== undefined && practiceTarget.kind !== 'none';
+    const noteConfidenceTakeStart = React.useCallback((kind: 'first' | 'repeat') => {
+        if (confidencePilotOn && authUserId) noteTakeStart(authUserId, kind);
+    }, [confidencePilotOn, authUserId]);
+    React.useEffect(() => {
+        if (confidencePilotOn && authUserId) noteSessionPhase(authUserId, sessionState);
+    }, [confidencePilotOn, authUserId, sessionState]);
+    // Signing out drops this tab's answers (they were only ever in memory).
+    React.useEffect(() => { if (!authUserId) clearConfidencePilot(); }, [authUserId]);
+    // Progress and History are never gated: leaving this page (or the after screen) before answering counts as a skip.
+    React.useEffect(() => {
+        if (!confidencePilotOn || !authUserId || !inAfter) return undefined;
+        return () => { revealReview(authUserId); };
+    }, [confidencePilotOn, authUserId, inAfter]);
+    // Before the first take: a linked repeat (Practice again from a saved review) gets no invented baseline.
+    const startFromBefore = React.useCallback(() => {
+        noteConfidenceTakeStart(linkedRepeatPending ? 'repeat' : 'first');
+        onStartStop();
+    }, [noteConfidenceTakeStart, linkedRepeatPending, onStartStop]);
+    const confidencePostPending = inAfter && Boolean(confidencePilot?.askPost);
     const choosePracticeAgain = React.useCallback(() => {
         if (liveGateBlocksStart()) return;
+        noteConfidenceTakeStart('repeat');
         emitJourneyStep({ step: 'option_selected', optionSelected: 'practice_next' });
         onStartStop();
-    }, [liveGateBlocksStart, onStartStop]);
+    }, [liveGateBlocksStart, onStartStop, noteConfidenceTakeStart]);
 
     // The rail's two actions were passed through unwrapped, so the Focus Points review recorded which
     // options were offered and never which one was taken — the same gap `option_selected` was added to
@@ -436,9 +470,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // cannot swallow the fact.
     const chooseRetryPoints = React.useCallback(() => {
         if (liveGateBlocksStart()) return;
+        noteConfidenceTakeStart('repeat');
         emitJourneyStep({ step: 'option_selected', optionSelected: 'retry_points' });
         (onRetryPoints ?? onStartStop)();
-    }, [liveGateBlocksStart, onRetryPoints, onStartStop]);
+    }, [liveGateBlocksStart, onRetryPoints, onStartStop, noteConfidenceTakeStart]);
 
     const chooseNewSet = React.useCallback(() => {
         emitJourneyStep({ step: 'option_selected', optionSelected: 'new_set' });
@@ -932,11 +967,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     <TrackedFillerWordsCard />
                 </>
             );
+        const confidencePre = confidencePilotOn && authUserId && !linkedRepeatPending
+            ? <ConfidencePreCard loopStarted={Boolean(confidencePilot?.loopStarted)} pre={confidencePilot?.pre ?? null}
+                onStartLoop={() => startLoop(authUserId)} onAnswer={(answer) => answerPre(authUserId, answer)} />
+            : null;
         return (
             <SessionBeforeState
                 practiceTarget={practiceTarget}
                 mic={{
-                    onStart: onStartStop,
+                    onStart: confidencePilotOn ? startFromBefore : onStartStop,
                     error: permissionError ? sttStatus.message : null,
                     privateModelStatus,
                     modelLoadingProgress,
@@ -966,7 +1005,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     beforeLayout: !isObjective,
                     headerMeta: isObjective ? undefined : '0 words',
                 }}
-                rail={beforeRail}
+                rail={confidencePre ? <>{confidencePre}{beforeRail}</> : beforeRail}
             />
         );
     }
@@ -1034,6 +1073,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      */
     const afterReview = (
         <>
+            {confidencePilot && !confidencePilot.askPost && <ConfidenceYouSaid state={confidencePilot} />}
             {practiceLoopReview && (
                 <div
                     ref={practiceLoopBandRef}
@@ -1084,7 +1124,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     amplitudes: takeAmplitudes,
                     // Focus Points keeps an amplitude-only envelope; Open Mic marks its filler positions.
                     // Neither exposes a transport — there is no audio to play (S-11).
-                    fillerBars: isObjective ? [] : fillerBars,
+                    fillerBars: isObjective || confidencePostPending ? [] : fillerBars,
                     showFillerLegend: !isObjective,
                     // The mic starts the next run of the SAME product through its telemetry-wrapped handler:
                     // Focus Points rebinds the completed brief (raw start would open Open Mic), and Open Mic
@@ -1098,21 +1138,33 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     blockedReason: gateBlocksStart ? gateNotice : null,
                 }}
                 transcript={{
-                    tokens: renderedReviewTokens,
+                    tokens: confidencePostPending ? renderedReviewTokens.map((t) => ({ text: t.text })) : renderedReviewTokens,
                     // Honest copy: the app retains no audio (transcript-only review), so highlights mark
                     // where each point landed rather than being audio-seek targets.
                     // §Duplication: the coverage FRACTION appears exactly once, in the rail — never repeated
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
-                        ? (coverage && coverage.coveredQuotes.length > 0
+                        ? (!confidencePostPending && coverage && coverage.coveredQuotes.length > 0
                             ? [wordsPart, 'highlights mark where each point landed'].filter(Boolean).join(' · ')
                             : (wordsPart ?? ''))
                         : (shownReviewWords === null ? '' : plural(shownReviewWords, 'word', 'words')),
-                    stats: fillerStatsLine,
-                    coverageMode: isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
+                    stats: confidencePostPending ? '' : fillerStatsLine,
+                    coverageMode: !confidencePostPending && isObjective && coverage && coverage.coveredQuotes.length > 0 ? 'after' : undefined,
                 }}
-                review={afterReview}
-                rail={afterRail}
+                review={confidencePostPending && confidencePilot && authUserId
+                    ? <ConfidencePostCard
+                        post={confidencePilot.post}
+                        feel={confidencePilot.feel}
+                        targetLabel={linkedRepeatPending || practiceTarget?.kind === 'ready'
+                            ? 'How did your practice target feel this time?'
+                            : isObjective ? 'Compared with your last take, making your points felt:' : 'Compared with your last take, this take felt:'}
+                        onRate={(answer) => answerPost(authUserId, answer)}
+                        onFeel={(answer) => answerFeel(authUserId, answer)}
+                        onReveal={() => revealReview(authUserId)}
+                    />
+                    : afterReview}
+                // Until the post questions are answered or skipped, nothing measured is shown (rail, highlights, counts).
+                rail={confidencePostPending ? null : afterRail}
                 finalizing={isFinalizing}
                 finalizeEstimateSeconds={finalizeEstimateSeconds}
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
@@ -1125,7 +1177,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         </div>
                         : <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
                     : undefined}
-                fillerFooter={isObjective
+                fillerFooter={confidencePostPending ? null : isObjective
                     ? (coverage && coverage.coveredQuotes.length > 0
                         ? <span data-testid="coverage-footer">Highlights show where each point landed.</span>
                         : null)
@@ -1136,7 +1188,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 no verdict to summarise, and a strip built from an absent evaluation would state a filler
                 story about a session we cannot read.
             */}
-            {isObjective && coverage && (
+            {isObjective && coverage && !confidencePostPending && (
                 <FocusDeliveryStrip
                     fillerCount={reviewFillerCount ?? 0}
                     fillerData={reviewFillerData}

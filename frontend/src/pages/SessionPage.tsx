@@ -14,6 +14,8 @@ import { StatusNotificationBar } from '@/components/session/StatusNotificationBa
 import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import { isConfidenceCheckPilotEnabled } from '@/config/confidenceCheckPilot';
+import { noteTakeStart } from '@/services/confidenceCheck/pilotState';
 import { TrialCountdownChip } from '@/components/session/TrialCountdownChip';
 import { TrialEndedPanel } from '@/components/session/TrialEndedPanel';
 import { isTrialExpiredRefusal, trialCountdown } from '@/components/session/trialStatus';
@@ -1124,7 +1126,15 @@ export const SessionPage: React.FC = () => {
                 starting={startupWaiting}
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={visibleModelLoadingProgress}
-                onStartStop={() => { void handleStartStop(); }}
+                onStartStop={() => {
+                    // Confidence check pilot (flag default OFF, session-only): the mobile bar starts takes without the
+                    // view's wrapped handlers, so record here whether this Start is a repeat (from the review, or a linked
+                    // repeat) or a loop's first take. Stop presses (isListening) record nothing.
+                    if (isConfidenceCheckPilotEnabled() && authUserId && !isListening) {
+                        noteTakeStart(authUserId, (showAnalyticsPrompt || isTranscriptFinalizing || practiceTarget.kind !== 'none') ? 'repeat' : 'first');
+                    }
+                    void handleStartStop();
+                }}
                 mode={mode}
                 privateModelStatus={privateModelStatus}
                 onDownloadModel={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private')); }}
