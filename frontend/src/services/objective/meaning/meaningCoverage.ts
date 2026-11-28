@@ -142,16 +142,25 @@ function claimSubject(point: string): ClaimSubject {
 /** Leading subject of a clause: its first five words (before most verbs in rehearsal speech). */
 const leadOf = (text: string): string => text.trim().split(/\s+/).slice(0, 5).join(' ');
 
-/** v3: the strongest downgrade any supporting clause earns. `missing` beats `partial`. */
+/**
+ * v3: the strongest downgrade any supporting clause earns. `missing` beats `partial`.
+ *
+ * Each claim is judged against ITS OWN subject ("Customers want X and managers need Y" has two), falling back to the
+ * point's subject only when the claim names none ("Customers want X and cheaper plans"). A reported view
+ * ("a competitor claims…") never substitutes for a direct claim, but a claim that itself asks for a report
+ * ("Customers say…") is credited by that report, from the same group (the group guard still applies).
+ */
 function subjectDowngrade(point: string, claims: ClaimState[]): 'missing' | 'partial' | null {
-    const subj = claimSubject(point);
+    const pointSubject = claimSubject(point);
     let downgrade: 'missing' | 'partial' | null = null;
     for (const c of claims) {
         if (c.state !== 'supported' || !c.window) continue;
+        const own = claimSubject(c.claim);
+        const subj = own.kind === 'other' ? pointSubject : own;
         const quote = c.window.text.trim();
         const lead = leadOf(quote);
         if (BARE_PRONOUN.test(quote)) { downgrade = downgrade ?? 'partial'; continue; }
-        if (REPORTED.test(quote)) { downgrade = 'missing'; continue; }
+        if (REPORTED.test(quote) && !REPORTED.test(c.claim.trim())) { downgrade = 'missing'; continue; }
         // a claim without an explicit group is about the speaker's own team/process (e.g. "Security review happens…")
         if ((subj.kind === 'first' || subj.kind === 'other') && OTHER_PARTIES.test(lead) && !/\b(our|we|us)\b/i.test(lead)) downgrade = 'missing';
         if (subj.kind === 'group') {

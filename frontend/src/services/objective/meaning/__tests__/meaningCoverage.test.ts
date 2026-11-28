@@ -260,3 +260,45 @@ describe('meaning matcher — evidence contract across mixed transcripts', () =>
             .toEqual([{ point: 'Launch in June', status: 'missing', matchRatio: 0 }]);
     });
 });
+
+describe('subject and attribution guards follow each claim (Codex P2s on #1995)', () => {
+    it('a point with claims about two different groups is covered when both are said, each by its own group', async () => {
+        const point = 'Customers want faster checkout and managers need weekly reports';
+        expect(splitClaims(point).length).toBe(2);
+        const segments = [seg(3, 'Customers want faster checkout.'), seg(9, 'Managers need weekly reports.')];
+        const result = await one(point, segments, [
+            { premise: /^Customers want faster checkout/i, hypothesis: /checkout/i, entail: 0.95 },
+            { premise: /^Managers need weekly reports/i, hypothesis: /weekly reports/i, entail: 0.95 },
+        ]);
+        expect(result.status).toBe('covered');
+        expectAttributed(result, segments);
+    });
+
+    it('CONTROL: a claim about one group credited by a DIFFERENT group is still vetoed', async () => {
+        const point = 'Customers want faster checkout and managers need weekly reports';
+        const segments = [seg(3, 'Customers want faster checkout.'), seg(9, 'Customers need weekly reports.')];
+        const result = await one(point, segments, [
+            { premise: /^Customers want faster checkout/i, hypothesis: /checkout/i, entail: 0.95 },
+            { premise: /^Customers need weekly reports/i, hypothesis: /weekly reports/i, entail: 0.95 },
+        ]);
+        expect(result.status).not.toBe('covered');
+    });
+
+    it('a point that itself asks for a reported view is covered by that report', async () => {
+        const point = 'Customers say checkout is too slow';
+        const segments = [seg(4, 'Customers say checkout is too slow.')];
+        const result = await one(point, segments, [{ premise: /checkout is too slow/i, hypothesis: /checkout is too slow/i, entail: 0.97 }]);
+        expect(result.status).toBe('covered');
+        expectAttributed(result, segments);
+    });
+
+    it('CONTROL: a reported view still never substitutes for a direct claim, and a report by another party never covers a group report', async () => {
+        const direct = await one('Checkout is too slow', [seg(4, 'A competitor claims checkout is too slow.')],
+            [{ premise: /checkout is too slow/i, hypothesis: /checkout is too slow/i, entail: 0.97 }]);
+        expect(direct.status).toBe('missing');
+        const otherParty = await one('Customers say checkout is too slow', [seg(4, 'Managers say checkout is too slow.')],
+            [{ premise: /checkout is too slow/i, hypothesis: /checkout is too slow/i, entail: 0.97 }]);
+        expect(otherParty.status).toBe('missing');
+    });
+});
+
