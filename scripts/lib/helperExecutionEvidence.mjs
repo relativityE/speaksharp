@@ -293,7 +293,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
   callables:["parseCompletionAttempt","attemptEvidence","completionAttemptsVerdict","exactRetrySaveVerdict","reviewReopenVerdict","transcriptDigest"],
 }, {
   helperFile:'tests/live/helpers/rwtJ3Evidence.ts',testFile:'tests/unit/rwtJ3Evidence.test.ts',
-  callables:["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard"],
+  callables:["focusAcceptancePrivacyVerdict","focusSavedTimingVerdict","j3bRepeatReopenVerdict","repeatReviewCard","j3bUpstreamStatus","armJ3bFailureObserver","readJ3bFailureObserver","j3bFallbackStatus","readJ3bSavedPanel"],
+}, {
+  helperFile:'tests/live/helpers/rwtSavedFocusIdentity.ts',testFile:'tests/unit/rwtJ3Evidence.test.ts',
+  callables:["savedFocusIdentityVerdict"],
 }, {
   helperFile:'tests/live/helpers/rwtJ4aEvidence.ts',testFile:'tests/unit/rwtJ4aEvidence.test.ts',
   callables:["j4aRequestNeverReachedVerdict","j4aOneSaveForAccountVerdict","saveRetryPrivacyVerdict","j4aNoSecondTakeVerdict","j4aPrivacyCleanupVerdict","j4aCoachingGuard","j4aCoachingBlockedVerdict","j4aCoachingBlockedRow"],
@@ -316,6 +319,16 @@ export const HELPER_CONTRACTS = Object.freeze([{
   // J3: the coaching fallback row, read from the review card and never pressed, through its own unit consumer.
   helperFile:'tests/live/helpers/rwtCoachingFallback.ts',testFile:'tests/unit/rwtCoachingFallback.test.tsx',
   callables:["readCoachingFallback","coachingFallbackVerdict","coachingFallbackRow"],
+}, {
+  // #1995: the fake meaning-model worker and in-memory cache the MeaningMatcher unit test drives.
+  helperFile:'frontend/src/services/objective/meaning/__tests__/fakeMeaningWorker.ts',
+  testFile:'frontend/src/services/objective/meaning/__tests__/MeaningMatcher.test.ts',
+  callables:['createFakeMeaningWorker','memoryStore'],
+}, {
+  // #1995: the test session store mirrors the real store's Focus Points detection field.
+  helperFile:'frontend/tests/unit/factories/storeFactory.ts',
+  testFile:'frontend/tests/unit/factories/storeFactory.objectiveDetection.test.ts',
+  callables:['createTestSessionStore'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 

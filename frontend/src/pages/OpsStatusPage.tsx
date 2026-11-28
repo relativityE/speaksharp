@@ -35,6 +35,11 @@ type Report = {
   summary?: Record<Status, number>;
   checks: Check[];
 };
+type LiveModel = {
+  model: string; serving: 'configured'; source: 'selection' | 'bootstrap';
+  bootstrapModel: string; readiness: string; providerVersion?: string;
+  lastCheckAt?: string; lastCheckOutcome?: string; nextUserCheckAt?: string; providerCheckAfter?: string;
+};
 type Service = {
   name: string;
   status: Status;
@@ -144,7 +149,7 @@ function safeCheckDiagnostics(check: Check): { details: string[]; reason?: strin
   return { details: [...details], reason };
 }
 
-function checksForDisplay(checks: Check[]): Service[] {
+function checksForDisplay(checks: Check[], live: LiveModel | null): Service[] {
   const cards: Service[] = [];
   for (const check of checks) {
     const scope = Object.prototype.hasOwnProperty.call(KNOWN, check.name) ? KNOWN[check.name] : null;
@@ -162,7 +167,7 @@ function checksForDisplay(checks: Check[]): Service[] {
   const gemini = checks.find((check) => check.name === 'Gemini API');
   const generation = checks.find((check) => check.name === 'Gemini generation');
   const sweep = checks.find((check) => check.name === 'Gemini highest working model');
-  if (gemini || generation || sweep) {
+  if (gemini || generation || sweep || live) {
     const untested = evidenceText(sweep).match(/\buntested_count=(\d{1,3})(?:;|$)/)?.[1];
     const legacyWinner = evidenceText(sweep).match(/\bhighest_working=([^;]+)(?:;|$)/)?.[1];
     const sweepWinner = sweep?.status === 'pass'
@@ -186,28 +191,40 @@ function checksForDisplay(checks: Check[]): Service[] {
         return modelId + ': ' + wording[reason] + (code === 'no_http' ? '' : ' (HTTP ' + code + ')');
       });
     const readiness = generation?.coachingReadiness;
+    const liveStatus = live ? (live.readiness === 'verified' && ['healthy', 'promoted'].includes(live.lastCheckOutcome ?? '')
+      && currentAge(live.lastCheckAt) ? 'pass' : 'warn') : null;
     const status = generation?.status === 'fail' || gemini?.status === 'fail' || readiness === 'unavailable' ? 'fail'
       : readiness === 'checking' || readiness === 'not_checked' || readiness === 'backoff' ? 'warn'
         : generation?.status === 'pass' && gemini?.status === 'pass' ? 'pass'
         : generation?.status === 'pass' || sweepWinner || gemini?.status === 'pass' ? 'warn' : 'skip';
-    cards.push({ name: 'AI Service -- LLM', status,
-      reason: readiness === 'unavailable' ? 'Valid coaching not verified'
-        : readiness === 'backoff' ? 'Coaching is in provider backoff'
+    cards.push({ name: 'AI Service -- LLM', status: liveStatus ?? status,
+      reason: live ? (liveStatus === 'pass' ? 'Latest readiness check passed' : 'Latest readiness check needs review') : readiness === 'unavailable' ? 'Valid coaching not verified'
+        : readiness === 'backoff' ? 'Historical provider wait'
           : readiness === 'checking' ? 'Coaching readiness check pending'
           : readiness === 'not_checked' && generation?.status === 'pass' ? 'Coaching readiness not checked'
             : generation?.status === 'fail' ? 'Configured model generation failed'
         : gemini?.status === 'fail' ? 'Model list check failed'
           : sweep?.status === 'fail' ? 'No tested model generated text'
             : !generation || generation.status === 'skip' ? 'Generation not checked' : 'Model version not verified',
-      headline: 'Gemini · Configured model: ' + (configuredModel ?? 'Not in this report'),
+      headline: live ? 'Gemini · Selected model: ' + live.model : 'Gemini · Configured model: ' + (configuredModel ?? 'Not in this report'),
       versionVerified: Boolean(sweepWinner && sweepVersion),
-      checkedAt: generation?.checkedAt ?? gemini?.checkedAt ?? sweep?.checkedAt,
-      details: ['Gemini API: ' + outcomeText(gemini?.status ?? 'skip') + '.',
+      checkedAt: live?.lastCheckAt ?? generation?.checkedAt ?? gemini?.checkedAt ?? sweep?.checkedAt,
+      details: [...(live ? [
+        'Serving state: selected for coaching. A readiness result does not block coaching.',
+        'Provider version from the last verified check: ' + (live.providerVersion ?? 'Not verified') + '.',
+        'Last check: ' + (live.lastCheckOutcome?.replace(/_/g, ' ') ?? 'Not recorded') + ' · ' + (timestamp(live.lastCheckAt) ?? 'No timestamp')
+          + (live.lastCheckAt && !currentAge(live.lastCheckAt) ? ' (historical).' : '.'),
+        ...(timestamp(live.nextUserCheckAt) ? ['Next user check eligible: ' + timestamp(live.nextUserCheckAt) + '.'] : []),
+        ...(timestamp(live.providerCheckAfter) ? ['Provider wait applies to checks only: ' + timestamp(live.providerCheckAfter) + '.'] : []),
+        ...(live.source === 'selection' && live.model !== live.bootstrapModel
+          ? ['Bootstrap config differs: ' + live.bootstrapModel + ' (not used for serving).'] : []),
+        'Diagnostics below are historical and do not select the live model.',
+      ] : []), 'Gemini API: ' + outcomeText(gemini?.status ?? 'skip') + '.',
         'Gemini generation: ' + outcomeText(generation?.status ?? 'skip') + '.',
         'The API check reads the model list. The generation check sends test text to the configured model.',
-        ...(readiness === 'verified' ? ['Deployed coaching passed the recording-start readiness check.']
-          : readiness === 'backoff' ? ['Deployed coaching is waiting before sending new provider requests.']
-          : readiness === 'checking' || readiness === 'not_checked' || readiness === 'unavailable'
+        ...(!live && readiness === 'verified' ? ['Deployed coaching passed the recording-start readiness check.']
+          : !live && readiness === 'backoff' ? ['The historical report recorded a coaching provider wait.']
+          : !live && (readiness === 'checking' || readiness === 'not_checked' || readiness === 'unavailable')
             ? ['Deployed coaching readiness is not verified in this report.'] : []),
         generationVersion ? 'Configured model probe reported: ' + generationVersion + '.'
           : 'Configured model probe did not report a version.',
@@ -238,12 +255,45 @@ function checksForDisplay(checks: Check[]): Service[] {
   return cards.sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.name.localeCompare(b.name));
 }
 
-export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryEndpoint }) => {
+export const OpsStatusPage: React.FC<{ summaryEndpoint?: string; liveModelEndpoint?: string | null }> = ({ summaryEndpoint, liveModelEndpoint = '/admin/ops-status/coaching-model' }) => {
   const [report, setReport] = React.useState<Report | null>(null);
   const [bundled, setBundled] = React.useState(false);
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [reloadResult, setReloadResult] = React.useState('');
+  const [liveModel, setLiveModel] = React.useState<LiveModel | null>(null);
+  const [checkingModel, setCheckingModel] = React.useState(false);
+  const [modelNotice, setModelNotice] = React.useState('');
+  const modelInFlight = React.useRef(false);
+  const getLiveModel = React.useCallback(async (check: boolean) => {
+    if (!liveModelEndpoint || modelInFlight.current) return;
+    modelInFlight.current = true;
+    setCheckingModel(true);
+    if (check) {
+      setModelNotice('Checking the selected Gemini model…');
+    }
+    try {
+      const response = await fetch(liveModelEndpoint, { method: check ? 'POST' : 'GET',
+        cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout(check ? 34_000 : 5_000) });
+      if (!response.ok) throw new Error('model check unavailable');
+      const { state, outcome, joinedOutcome } = JSON.parse(await response.text());
+      if (!state || !SAFE_GEMINI_VERSION.test(state.model) || !SAFE_GEMINI_VERSION.test(state.bootstrapModel)
+        || state.serving !== 'configured' || !['selection', 'bootstrap'].includes(state.source)) throw new Error('invalid model state');
+      setLiveModel(state);
+      if (check) setModelNotice(outcome === 'promoted' ? 'Switched to ' + state.model + '.'
+        : outcome === 'healthy' ? 'Current model passed.'
+          : outcome === 'shared' ? ('Joined the existing check: ' + (String(joinedOutcome ?? 'not recorded').replace(/_/g, ' ')) + '.')
+            : outcome === 'joined_unavailable' ? 'No second check was started. The joined result could not be confirmed.'
+            : 'No new working model verified. The selected model was not changed.');
+    } catch {
+      setLiveModel(null);
+      if (check) setModelNotice('Could not verify the current Gemini check. No result available.');
+    } finally {
+      modelInFlight.current = false;
+      setCheckingModel(false);
+    }
+  }, [liveModelEndpoint]);
+  React.useEffect(() => { void getLiveModel(false); }, [getLiveModel]);
   const publishedAt = React.useRef<string | null>(null);
 
   const load = React.useCallback(async (manual = false) => {
@@ -277,7 +327,7 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
 
   const historical = Boolean(report) && (bundled || loadFailed || !currentAge(report?.generatedAt));
   const checks = report?.checks ?? [];
-  const services = checksForDisplay(checks);
+  const services = checksForDisplay(checks, liveModel);
   const github = checks.find((check) => check.name === 'GitHub API')?.github;
   const workflows = Array.isArray(github?.workflows)
     ? github.workflows.filter((row) => row && Object.prototype.hasOwnProperty.call(WORKFLOWS, row.kind) && Object.prototype.hasOwnProperty.call(OUTCOMES, row.outcome))
@@ -296,7 +346,7 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
           <div>
             <h1 className="text-3xl font-extrabold text-foreground">Software health</h1>
           </div>
-          <Button onClick={() => { void load(true); }} disabled={loading}>
+          <Button onClick={() => { void load(true); void getLiveModel(true); }} disabled={loading || checkingModel}>
             <RefreshCw aria-hidden="true" className={'mr-2 h-4 w-4 ' + (loading ? 'animate-spin' : '')} />
             Reload report
           </Button>
@@ -304,6 +354,7 @@ export const OpsStatusPage: React.FC<{ summaryEndpoint?: string }> = ({ summaryE
 
         <p role="status" className="text-sm text-muted-foreground">{reloadResult ||
           (!report ? (loading ? 'Loading report…' : 'No report available.') : '')}</p>
+        {modelNotice ? <p role="status" className="text-sm text-muted-foreground">{modelNotice}</p> : null}
         {services.length > 0 ? (
           <section data-testid="ops-status-checks">
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 py-2 text-sm text-foreground" aria-label="Status legend">

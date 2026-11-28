@@ -20,7 +20,7 @@ describe('deploy-supabase-migrations Edge deploy/readback job conditions', () =>
     expect(prerequisite.if).toContain('inputs.deploy_production == true');
     const preflight = prerequisite.steps.find(step => step.run?.includes('t2-migration-postflight'));
     expect(preflight.env.DEPLOY_EDGE).toBe('${{ needs.validate-edge-configuration.outputs.deploy_edge_functions }}');
-    expect(preflight.run).toContain('true) node scripts/t2-migration-postflight.mjs verify edge-release');
+    expect(preflight.run).toContain('true) REQUIRE_COACHING_CHECKS=1 node scripts/t2-migration-postflight.mjs verify edge-release');
     expect(preflight.run).toContain('false) node scripts/t2-migration-postflight.mjs verify release');
     expect(preflight.run).toContain("*) echo '::error::resolved Edge deployment intent unavailable'; exit 1");
     for (const name of ['invalidate-account-closure-authority', 'deploy-edge-functions']) {
@@ -29,7 +29,7 @@ describe('deploy-supabase-migrations Edge deploy/readback job conditions', () =>
       expect(jobs[name].if).not.toContain("needs.verify-t2-database-prerequisites.result == 'skipped'");
     }
     const steps = jobs['deploy-edge-functions'].steps;
-    const check = steps.findIndex(step => step.run?.includes('node scripts/t2-migration-postflight.mjs verify edge-release'));
+    const check = steps.findIndex(step => step.run?.includes('REQUIRE_COACHING_CHECKS=1 node scripts/t2-migration-postflight.mjs verify edge-release'));
     const mutation = steps.findIndex(step => step.name === 'Deploy Edge Functions');
     expect(check).toBeGreaterThan(-1);
     expect(check).toBeLessThan(mutation);
@@ -237,7 +237,7 @@ console.log(fs.readFileSync(process.env.LEDGER_ROW,'utf8'));});\n`);
 
   it('the T2 CLI admits account-closure-release only on the post-129 completion-settlement ledger', () => {
     const cli = readFileSync(resolve(process.cwd(), 'scripts/t2-migration-postflight.mjs'), 'utf8');
-    expect(cli).toContain("['release', 'edge-release', 'account-closure-release'].includes(version)");
+    expect(cli).toContain("['release', 'edge-release', 'account-closure-release', 'coaching-checks-release', 'focus-partial-release'].includes(version)");
     expect(cli).toContain("if (version === 'account-closure-release' && contract.profile !== 'post-129-completion-settlement') {");
   });
 });

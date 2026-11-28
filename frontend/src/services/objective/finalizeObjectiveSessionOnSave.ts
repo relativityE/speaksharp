@@ -7,6 +7,8 @@
  *   2. startObjectiveSession     — create the immutable objective_session bound to the brief
  *   3. loadObjectiveBriefPoints  — read back the brief's points (with their ids) to score against
  *   4. computeObjectiveCoverage  — LOCAL keyword match: transcript segments → detection offsets
+ *      (default-off `VITE_FOCUS_MEANING_MATCHER_ENABLED`: an on-device meaning match instead, only when the
+ *      user's model is already loaded, capped at 3 s, falling back to the keyword match — see coverageForFinalize)
  *   5. finalizeObjectiveEvidence — record per-point verdicts (server derives detected/not_detected)
  *
  * Every step FAILS CLOSED: any failure returns `{ ok: false, stage, reason }` and the caller shows
@@ -25,10 +27,16 @@ import {
 } from './objectiveSessionService';
 import {
     computeObjectiveCoverage,
+    computeObjectiveCoverageWithMatcher,
+    type CoverageEngine,
+    type MeaningFallbackReason,
     type ObjectiveBriefPoint,
+    type ObjectiveCoverageResult,
+    type ObjectiveMeaningMatcher,
     type ObjectivePointCoverage,
     type TranscriptSegment,
 } from './objectiveCoverage';
+import { isFocusMeaningMatcherEnabled } from '@/config/focusMeaningMatcher';
 
 export interface FinalizeObjectiveInput {
     projectId: string;
@@ -60,6 +68,13 @@ export interface FinalizeObjectiveResult {
      * failed/unconfirmed → Progress must NOT be evaluated for this take.
      */
     registered: boolean;
+    /**
+     * Default-off meaning matcher only (absent when `VITE_FOCUS_MEANING_MATCHER_ENABLED` is off, so the flag-off
+     * result is exactly what it was). Which engine produced `coverage`.
+     */
+    engine?: CoverageEngine;
+    /** Present when the flag is on but the verdict is keyword-based because the meaning matcher could not be used. */
+    engineFallback?: MeaningFallbackReason;
 }
 
 /**
@@ -84,6 +99,39 @@ export async function loadObjectiveBriefPoints(briefId: string): Promise<Objecti
     })) ?? [];
 }
 
+/**
+ * The page's meaning matcher, ONLY if the user's opt-in already created it. Imported lazily so a flag-off build
+ * never loads the module, and peeked (never created) so the Stop path cannot construct a worker or start a
+ * download. Readiness is checked by `computeObjectiveCoverageWithMatcher`.
+ */
+async function existingMeaningMatcher(): Promise<ObjectiveMeaningMatcher | null> {
+    const { peekMeaningMatcher } = await import('./meaning/MeaningMatcher');
+    return peekMeaningMatcher();
+}
+
+type CoverageForFinalize = ObjectiveCoverageResult & { engine?: CoverageEngine; engineFallback?: MeaningFallbackReason };
+
+async function coverageForFinalize(
+    points: ObjectiveBriefPoint[],
+    segments: TranscriptSegment[],
+    durationSeconds: number,
+): Promise<CoverageForFinalize> {
+    if (!isFocusMeaningMatcherEnabled()) return computeObjectiveCoverage(points, segments, durationSeconds);
+    let matcher: ObjectiveMeaningMatcher | null = null;
+    try {
+        matcher = await existingMeaningMatcher();
+    } catch (err) {
+        logger.warn({ err }, '[finalizeObjective] meaning matcher unavailable; using keyword verdict');
+    }
+    const result = await computeObjectiveCoverageWithMatcher(points, segments, durationSeconds, matcher);
+    return {
+        coverage: result.coverage,
+        signals: result.signals,
+        engine: result.engine,
+        ...(result.fallbackReason ? { engineFallback: result.fallbackReason } : {}),
+    };
+}
+
 export async function finalizeObjectiveSessionOnSave(
     input: FinalizeObjectiveInput,
 ): Promise<FinalizeObjectiveResult> {
@@ -105,12 +153,18 @@ export async function finalizeObjectiveSessionOnSave(
         const points = await loadObjectiveBriefPoints(input.briefId);
         if (!points || points.length === 0) return { ok: false, stage: 'load-points', reason: 'error', registered };
 
-        const { coverage, signals } = computeObjectiveCoverage(points, input.segments, input.durationSeconds);
+        // Flag off: the keyword matcher, exactly as before. Flag on: the meaning matcher if (and only if) it is
+        // already ready, capped at MEANING_MATCH_TIMEOUT_MS, else the keyword verdict with the reason.
+        const { coverage, signals, engine, engineFallback } = await coverageForFinalize(points, input.segments, input.durationSeconds);
 
         const evidenceCount = await finalizeObjectiveEvidence(started.sessionId, signals);
         if (evidenceCount === null) return { ok: false, stage: 'finalize', reason: 'error', registered };
 
-        return { ok: true, objectiveSessionId: started.sessionId, evidenceCount, coverage, registered };
+        return {
+            ok: true, objectiveSessionId: started.sessionId, evidenceCount, coverage, registered,
+            ...(engine ? { engine } : {}),
+            ...(engineFallback ? { engineFallback } : {}),
+        };
     } catch (err) {
         logger.warn({ err }, '[finalizeObjective] orchestrator threw (non-fatal)');
         // registration state is preserved across the throw — a throw AFTER a successful register still

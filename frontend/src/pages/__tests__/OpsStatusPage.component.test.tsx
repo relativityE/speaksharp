@@ -28,7 +28,7 @@ const htmlResponse = () => ({
   ok: true, headers: new Headers({ 'content-type': 'text/html' }), text: async () => '<!doctype html><html></html>',
 });
 const summaryEndpoint = "https://test.supabase.co/storage/v1/object/public/ops-health/ops-health.summary.json";
-const view = () => render(<OpsStatusPage summaryEndpoint={summaryEndpoint} />, { route: '/admin/ops-status', path: '/admin/ops-status' });
+const view = () => render(<OpsStatusPage summaryEndpoint={summaryEndpoint} liveModelEndpoint={null} />, { route: '/admin/ops-status', path: '/admin/ops-status' });
 function service(name: string): HTMLTableRowElement {
   const row = screen.getByText(name, { exact: true }).closest('tr');
   if (!row) throw Error('Service row not rendered: ' + name);
@@ -176,7 +176,7 @@ describe('OpsStatusPage', () => {
     const row = service('AI Service -- LLM');
     expect(status(row)).toHaveTextContent('Review or not checked');
     fireEvent.click(toggle(row));
-    expect(within(panel(row)).getByText('Deployed coaching is waiting before sending new provider requests.')).toBeVisible();
+    expect(within(panel(row)).getByText('The historical report recorded a coaching provider wait.')).toBeVisible();
   });
 
   it('uses the winning ID and not a mismatched old typed model version', async () => {
@@ -333,4 +333,25 @@ describe('OpsStatusPage', () => {
     expect(status(service('SpeakSharp'))).not.toHaveTextContent('Working');
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, '/ops-health/ops-health.summary.json', { cache: 'no-store', signal: expect.any(AbortSignal) });
   });
+});
+
+it('reads live selection without testing and checks only on Reload', async () => {
+  const endpoint = '/admin/ops-status/coaching-model';
+  const state = { model: 'gemini-3.5-flash-lite', serving: 'configured', source: 'selection',
+    bootstrapModel: 'gemini-3.6-flash', readiness: 'verified', lastCheckOutcome: 'promoted',
+    lastCheckAt: now, providerVersion: 'gemini-3.5-flash-lite' };
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options) => jsonResponse(url === endpoint
+    ? { state, outcome: options?.method === 'POST' ? 'promoted' : 'not_requested' } : payload) as Response);
+  try {
+    render(<OpsStatusPage summaryEndpoint={summaryEndpoint} liveModelEndpoint={endpoint} />, { route: '/admin/ops-status', path: '/admin/ops-status' });
+    const selected = await screen.findByText('Gemini · Selected model: gemini-3.5-flash-lite');
+    expect(selected).not.toBeVisible();
+    expect(fetchMock.mock.calls.filter(([url]) => url === endpoint).map(([, init]) => init?.method)).toEqual(['GET']);
+    fireEvent.click(toggle(service('AI Service -- LLM')));
+    expect(selected).toBeVisible();
+    expect(screen.getByText('Bootstrap config differs: gemini-3.6-flash (not used for serving).')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Reload report' }));
+    expect(await screen.findByText('Switched to gemini-3.5-flash-lite.')).toBeVisible();
+    expect(fetchMock.mock.calls.filter(([url]) => url === endpoint).map(([, init]) => init?.method)).toEqual(['GET', 'POST']);
+  } finally { fetchMock.mockRestore(); }
 });

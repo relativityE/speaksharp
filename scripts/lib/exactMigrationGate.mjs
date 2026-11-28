@@ -37,6 +37,18 @@ export const COACHING_READINESS_MIGRATION = Object.freeze({
     classification: 'staged',
 });
 
+export const COACHING_CHECKS_MIGRATION = Object.freeze({
+    version: '20261127144500', file: '20261127144500_coaching_model_selection_checks.sql',
+    sha256: '8698f1aee329f0c64b7342f8b72dd0cf5cb0514684ab90f96f634a0f3e43320d', classification: 'staged',
+});
+
+// Focus Points partial coverage: additive and independent of billing and coaching (one optional column + the unguarded
+// finalize body). Like the coaching migrations, it never requires or hides the withheld billing/refund migrations.
+export const FOCUS_PARTIAL_MIGRATION = Object.freeze({
+    version: '20261127210000', file: '20261127210000_objective_evidence_partial_coverage.sql',
+    sha256: 'ebd84ec68178edc8ece0e91cd5040411c10fe91f5de504e371b4891ae077f33c', classification: 'staged',
+});
+
 export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
     Object.freeze({
         version: '20260811143000',
@@ -350,6 +362,8 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     COACHING_READINESS_MIGRATION,
+    COACHING_CHECKS_MIGRATION,
+    FOCUS_PARTIAL_MIGRATION,
     Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
@@ -424,9 +438,13 @@ export function resolveExactMigrationConfig(env = process.env) {
         if (targetIndex < 0) throw new Error('selected migration is not in the checked-in allowlist');
         const target = EXACT_MIGRATION_ALLOWLIST[targetIndex];
         const coachingReadiness = target === COACHING_READINESS_MIGRATION;
+        const coachingChecks = target === COACHING_CHECKS_MIGRATION;
+        const focusPartial = target === FOCUS_PARTIAL_MIGRATION;
         // Coaching is additive and independent of completion billing. Leave that migration
         // in its existing ledger state, and do not hide it if it is already applied.
         const independentBilling = { version: RETIREMENT_WITHHELD_BILLING.version, file: RETIREMENT_WITHHELD_BILLING.file, sha256: RETIREMENT_WITHHELD_BILLING.sha256 };
+        const independentChecks = { version: COACHING_CHECKS_MIGRATION.version, file: COACHING_CHECKS_MIGRATION.file };
+        const independentPartial = { version: FOCUS_PARTIAL_MIGRATION.version, file: FOCUS_PARTIAL_MIGRATION.file };
         const independentReadiness = { version: COACHING_READINESS_MIGRATION.version, file: COACHING_READINESS_MIGRATION.file };
         return {
             targetVersion: target.version,
@@ -437,8 +455,11 @@ export function resolveExactMigrationConfig(env = process.env) {
             requiredAppliedVersions: [
                 APPLIED_WEBHOOK_PREREQUISITE,
                 ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version)
-                    .filter(version => (!coachingReadiness || version !== independentBilling.version)
-                        && version !== independentReadiness.version),
+                    .filter(version => (!(coachingReadiness || coachingChecks || focusPartial) || version !== independentBilling.version)
+                        // Focus partial coverage sits after (and requires) both coaching migrations, matching the T2 ledger order.
+                        && (coachingChecks || focusPartial || version !== independentReadiness.version)
+                        && (focusPartial || version !== independentChecks.version)
+                        && version !== independentPartial.version),
             ],
             excludedMigrations: uniqueExclusions([
                 ...EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
@@ -446,8 +467,8 @@ export function resolveExactMigrationConfig(env = process.env) {
                 ...(target.version === '20261110173548' ? [RETIREMENT_WITHHELD_BILLING] : []),
                 ...(['20261112133000', '20261114100000', '20261114170000', '20261117105700', '20261119120000', '20261119200000'].includes(target.version) ? [RETIREMENT_WITHHELD_BILLING, ABANDONMENT_WITHHELD_REFUND] : []),
                 ...(target.version === RETIREMENT_WITHHELD_BILLING.version ? [ABANDONMENT_WITHHELD_REFUND] : []),
-                ...(coachingReadiness ? [independentBilling, ABANDONMENT_WITHHELD_REFUND] : []),
-                ...(target.classification === 'commercial-activation' ? [independentReadiness] : []),
+                ...(coachingReadiness || coachingChecks || focusPartial ? [independentBilling, ABANDONMENT_WITHHELD_REFUND] : []),
+                ...(target.classification === 'commercial-activation' ? [independentReadiness, independentChecks, independentPartial] : []),
             ]),
             allowlisted: true,
         };
@@ -834,6 +855,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261119120000', targetFile: '20261119120000_repeat_practised_tip' }),
     Object.freeze({ id: 'postflight_20261119200000', targetFile: '20261119200000_deleted_account_save_journal_cleanup_1643' }),
     Object.freeze({ id: 'postflight_20261027192550', targetFile: '20261027192550_account_completion_billing_settlement' }),
+    Object.freeze({ id: 'postflight_20261127144500', targetFile: '20261127144500_coaching_model_selection_checks' }),
+    Object.freeze({ id: 'postflight_20261127210000', targetFile: '20261127210000_objective_evidence_partial_coverage' }),
 ]);
 
 /**

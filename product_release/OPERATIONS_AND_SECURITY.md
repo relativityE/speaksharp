@@ -140,12 +140,30 @@ variable/settings write permission or production authority.
 
 The real production values for the §2.1 `VITE_*` live here (Production scope) plus platform vars, all encrypted at rest in Vercel: the public `VITE_*` set (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, live `VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_SENTRY_DSN`/`VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`), `OPS_STATUS_PASSWORD` (a real secret — gates the Ops status page), and the auto-provided `VERCEL_GIT_COMMIT_SHA`. The Production candidate comparison uses no key: its authorization is one owner-dispatched `rc-gates.yml` GitHub run attempt that mints a one-use nonce (#1432).
 
+Ops Health admin Gemini Reload uses the existing Basic-auth gate and a same-origin POST.
+`OPS_COACHING_CHECK_TOKEN` is a dedicated, random server-only value (at least 32 characters),
+set identically in Vercel Production and the Supabase Edge function secrets. It is not a
+`VITE_*` value, not the Ops password, and not a database service-role key. If unset or
+mismatched, the operation fails closed. Page load reads the selection without a provider
+request. The scheduled Ops report also reads that selection without testing Gemini; only
+a manual Ops workflow dispatch with `gemini_diagnostics` selected runs non-promoting diagnostics.
+
+The service-owned `public.coaching_model_selection` row owns the live model and
+`user_check_interval_seconds` (default 3,600, bounded 60–86,400). That interval and any
+provider-wide retry hint apply only to new user-initiated checks, never to coaching.
+Admin Reload bypasses those two check limits but joins an existing check. The application
+contract supplies a bootstrap default only; it is not a second writer of the live model.
+
+
 ### 2.5 Feature-flag & runtime vars (code-verified)
 
 | Variable | Home | Where read (code) | Default / effect |
 |---|---|---|---|
 | `VITE_NATIVE_PUNCTUATION_RESTORE` | Internal E2E compatibility only | `.../modes/nativePunctuationRestore.ts` | Must not affect the production customer path; Native is not a customer entitlement. |
 | `VITE_PRIVATE_STT_V4_DISABLED` | A/B | `.../transcription/privateV4Flags.ts` | Default off. `'true'` = build-time hard kill of v4 WebGPU, forcing v2-base. Primary v4 control is PostHog flags (`private_stt_v4_enabled`, `_distil_enabled`, `_internal_only`, `_allowlist`), all default off. |
+| `VITE_FOCUS_MEANING_MATCHER_ENABLED` | A/B | `frontend/src/config/focusMeaningMatcher.ts` | Default off. `'true'` = show the Focus Points opt-in for the self-hosted meaning model (`frontend/public/models/nli-deberta-v3-xsmall`, pinned in `services/objective/meaning/meaningAssetPins.json`; downloaded only on the user's explicit opt-in, run on-device in a Web Worker after Stop) and use it for the post-Stop verdict only when already loaded, capped at 3 s, else the keyword verdict. Off/unset = keyword only: no worker, no model fetch, no opt-in UI. Live rail stays keyword-based either way. |
+| `VITE_REPEAT_PACE_COMPARISON_ENABLED` | A/B | `frontend/src/config/repeatPaceComparison.ts` (read by `services/progress/loadRepeatOrigin.ts`) | Default off. Exactly `'true'` adds the Open Mic repeat pace line on a linked repeat's Progress page (one extra owner-scoped read of both takes' evaluations and product markers). Any other value or unset: page and reads unchanged. Client-public, not a secret. |
+| `VITE_CONFIDENCE_CHECK_PILOT_ENABLED` | A/B | `frontend/src/config/confidenceCheckPilot.ts` (read by `SessionOverhaulView.tsx`, `SessionPage.tsx`) | Default off. Exactly `'true'` shows the optional readiness questions of the practice confidence check pilot. Answers stay in page memory for the session only: no server write, no browser storage, no telemetry. Client-public, not a secret. |
 | `VITE_DEV_PREMIUM_ACCESS` | (test-only) | stubbed `'false'` in tests; **no read in `frontend/src`** | Dead/historical — no shipping code consumes it. Pro entitlement is server-driven (`subscription_status==='pro'` AND a real `stripe_subscription_id`); no env dev/owner bypass exists. |
 | `VITE_SENTRY_DSN` | A/B | `frontend/src/main.tsx` | Frontend Sentry DSN; skipped if absent or `example.invalid`. Sentry `environment` = Vite build `MODE` (not a dedicated var). |
 | `SENTRY_DSN` (backend) | C / D | `observability-smoke/index.ts`; `_shared/sentry.ts` | Edge/observability Sentry sender. |

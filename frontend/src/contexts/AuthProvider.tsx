@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ENV } from '../config/TestFlags';
 import logger from '../lib/logger';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { clearConfidencePilot } from '@/services/confidenceCheck/pilotState';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { markIdentitySettled, resetIdentitySettlement } from '@/services/transcription/modelAcquisitionTelemetry';
@@ -300,6 +301,9 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             // clears the whole cache; an identity change through an auth event clears these rows here.
             queryClient.removeQueries({ queryKey: ['session'] });
           }
+          // Confidence check pilot: its answers are page memory for ONE signed-in owner; any sign-out or owner change
+          // (from any route — the session page may not be mounted) drops them.
+          if (priorUserId !== nextUserId && priorUserId !== null) clearConfidencePilot();
           setCurrentLogin(nextUserId, loginStartedAtOf(nextSession));
           resumeReconnectForSignedInOwner(); // J7.c: a reconnect seen before this owner was known settles its leases now
           sessionStateRef.current = nextSession;
@@ -392,6 +396,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       queryClient.clear();
       logger.info('[AuthProvider] QueryClient cache cleared');
       useSessionStore.getState().resetSession();
+      clearConfidencePilot();
       logger.info('[AuthProvider] Zustand session memory purged');
       // J7.c: everything is cleared except the unsettled recording-start records, which only their own account settles.
       clearLocalStorageExceptUnsettledStarts();

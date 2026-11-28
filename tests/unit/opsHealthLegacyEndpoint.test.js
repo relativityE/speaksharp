@@ -16,7 +16,7 @@ const supabaseUrl = 'https://supabase.example.invalid';
 const authUrl = `${supabaseUrl}/auth/v1/settings`;
 const usageUrl = `${supabaseUrl}/functions/v1/check-usage-limit`;
 
-async function runMonitor({ statuses = {}, rejects = [], environment = {} } = {}) {
+async function runMonitor({ statuses = {}, rejects = [], environment = {}, activeModel = null, manualDiagnostics = false } = {}) {
   const requests = [];
   const writes = new Map();
   const unexpected = [];
@@ -44,10 +44,10 @@ async function runMonitor({ statuses = {}, rejects = [], environment = {} } = {}
     summarize, renderMarkdown, renderPublicSummary, exitCodeForRows,
     readDeployedCoachingModel: async ({ serviceKey }) => {
       assert.equal(serviceKey, null);
-      return null;
+      return activeModel;
     },
-    evaluateGeminiGeneration: (key) => evaluateGeminiGeneration(key, { fetchImpl: rejectUnexpectedGemini }),
-    evaluateHighestWorkingGemini: (key) => evaluateHighestWorkingGemini(key, { fetchImpl: rejectUnexpectedGemini }),
+    evaluateGeminiGeneration: (key) => manualDiagnostics ? Promise.resolve({status:'pass', providerModelVersion:'gemini-3.5-flash-lite'}) : evaluateGeminiGeneration(key, { fetchImpl: rejectUnexpectedGemini }),
+    evaluateHighestWorkingGemini: (key) => manualDiagnostics ? Promise.resolve({status:'pass', highestWorkingModel:'gemini-4-hydrogen'}) : evaluateHighestWorkingGemini(key, { fetchImpl: rejectUnexpectedGemini }),
     evaluateGithubRow: async () => { throw new Error('Unexpected GitHub evaluation'); },
     evaluateCanaryActivity: async (_repo, token, generatedAt) => {
       assert.equal(token, '');
@@ -125,4 +125,28 @@ test('an unrelated active App failure still makes the monitor exit nonzero', asy
   assert.equal(supabaseRow(result).status, 'pass');
   assert.equal(result.payload.checks.find(row => row.name === 'App').status, 'fail');
   assert.equal(result.exitCode, 1);
+});
+
+
+test('scheduled collection never touches Gemini even with diagnostic flag and key, but reports the live model', async () => {
+  const result = await runMonitor({ environment: { GITHUB_ACTIONS:'true', GITHUB_EVENT_NAME:'schedule',
+    OPS_HEALTH_GEMINI_DIAGNOSTICS:'true', GEMINI_API_KEY:'synthetic' },
+    activeModel:{model:'gemini-3.5-flash-lite', readiness:'verified'} });
+  assert.deepEqual(result.unexpected, []);
+  assert.ok(!result.requests.some(({ url }) => url.includes('googleapis')));
+  const row = result.payload.checks.find(({name}) => name === 'Gemini generation');
+  assert.equal(row.configuredModelVersion,'gemini-3.5-flash-lite');
+  assert.equal(row.coachingReadiness,'verified');
+  assert.equal(row.detail,'manual_diagnostic_only');
+});
+test('manual diagnostics report possible alternatives without changing the passive selection', async () => {
+  const manual = await runMonitor({ environment: { GITHUB_ACTIONS:'true', GITHUB_EVENT_NAME:'workflow_dispatch',
+    OPS_HEALTH_GEMINI_DIAGNOSTICS:'true', GEMINI_API_KEY:'synthetic' }, manualDiagnostics:true,
+    activeModel:{model:'gemini-3.5-flash-lite', readiness:'verified'} });
+  const list = manual.requests.find(({url}) => url.includes('googleapis'));
+  assert.equal(list.method,'GET');
+  assert.equal(list.headers['x-goog-api-key'],'synthetic');
+  assert.ok(!list.url.includes('synthetic'));
+  assert.equal(manual.payload.checks.find(({name})=>name==='Gemini generation').configuredModelVersion,'gemini-3.5-flash-lite');
+  assert.equal(manual.payload.checks.find(({name})=>name==='Gemini highest working model').highestWorkingModel,'gemini-4-hydrogen');
 });

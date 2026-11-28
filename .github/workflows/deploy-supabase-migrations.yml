@@ -166,7 +166,7 @@ jobs:
             node scripts/t2-migration-postflight.mjs verify account-closure-release
           else
             case "$DEPLOY_EDGE" in
-              true) node scripts/t2-migration-postflight.mjs verify edge-release ;;
+              true) REQUIRE_COACHING_CHECKS=1 node scripts/t2-migration-postflight.mjs verify edge-release ;;
               false) node scripts/t2-migration-postflight.mjs verify release ;;
               *) echo '::error::resolved Edge deployment intent unavailable'; exit 1 ;;
             esac
@@ -236,7 +236,7 @@ jobs:
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
           unset DB_URL
           bash scripts/assert-db-connectivity-tls.sh
-          node scripts/t2-migration-postflight.mjs verify edge-release
+          REQUIRE_COACHING_CHECKS=1 node scripts/t2-migration-postflight.mjs verify edge-release
 
       # Release readback (cutover review): record every reviewed function's deployed version BEFORE publication, so the
       # reconciliation below can show exactly which functions changed even when a later deploy in the list fails.

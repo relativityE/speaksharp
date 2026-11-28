@@ -3,15 +3,15 @@
 import { afterAll, describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, realpathSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, realpathSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVENTORY,
   t2ExpectedCatalog, t2DisabledQuery, assertT2Disabled, t2AdmissionQuery, t2LedgerQuery,
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot,
-  t2KnownAbsentQuery, t2EdgeReleaseContract, coachingReadinessCatalogQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
-import { COACHING_READINESS_MIGRATION, EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
+  t2KnownAbsentQuery, t2EdgeReleaseContract, coachingReadinessCatalogQuery, coachingChecksCatalogQuery, focusPartialCatalogQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
+import { COACHING_CHECKS_MIGRATION, COACHING_READINESS_MIGRATION, EXACT_MIGRATION_ALLOWLIST, FOCUS_PARTIAL_MIGRATION } from '../../scripts/lib/exactMigrationGate.mjs';
 import { ABANDONMENT_CATALOG_DELTA } from '../../scripts/lib/abandonmentCatalogPins.mjs';
 import { FEEDBACK_FENCE_CATALOG_DELTA } from '../../scripts/lib/feedbackFenceCatalogPins.mjs';
 import { PAYMENT_WALL_T2_CATALOG_DELTA, PRACTICE_PRIVACY_T2_CATALOG_DELTA, PENDING_NATIVE_PIN } from '../../scripts/lib/paymentWallPrivacyT2CatalogPins.mjs';
@@ -944,3 +944,57 @@ it('accepts only the exact coaching migration successor and checks its service-o
     expect(await check()).toBe('false');
   } finally { await pg.close(); }
 });
+
+
+it('binds the coaching checks ledger to the v1 predecessor and refuses incorrect catalog grants', async () => {
+  const before = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000',
+    '20261114170000', '20261117105700', '20261119120000', '20261119200000'];
+  const ledger = [...before, COACHING_READINESS_MIGRATION.version, COACHING_CHECKS_MIGRATION.version];
+  const contract = t2EdgeReleaseContract(process.cwd(), ledger);
+  expect(contract.coachingChecks).toBe(true);
+  expect(() => t2EdgeReleaseContract(process.cwd(), [...before, COACHING_CHECKS_MIGRATION.version])).toThrow(/predecessor/);
+  expect(() => assertT2ReleaseSnapshot(contract, [JSON.stringify(ledger), null, null, 'true', null, 'true', 'true', 'false']))
+    .toThrow(/coaching checks catalog/);
+  const pg = new PGlite();
+  try {
+    await pg.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;');
+    const check = async () => (await pg.query(coachingChecksCatalogQuery())).rows[0].ok;
+    for (const { file } of [COACHING_READINESS_MIGRATION, COACHING_CHECKS_MIGRATION]) {
+      await pg.exec(readFileSync(join('backend/supabase/migrations', file), 'utf8'));
+      expect(await check()).toBe(file === COACHING_CHECKS_MIGRATION.file ? 'true' : 'false');
+    }
+    await pg.exec('GRANT EXECUTE ON FUNCTION public.claim_coaching_model_probe_v2(text,boolean) TO authenticated');
+    expect(await check()).toBe('false');
+  } finally { await pg.close(); }
+});
+
+
+it('binds the Focus partial coverage ledger to the coaching-checks predecessor and proves column, constraint and closed ACL', async () => {
+  const before = [...T2_VERSIONS, ...c1Versions, '20261110173548', '20261112133000', '20261114100000',
+    '20261114170000', '20261117105700', '20261119120000', '20261119200000'];
+  const ledger = [...before, COACHING_READINESS_MIGRATION.version, COACHING_CHECKS_MIGRATION.version, FOCUS_PARTIAL_MIGRATION.version];
+  const contract = t2EdgeReleaseContract(process.cwd(), ledger);
+  expect([contract.focusPartial, contract.coachingChecks, contract.readiness ? true : false]).toEqual([true, true, true]);
+  // without its predecessor the ledger is refused, never read as some other profile
+  expect(() => t2EdgeReleaseContract(process.cwd(), [...before, COACHING_READINESS_MIGRATION.version, FOCUS_PARTIAL_MIGRATION.version])).toThrow(/predecessor/);
+  const rows = (last) => [JSON.stringify(ledger), null, null, 'true', null, 'true', 'true', 'true', last];
+  expect(() => assertT2ReleaseSnapshot(contract, rows('false'))).toThrow(/partial coverage catalog/);
+  expect(() => assertT2ReleaseSnapshot(contract, rows('true').slice(0, -1))).toThrow(/incomplete/);
+  // the catalog query itself, over the full checked-in chain: false before, true after, false once the body is exposed
+  const boot = readFileSync('tests/db/trial-read-access-current-chain.integration.test.ts', 'utf8').split('const BOOTSTRAP = `')[1].split('`;')[0];
+  const pg = new PGlite();
+  try {
+    await pg.exec(boot);
+    const files = readdirSync('backend/supabase/migrations').filter(f => /^\d{8,14}_.+\.sql$/.test(f)).sort();
+    const check = async () => (await pg.query(focusPartialCatalogQuery())).rows[0].ok;
+    let beforeTarget = null;
+    for (const file of files) {
+      if (file === FOCUS_PARTIAL_MIGRATION.file) beforeTarget = await check();
+      await pg.exec(readFileSync(join('backend/supabase/migrations', file), 'utf8'));
+    }
+    expect(beforeTarget).toBe('false');
+    expect(await check()).toBe('true');
+    await pg.exec('GRANT EXECUTE ON FUNCTION public.objective_finalize_evidence_v1__unguarded(uuid,jsonb) TO authenticated');
+    expect(await check()).toBe('false');
+  } finally { await pg.close(); }
+}, 240_000);
